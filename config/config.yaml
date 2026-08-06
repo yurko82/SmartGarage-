@@ -1,0 +1,25 @@
+project:
+  name: SmartGarage
+  version: 0.1.0
+
+llm:
+  provider: openrouter
+  model: openrouter/openai/gpt-4.1-mini
+
+local_llm:
+  enabled: false
+  provider: ollama
+  model: gemma3
+
+memory:
+  path: ./memory
+
+logs:
+  path: ./logs
+
+esp32:
+  enabled: true
+
+server:
+  host: 0.0.0.0
+  port: 8000
