@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#070b14">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>Smart Garage — Панель 1-го поверху</title>
+    <link rel="manifest" href="/manifest.json">
+    <link rel="stylesheet" href="/static/css/dashboard.css">
+</head>
+<body>
+    <div class="dashboard-container">
+        <!-- TOP BAR / HEADER -->
+        <header class="top-bar">
+            <div class="brand-section">
+                <div class="brand-logo">⚡</div>
+                <div class="brand-info">
+                    <h1>Smart Garage</h1>
+                    <span class="brand-subtitle">Панель 1-го поверху</span>
+                </div>
+            </div>
+
+            <!-- CLOCK & DATE WIDGET -->
+            <div class="clock-widget">
+                <div class="clock-time" id="clockTime">--:--:--</div>
+                <div class="clock-date" id="clockDate">Завантаження...</div>
+            </div>
+
+            <!-- ACTION TOOLBAR -->
+            <div class="header-actions">
+                <button class="btn-header" id="btnWakeLock" title="Тримати екран увімкненим">
+                    <span>☀️</span>
+                    <span class="btn-label">Екран: Авто</span>
+                </button>
+                <button class="btn-header" id="btnTts" class="active" title="Озвучення відповідей">
+                    <span>🔊</span>
+                    <span class="btn-label">Голос: Увімк</span>
+                </button>
+                <button class="btn-header" id="btnFullscreen" title="Повний екран">
+                    <span>⛶</span>
+                </button>
+                <button class="btn-header" id="btnRefresh" title="Оновити дані">
+                    <span>🔄</span>
+                </button>
+                <a href="/#admin" class="btn-header" title="Закрита адмін-частина" style="text-decoration: none; color: inherit;">
+                    <span>🔒</span>
+                    <span class="btn-label">Адмінка</span>
+                </a>
+            </div>
+        </header>
+
+        <!-- STATUS PILLS ROW -->
+        <div class="status-pills-row">
+            <div class="status-pill">
+                <span class="status-dot online pulse" id="pillServerDot"></span>
+                <span id="pillServerText">Сервер Онлайн</span>
+            </div>
+            <div class="status-pill">
+                <span>🌡️ CPU:</span>
+                <span class="pill-highlight" id="pillCpuTemp">-- °C</span>
+            </div>
+            <div class="status-pill">
+                <span>💾 RAM:</span>
+                <span class="pill-highlight" id="pillRam">-- %</span>
+            </div>
+            <div class="status-pill" id="pillServerBatContainer">
+                <span>🔋 Ноутбук:</span>
+                <span class="pill-highlight" id="pillServerBat">-- %</span>
+            </div>
+            <div class="status-pill">
+                <span id="pillEspStatus">ESP32: Перевірка...</span>
+            </div>
+        </div>
+
+        <!-- MAIN DASHBOARD GRID -->
+        <main class="dashboard-grid">
+            <!-- 1. LIGHTS & POWER TILES -->
+            <section class="card col-6">
+                <div class="card-header">
+                    <div class="card-title">
+                        <span>💡</span> Освітлення та Керування
+                    </div>
+                    <span class="card-badge">Реле ESP32</span>
+                </div>
+
+                <div class="tiles-row">
+                    <!-- Main Light Tile -->
+                    <div class="touch-tile" id="tileLight">
+                        <div class="tile-icon-box">💡</div>
+                        <div>
+                            <div class="tile-label">Головне світло</div>
+                            <div class="tile-status" id="statusLight">Очікує реле</div>
+                        </div>
+                    </div>
+
+                    <!-- Fan / Ventilation Tile -->
+                    <div class="touch-tile" id="tileFan">
+                        <div class="tile-icon-box">💨</div>
+                        <div>
+                            <div class="tile-label">Вентиляція</div>
+                            <div class="tile-status" id="statusFan">Очікує реле</div>
+                        </div>
+                    </div>
+
+                    <!-- Gate / Door Tile -->
+                    <div class="touch-tile" id="tileDoor">
+                        <div class="tile-icon-box">🚪</div>
+                        <div>
+                            <div class="tile-label">Ворота / Двері</div>
+                            <div class="tile-status" id="statusDoor">Очікує реле</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Quick Lighting Actions -->
+                <div class="quick-action-strip">
+                    <button class="btn-pill" id="btnAllLightsOn">
+                        <span>💡</span> Увімкнути все
+                    </button>
+                    <button class="btn-pill" id="btnAllLightsOff">
+                        <span>🌑</span> Вимкнути все
+                    </button>
+                </div>
+            </section>
+
+            <!-- 2. SENSORS & MICROCLIMATE -->
+            <section class="card col-6">
+                <div class="card-header">
+                    <div class="card-title">
+                        <span>📊</span> Мікроклімат і Датчики
+                    </div>
+                    <span class="card-badge">BLE & ESP32</span>
+                </div>
+
+                <!-- 3-Floor Climate Grid -->
+                <div class="floor-climate-grid">
+                    <!-- Floor 1 (This Floor) -->
+                    <div class="floor-card highlight" id="floorCard1">
+                        <div class="floor-card-header">
+                            <span class="floor-card-title">🏠 1-й поверх</span>
+                            <span class="floor-card-badge">Тут</span>
+                        </div>
+                        <div class="floor-metrics-row">
+                            <div class="floor-metric">
+                                <span class="floor-metric-val text-temp" id="valTempFloor1">--</span>
+                                <span class="floor-metric-lbl">Температура (°C)</span>
+                            </div>
+                            <div class="floor-metric" style="text-align: right;">
+                                <span class="floor-metric-val text-hum" id="valHumFloor1">--</span>
+                                <span class="floor-metric-lbl">Вологість (%)</span>
+                            </div>
+                        </div>
+                        <div class="floor-card-footer">
+                            <span id="subFloor1">Очікує BLE-датчик</span>
+                            <span id="batFloor1">--</span>
+                        </div>
+                    </div>
+
+                    <!-- Floor 2 -->
+                    <div class="floor-card" id="floorCard2">
+                        <div class="floor-card-header">
+                            <span class="floor-card-title">🏢 2-й поверх</span>
+                            <span class="floor-card-badge">BLE</span>
+                        </div>
+                        <div class="floor-metrics-row">
+                            <div class="floor-metric">
+                                <span class="floor-metric-val text-temp" id="valTempFloor2">--</span>
+                                <span class="floor-metric-lbl">Температура (°C)</span>
+                            </div>
+                            <div class="floor-metric" style="text-align: right;">
+                                <span class="floor-metric-val text-hum" id="valHumFloor2">--</span>
+                                <span class="floor-metric-lbl">Вологість (%)</span>
+                            </div>
+                        </div>
+                        <div class="floor-card-footer">
+                            <span id="subFloor2">Офлайн</span>
+                            <span id="batFloor2">🔋 99%</span>
+                        </div>
+                    </div>
+
+                    <!-- Basement -->
+                    <div class="floor-card" id="floorCardBasement">
+                        <div class="floor-card-header">
+                            <span class="floor-card-title">⚓ Підвал</span>
+                            <span class="floor-card-badge">Сховище</span>
+                        </div>
+                        <div class="floor-metrics-row">
+                            <div class="floor-metric">
+                                <span class="floor-metric-val text-temp" id="valTempBasement">--</span>
+                                <span class="floor-metric-lbl">Температура (°C)</span>
+                            </div>
+                            <div class="floor-metric" style="text-align: right;">
+                                <span class="floor-metric-val text-hum" id="valHumBasement">--</span>
+                                <span class="floor-metric-lbl">Вологість (%)</span>
+                            </div>
+                        </div>
+                        <div class="floor-card-footer">
+                            <span id="subBasement">Комфортно</span>
+                            <span id="batBasement">🔋 99%</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Secondary Sensors (Gas MQ2 & BLE Network) -->
+                <div class="sensors-grid" style="grid-template-columns: 1fr 1fr;">
+                    <!-- Air Quality / Gas MQ2 -->
+                    <div class="sensor-box">
+                        <div class="sensor-header">
+                            <span class="sensor-icon">🛡️</span>
+                            <span class="sensor-source-tag">Газоаналізатор</span>
+                        </div>
+                        <div class="sensor-value-row">
+                            <span class="sensor-val" id="valAir" style="font-size: 1.05rem; color: var(--text-muted, #94a3b8);">Очікує монтажу</span>
+                        </div>
+                        <div class="sensor-sub" id="subAir" style="color: var(--text-muted, #94a3b8);">MQ2 не підключено</div>
+                    </div>
+
+                    <!-- Primary BLE Status -->
+                    <div class="sensor-box">
+                        <div class="sensor-header">
+                            <span class="sensor-icon">📡</span>
+                            <span class="sensor-source-tag">BLE Клімат</span>
+                        </div>
+                        <div class="sensor-value-row">
+                            <span class="sensor-val text-bat" id="valBleSensorsCount">1 / 2 онлайн</span>
+                        </div>
+                        <div class="sensor-sub" id="subBleSensors">Підвал на зв'язку</div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 3. VOICE ASSISTANT -->
+            <section class="card voice-card col-6">
+                <div class="card-header">
+                    <div class="card-title">
+                        <span>🎙️</span> Голосовий помічник AI
+                    </div>
+                    <span class="card-badge">OpenRouter / GPT</span>
+                </div>
+
+                <div class="voice-interactive-box">
+                    <button class="mic-hero-btn" id="btnMicHero" title="Натисніть і говоріть команду">
+                        <span>🎤</span>
+                    </button>
+                    <div class="voice-status-text" id="voiceStatusText">
+                        Натисніть мікрофон та скажіть команду (наприклад, "увімкни світло", "яка температура")
+                    </div>
+
+                    <div class="voice-dialog-box" id="voiceDialogBox" style="display: none;">
+                        <div class="dialog-row">
+                            <span class="dialog-tag user">Ви:</span>
+                            <span class="dialog-text" id="dialogUserText">...</span>
+                        </div>
+                        <div class="dialog-row">
+                            <span class="dialog-tag">AI:</span>
+                            <span class="dialog-text" id="dialogAiText">...</span>
+                        </div>
+                    </div>
+
+                    <form class="voice-input-form" id="voiceForm">
+                        <input type="text" class="voice-input-field" id="voiceInput" placeholder="Або введіть команду текстом...">
+                        <button type="submit" class="voice-submit-btn">➤</button>
+                    </form>
+                </div>
+            </section>
+
+            <!-- 4. AUTOMATION SCENARIOS -->
+            <section class="card col-6">
+                <div class="card-header">
+                    <div class="card-title">
+                        <span>⚡</span> Швидкі сценарії
+                    </div>
+                    <span class="card-badge">В 1 дотик</span>
+                </div>
+
+                <div class="scenarios-grid">
+                    <button class="scenario-btn" data-scenario="night">
+                        <span class="scenario-icon">🌙</span>
+                        <span class="scenario-title">Добраніч</span>
+                        <span class="scenario-sub">Вимкнути все</span>
+                    </button>
+
+                    <button class="scenario-btn" data-scenario="cinema">
+                        <span class="scenario-icon">🍿</span>
+                        <span class="scenario-title">Кінотеатр</span>
+                        <span class="scenario-sub">Проектор & світло</span>
+                    </button>
+
+                    <button class="scenario-btn" data-scenario="safety">
+                        <span class="scenario-icon">💨</span>
+                        <span class="scenario-title">Провітрювання</span>
+                        <span class="scenario-sub">Витяжка 100%</span>
+                    </button>
+
+                    <button class="scenario-btn" data-scenario="departure">
+                        <span class="scenario-icon">🔒</span>
+                        <span class="scenario-title">Повний Standby</span>
+                        <span class="scenario-sub">Енергозбереження</span>
+                    </button>
+                </div>
+            </section>
+
+            <!-- 5. MEDIA HUB & PROJECTOR REMOTE -->
+            <section class="card col-6">
+                <div class="card-header">
+                    <div class="card-title">
+                        <span>🎬</span> Медіацентр & Проектор HY350MAX
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 6px;">
+                        <span class="status-dot online pulse" id="projOnlineDot"></span>
+                        <span class="card-badge" id="projStatusBadge">Онлайн</span>
+                    </div>
+                </div>
+
+                <!-- Playback Controls -->
+                <div class="media-controls-row">
+                    <button class="btn-media" id="btnProjPause">⏸ Пауза</button>
+                    <button class="btn-media" id="btnProjResume">▶ Продовжити</button>
+                    <button class="btn-media danger" id="btnProjStop">⏹ Зупинити</button>
+                    <button class="btn-media" id="btnProjMirror">🖥️ Екран</button>
+                </div>
+
+                <!-- Online Stream Search -->
+                <form class="media-stream-form" id="mediaStreamForm">
+                    <input type="text" class="media-stream-input" id="mediaStreamInput" placeholder="Пошук на YouTube або URL..." required>
+                    <button type="submit" class="btn-pill" style="max-width: 130px;">
+                        <span>▶ Стрімити</span>
+                    </button>
+                </form>
+
+                <!-- Local Media Chips -->
+                <div>
+                    <div style="font-size: 0.78rem; color: var(--text-muted); margin-bottom: 6px;">
+                        📁 Швидкий запуск із медіатеки:
+                    </div>
+                    <div class="media-chips-container" id="mediaChipsContainer">
+                        <div class="media-chip">Завантаження списку...</div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 6. BLUETOOTH SPEAKER JBL CLIP 5 -->
+            <section class="card col-6">
+                <div class="card-header">
+                    <div class="card-title">
+                        <span>🔊</span> Колонка Юрій: JBL Clip 5
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 6px;">
+                        <span class="status-dot offline" id="jblOnlineDot"></span>
+                        <span class="card-badge" id="jblStatusBadge">Відключено</span>
+                    </div>
+                </div>
+
+                <!-- Connection & State Header -->
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                    <div>
+                        <div style="font-size: 0.9rem; font-weight: 600; color: #fff;" id="jblDeviceName">JBL Clip 5 (A2DP Stereo)</div>
+                        <div style="font-size: 0.75rem; color: var(--text-muted);" id="jblMac">MAC: F8:5C:7E:EE:7D:CC</div>
+                    </div>
+                    <div style="display: flex; gap: 8px;">
+                        <button class="btn-pill" id="btnJblConnect" style="background: rgba(0, 240, 255, 0.15); color: var(--accent-cyan); cursor: pointer;">🔗 З'єднати</button>
+                        <button class="btn-pill" id="btnJblDisconnect" style="background: rgba(255, 0, 85, 0.15); color: var(--accent-pink); cursor: pointer; display: none;">🔌 Відключити</button>
+                    </div>
+                </div>
+
+                <!-- Volume Slider -->
+                <div style="background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-color); border-radius: 10px; padding: 10px 14px; margin-bottom: 12px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                        <span style="font-size: 0.8rem; color: var(--text-muted);">🎚️ Гучність динаміка</span>
+                        <span style="font-size: 0.85rem; font-weight: 700; color: var(--accent-cyan);" id="jblVolumeVal">75%</span>
+                    </div>
+                    <input type="range" min="0" max="100" value="75" class="range-slider" id="jblVolumeSlider" style="width: 100%; accent-color: var(--accent-cyan); cursor: pointer;">
+                </div>
+
+                <!-- Now Playing & Controls -->
+                <div style="margin-bottom: 10px;">
+                    <div style="font-size: 0.78rem; color: var(--text-muted); margin-bottom: 2px;">🎵 Зараз відтворюється:</div>
+                    <div style="font-size: 0.9rem; font-weight: 600; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" id="jblNowPlaying">Немає активного відтворення</div>
+                </div>
+
+                <!-- Playback Buttons -->
+                <div class="media-controls-row" style="margin-bottom: 12px;">
+                    <button class="btn-media" id="btnJblPause">⏸ Пауза</button>
+                    <button class="btn-media" id="btnJblResume">▶ Продовжити</button>
+                    <button class="btn-media danger" id="btnJblStop">⏹ Зупинити</button>
+                </div>
+
+                <!-- Quick Play Form -->
+                <form class="media-stream-form" id="jblPlayForm">
+                    <input type="text" class="media-stream-input" id="jblPlayInput" placeholder="Увімкнути трек на колонці..." required>
+                    <button type="submit" class="btn-pill" style="max-width: 120px; background: rgba(0, 240, 255, 0.2); color: var(--accent-cyan); cursor: pointer;">
+                        <span>▶ Грати</span>
+                    </button>
+                </form>
+            </section>
+
+            <!-- 7. SYSTEM HEALTH & DIAGNOSTICS -->
+            <section class="card col-12">
+                <div class="card-header">
+                    <div class="card-title">
+                        <span>💻</span> Сервер ThinkPad 24/7
+                    </div>
+                    <span class="card-badge">Linux Mint</span>
+                </div>
+
+                <div class="system-stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));">
+                    <div class="stat-item">
+                        <span class="stat-label">Навантаження CPU</span>
+                        <span class="stat-value" id="statCpuLoad">-- %</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Температура CPU</span>
+                        <span class="stat-value" id="statCpuTemp">-- °C</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Пам'ять RAM</span>
+                        <span class="stat-value" id="statRam">-- %</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Батарея ThinkPad</span>
+                        <span class="stat-value" id="statServerBat">-- %</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Час роботи</span>
+                        <span class="stat-value" id="statUptime">--</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Локальний IP</span>
+                        <span class="stat-value" style="font-size: 0.95rem;" id="statLocalIp">--</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Tailscale Mesh IP</span>
+                        <span class="stat-value" style="font-size: 0.95rem;" id="statTailscaleIp">--</span>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <!-- FOOTER WITH MODE SWITCH -->
+        <footer style="text-align: center; margin-top: 10px; color: var(--text-muted); font-size: 0.8rem;">
+            <span>Smart Garage v0.2.0 • </span>
+            <a href="/" style="color: var(--accent-cyan); text-decoration: none; font-weight: 600;">
+                🖥️ Перейти до Повної Консолі AI
+            </a>
+        </footer>
+    </div>
+
+    <script src="/static/js/dashboard.js"></script>
+</body>
+</html>

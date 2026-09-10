@@ -1,0 +1,15 @@
+[Unit]
+Description=Smart Garage Infrastructure Server
+After=network.target network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/yurko/AI/SmartGarage
+Environment="PYTHONPATH=/home/yurko/AI/SmartGarage"
+Environment="PYTHONUNBUFFERED=1"
+ExecStart=/home/yurko/AI/OpenInterpreter/venv/bin/python -m server.webapp
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Garage — AI Control Center</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div class="app-layout">
+        <!-- Sidebar / Navigation & Quick Actions -->
+        <aside class="sidebar">
+            <div class="brand">
+                <div class="brand-icon">⚡</div>
+                <div class="brand-text">
+                    <h2>Smart Garage</h2>
+                    <span class="brand-sub">AI Infrastructure</span>
+                </div>
+            </div>
+
+            <div class="status-card">
+                <div class="status-header">
+                    <span class="status-dot online" id="statusDot"></span>
+                    <span class="status-text" id="statusText">Перевірка зв'язку...</span>
+                </div>
+                <div class="status-details">
+                    <div class="status-row">
+                        <span>Backend:</span>
+                        <span class="badge" id="backendBadge">Flask API</span>
+                    </div>
+                    <div class="status-row">
+                        <span>LLM:</span>
+                        <span class="badge badge-accent">GPT-4.1-mini</span>
+                    </div>
+                    <div class="status-row">
+                        <span>Проектор:</span>
+                        <span class="badge" id="sidebarProjBadge">Пошук...</span>
+                    </div>
+                    <div class="status-row">
+                        <span>Колонка JBL:</span>
+                        <span class="badge" id="sidebarJblBadge">Пошук...</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Hardware Telemetry Widget -->
+            <div class="telemetry-card">
+                <h3>Датчики та пристрої</h3>
+                <div class="telemetry-grid">
+                    <div class="telemetry-item">
+                        <span class="label">🌡️ 1-й пов (Гараж):</span>
+                        <span class="val-badge active hoverable" id="telTemp" title="Час оновлення">-- °C</span>
+                    </div>
+                    <div class="telemetry-item">
+                        <span class="label">🌡️ 2-й поверх:</span>
+                        <span class="val-badge active hoverable" id="telTempFloor2" title="Час оновлення">-- °C</span>
+                    </div>
+                    <div class="telemetry-item">
+                        <span class="label">🌡️ Підвал:</span>
+                        <span class="val-badge active hoverable" id="telTempBasement" title="Час оновлення">-- °C</span>
+                    </div>
+                    <div class="telemetry-item">
+                        <span class="label">💧 Вологість:</span>
+                        <span class="val-badge active" id="telHum">-- %</span>
+                    </div>
+                    <div class="telemetry-item">
+                        <span class="label">🔋 Датчики BLE:</span>
+                        <span class="val-badge" id="telBat">-- %</span>
+                    </div>
+                    <div class="telemetry-item">
+                        <span class="label">🚪 Ворота:</span>
+                        <span class="val-badge" id="telDoor">Очікує датчик</span>
+                    </div>
+                    <div class="telemetry-item">
+                        <span class="label">💡 Світло:</span>
+                        <span class="val-badge" id="telLight">Очікує реле</span>
+                    </div>
+                    <div class="telemetry-item">
+                        <span class="label">🚗 Авто:</span>
+                        <span class="val-badge" id="telCar">Очікує датчик</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="quick-actions">
+                <h3>Керування гаражем</h3>
+                <div class="action-btn-row">
+                    <button class="quick-btn mini-btn" data-cmd="door toggle">
+                        <span class="icon">🚪</span> Ворота
+                    </button>
+                    <button class="quick-btn mini-btn" data-cmd="light toggle">
+                        <span class="icon">💡</span> Світло
+                    </button>
+                </div>
+                <button class="quick-btn" data-cmd="sensors">
+                    <span class="icon">📊</span> Усі датчики
+                </button>
+                <button class="quick-btn" data-cmd="project status">
+                    <span class="icon">📽️</span> Проектор HY350MAX
+                </button>
+                <button class="quick-btn" data-cmd="project screen">
+                    <span class="icon">🖥️</span> Трансляція екрану
+                </button>
+            </div>
+
+            <div class="quick-actions">
+                <h3>Сценарії автоматизації</h3>
+                <div class="action-btn-row">
+                    <button class="quick-btn mini-btn" data-cmd="я приїхав">
+                        <span class="icon">🚗</span> Прибуття
+                    </button>
+                    <button class="quick-btn mini-btn" data-cmd="я поїхав">
+                        <span class="icon">🔒</span> Від'їзд
+                    </button>
+                </div>
+                <div class="action-btn-row">
+                    <button class="quick-btn mini-btn" data-cmd="добраніч">
+                        <span class="icon">🌙</span> Добраніч
+                    </button>
+                    <button class="quick-btn mini-btn" data-cmd="кінотеатр">
+                        <span class="icon">🍿</span> Кінотеатр
+                    </button>
+                </div>
+            </div>
+
+            <div class="sidebar-footer">
+                <button class="btn-secondary" id="clearBtn">
+                    🗑️ Очистити історію
+                </button>
+            </div>
+        </aside>
+
+        <!-- Main Content with Tabs -->
+        <main class="main-content">
+            <header class="main-header">
+                <div class="header-nav">
+                    <button class="tab-btn active" data-tab="consoleTab">
+                        <span>💬</span> Консоль AI
+                    </button>
+                    <button class="tab-btn" data-tab="chartsTab">
+                        <span>📈</span> Графіки та Датчики
+                    </button>
+                    <button class="tab-btn" data-tab="mediaTab">
+                        <span>🎬</span> Медіахаб & Проектор
+                    </button>
+                    <button class="tab-btn" data-tab="adminTab" id="adminTabBtn">
+                        <span>🔒</span> Адмінка
+                    </button>
+                </div>
+                <div class="header-actions">
+                    <a href="/dashboard" class="btn-icon" style="text-decoration: none; color: inherit;" title="Відкрити тач-дашборд 1-го поверху">
+                        <span>📱</span>
+                        <span>Дашборд 1F</span>
+                    </a>
+                    <button id="ttsToggleBtn" class="btn-icon" title="Озвучення відповідей голосом">
+                        <span id="ttsIcon">🔊</span>
+                        <span class="tts-label">Озвучення: Увімк</span>
+                    </button>
+                </div>
+            </header>
+
+            <!-- TAB 1: Console -->
+            <div class="tab-pane active" id="consoleTab">
+                <div class="console-wrapper">
+                    <div id="history" class="history-container">
+                        <div class="entry system-entry">
+                            <div class="entry-meta">
+                                <span class="sender-tag system-tag">Система</span>
+                                <span class="time" id="welcomeTime"></span>
+                            </div>
+                            <div class="entry-bubble">
+                                Ласкаво просимо до Smart Garage! Ви можете вводити команди або говорити голосом (натисніть 🎤).
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="voice-listening-bar" id="voiceListeningBar" style="display: none;">
+                        <div class="sound-wave">
+                            <span></span><span></span><span></span><span></span><span></span>
+                        </div>
+                        <span class="voice-hint" id="voiceHint">Слухаю... Скажіть команду українською або англійською</span>
+                    </div>
+
+                    <div class="loading-indicator" id="loadingIndicator" style="display: none;">
+                        <div class="spinner"></div>
+                        <span>AI обробляє запит...</span>
+                    </div>
+
+                    <form id="commandForm" class="input-form">
+                        <button type="button" id="voiceBtn" class="btn-voice" title="Голосовий ввід (натисніть і говоріть)">
+                            <span class="mic-icon">🎤</span>
+                        </button>
+                        <input 
+                            type="text" 
+                            id="commandInput" 
+                            placeholder="Напишіть або скажіть команду ('відкрий ворота', 'увімкни світло', 'яка температура')..." 
+                            autocomplete="off"
+                            autofocus
+                        >
+                        <button type="submit" id="executeBtn" class="btn-primary">
+                            <span>Надіслати</span>
+                            <span class="send-icon">➤</span>
+                        </button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- TAB 2: Charts & Telemetry -->
+            <div class="tab-pane" id="chartsTab">
+                <div class="charts-wrapper">
+                    <div class="cards-row">
+                        <div class="metric-card">
+                            <div class="metric-icon">🏠</div>
+                            <div class="metric-data">
+                                <span class="metric-title">1-й поверх (Гараж)</span>
+                                <span class="metric-val hoverable" id="chartCardTemp" title="Час оновлення">-- °C</span>
+                                <span class="metric-sub" id="chartCardTempSub">Контролер ESP32</span>
+                            </div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-icon">🏢</div>
+                            <div class="metric-data">
+                                <span class="metric-title">2-й поверх</span>
+                                <span class="metric-val hoverable" id="chartCardTempF2" title="Час оновлення">-- °C</span>
+                                <span class="metric-sub" id="chartCardSubF2">BLE LYWSD03MMC</span>
+                            </div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-icon">⚓</div>
+                            <div class="metric-data">
+                                <span class="metric-title">Підвал</span>
+                                <span class="metric-val hoverable" id="chartCardTempFB" title="Час оновлення">-- °C</span>
+                                <span class="metric-sub" id="chartCardSubFB">BLE LYWSD03MMC</span>
+                            </div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-icon">💧</div>
+                            <div class="metric-data">
+                                <span class="metric-title">Вологість (Гараж)</span>
+                                <span class="metric-val" id="chartCardHum">-- %</span>
+                                <span class="metric-sub" id="chartCardHumSub">Оптимальний рівень</span>
+                            </div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-icon">🚗</div>
+                            <div class="metric-data">
+                                <span class="metric-title">Статус авто</span>
+                                <span class="metric-val text-muted" id="chartCardCar">Очікує монтажу</span>
+                                <span class="metric-sub">УЗ-датчик (не підключено)</span>
+                            </div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-icon">🛡️</div>
+                            <div class="metric-data">
+                                <span class="metric-title">Якість повітря</span>
+                                <span class="metric-val text-muted" id="chartCardAir">Очікує монтажу</span>
+                                <span class="metric-sub">MQ2 Сенсор (не підключено)</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="chart-box">
+                        <div class="chart-header">
+                            <h3>📊 Динаміка температури та вологості (Real-time)</h3>
+                            <button class="btn-sm" id="refreshChartBtn">🔄 Оновити</button>
+                        </div>
+                        <div class="chart-canvas-container">
+                            <canvas id="telemetryChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB 3: Media Hub & Projector & JBL -->
+            <div class="tab-pane" id="mediaTab">
+                <div class="media-wrapper">
+                    <!-- Bluetooth JBL Speaker Control Bar -->
+                    <div class="projector-control-card" style="border-left: 4px solid var(--accent-cyan, #00f0ff); margin-bottom: 16px;">
+                        <div class="proj-info">
+                            <div class="proj-badge" id="jblOnlineBadge">● Колонка Юрій: JBL Clip 5</div>
+                            <span class="proj-ip" id="jblStatusText">Статус: Відключено</span>
+                        </div>
+                        <div class="proj-actions">
+                            <button class="btn-ctrl" id="jblConnectBtn">🔗 Підключити</button>
+                            <button class="btn-ctrl" id="jblPauseBtn">⏸ Пауза</button>
+                            <button class="btn-ctrl" id="jblResumeBtn">▶ Продовжити</button>
+                            <button class="btn-ctrl btn-danger-sm" id="jblStopBtn">⏹ Зупинити</button>
+                        </div>
+                    </div>
+
+                    <!-- Projector Control Bar -->
+                    <div class="projector-control-card">
+                        <div class="proj-info">
+                            <div class="proj-badge" id="projOnlineBadge">● Проектор HY350MAX</div>
+                            <span class="proj-ip" id="projIpText">IP: 10.228.30.59</span>
+                        </div>
+                        <div class="proj-actions">
+                            <button class="btn-ctrl" id="projPauseBtn">⏸ Пауза</button>
+                            <button class="btn-ctrl" id="projResumeBtn">▶ Продовжити</button>
+                            <button class="btn-ctrl btn-danger-sm" id="projStopBtn">⏹ Зупинити</button>
+                            <button class="btn-ctrl" id="projMirrorBtn">🖥️ Трансляція екрану</button>
+                        </div>
+                    </div>
+
+                    <!-- Online Stream Box -->
+                    <div class="stream-box">
+                        <h3>🌐 Онлайн стрімінг (YouTube / Пряме посилання)</h3>
+                        <form id="streamForm" class="stream-form">
+                            <input type="text" id="streamInput" placeholder="Введіть назву відео або посилання на YouTube..." required>
+                            <button type="submit" class="btn-primary">
+                                <span>▶ Стрімити на проектор</span>
+                            </button>
+                        </form>
+                    </div>
+
+                    <!-- Local Media Gallery -->
+                    <div class="media-gallery-section">
+                        <div class="gallery-header">
+                            <h3>📁 Локальна медіатека (директорія <code>media/</code>)</h3>
+                            <button class="btn-sm" id="refreshMediaBtn">🔄 Оновити список</button>
+                        </div>
+                        <div class="media-grid" id="mediaGrid">
+                            <div class="media-placeholder">Завантаження списку файлів...</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB 4: Admin & Presence Management (Protected) -->
+            <div class="tab-pane" id="adminTab">
+                <div class="admin-wrapper">
+                    <!-- PIN Authentication Screen -->
+                    <div id="adminAuthSection" class="admin-auth-card">
+                        <div class="admin-auth-icon">🔒</div>
+                        <h2>Закрита адмін-частина</h2>
+                        <p>Введіть PIN-код адміністратора для доступу до керування присутністю, реєстром приладів та сканером.</p>
+                        <form id="adminPinForm" class="admin-pin-form">
+                            <input type="password" id="adminPinInput" maxlength="10" placeholder="Введіть PIN..." autocomplete="off" required>
+                            <button type="submit" class="btn-primary" id="btnAdminLogin">
+                                <span>Увійти</span>
+                                <span>🔓</span>
+                            </button>
+                        </form>
+                        <div id="adminPinError" class="admin-pin-error" style="display: none;">Невірний PIN-код! Спробуйте ще раз.</div>
+                    </div>
+
+                    <!-- Protected Admin Content -->
+                    <div id="adminContentSection" style="display: none;">
+                        <div class="admin-top-bar">
+                            <div class="admin-top-info">
+                                <span class="badge badge-accent">🔐 Авторизовано як Адміністратор</span>
+                                <span class="admin-top-sub">Керування присутністю, гостями та радіоефіром</span>
+                            </div>
+                            <button class="btn-secondary btn-sm" id="adminLogoutBtn">
+                                <span>🔒</span> Вийти з адмінки
+                            </button>
+                        </div>
+
+                        <!-- 1. LIVE PRESENCE CARDS -->
+                        <div class="admin-section">
+                            <div class="admin-section-header">
+                                <h3>👥 Поточна присутність біля гаража</h3>
+                                <button class="btn-sm" id="btnRefreshPresence">🔄 Оновити статус</button>
+                            </div>
+                            <div class="presence-cards-grid" id="presenceCardsGrid">
+                                <div class="admin-placeholder">Завантаження даних присутності...</div>
+                            </div>
+                        </div>
+
+                        <!-- 2. ESP32 BLE SCANNER -->
+                        <div class="admin-section">
+                            <div class="admin-section-header">
+                                <h3>📡 Апаратне сканування ефіру (ESP32)</h3>
+                                <div class="scan-controls-group">
+                                    <select id="scanDurationSelect" class="admin-select">
+                                        <option value="10">10 секунд</option>
+                                        <option value="15" selected>15 секунд (рекомендовано)</option>
+                                        <option value="25">25 секунд (максимальне)</option>
+                                    </select>
+                                    <button class="btn-primary btn-sm" id="btnTriggerEspScan">
+                                        <span>⚡ Сканувати ефір</span>
+                                    </button>
+                                </div>
+                            </div>
+                            <p class="admin-hint">ESP32 сканує BLE-ефір з 99% робочим циклом і виявляє телефони, годинники та мітки навколо гаража.</p>
+                            <div id="scanStatusIndicator" class="scan-status-indicator" style="display: none;">
+                                <div class="spinner"></div>
+                                <span id="scanStatusMsg">ESP32 сканує ефір... Будь ласка, зачекайте</span>
+                            </div>
+                            <div class="admin-table-container">
+                                <table class="admin-table" id="scanResultsTable">
+                                    <thead>
+                                        <tr>
+                                            <th>MAC / RPA</th>
+                                            <th>Назва пристрою</th>
+                                            <th>Сигнал (RSSI)</th>
+                                            <th>Дія</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="scanResultsBody">
+                                        <tr>
+                                            <td colspan="4" class="text-muted">Натисніть «⚡ Сканувати ефір», щоб запустити пошук пристроїв поруч</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <!-- 3. ADD GUEST / DEVICE FORM -->
+                        <div class="admin-section">
+                            <div class="admin-section-header">
+                                <h3>➕ Додати гостя або новий пристрій</h3>
+                            </div>
+                            <form id="addDeviceForm" class="admin-form-grid">
+                                <div class="form-group">
+                                    <label>Ім'я особи / власника:</label>
+                                    <input type="text" id="devName" placeholder="напр., Оксана (Дружина), Андрій (Друг)" required>
+                                </div>
+                                <div class="form-group">
+                                    <label>Роль:</label>
+                                    <select id="devRole" class="admin-select">
+                                        <option value="guest" selected>Гість (Guest)</option>
+                                        <option value="family">Сім'я (Family)</option>
+                                        <option value="owner">Власник (Owner)</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label>Тип приладу:</label>
+                                    <select id="devType" class="admin-select">
+                                        <option value="phone" selected>Смартфон (Phone)</option>
+                                        <option value="watch">Смарт-годинник (Watch)</option>
+                                        <option value="car">Автомобіль (Car)</option>
+                                        <option value="tag">BLE-мітка / Брелок</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label>Модель / назва девайса:</label>
+                                    <input type="text" id="devModel" placeholder="напр., iPhone 15, Galaxy S24, Mi Band">
+                                </div>
+                                <div class="form-group">
+                                    <label>Classic BT MAC (апаратний, постійний):</label>
+                                    <input type="text" id="devClassicMac" placeholder="напр., AA:BB:CC:11:22:33">
+                                </div>
+                                <div class="form-group">
+                                    <label>BLE MAC / RPA (зі сканера):</label>
+                                    <input type="text" id="devBleMac" placeholder="напр., 62:FD:D0:F6:F2:CF">
+                                </div>
+                                <div class="form-group full-width">
+                                    <button type="submit" class="btn-primary" id="btnSaveDevice">
+                                        <span>💾 Зберегти в базі присутності</span>
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+
+                        <!-- 4. REGISTERED DEVICES REGISTRY -->
+                        <div class="admin-section">
+                            <div class="admin-section-header">
+                                <h3>📋 Реєстр відомих пристроїв та гостей</h3>
+                            </div>
+                            <div class="admin-table-container">
+                                <table class="admin-table" id="devicesTable">
+                                    <thead>
+                                        <tr>
+                                            <th>Ім'я / Власник</th>
+                                            <th>Роль</th>
+                                            <th>Пристрій</th>
+                                            <th>Ідентифікатор / MAC</th>
+                                            <th>Статус</th>
+                                            <th>Дія</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="devicesTableBody">
+                                        <tr><td colspan="6">Завантаження списку...</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <!-- 5. VISITOR LOG -->
+                        <div class="admin-section">
+                            <div class="admin-section-header">
+                                <h3>📜 Журнал відвідувань (Access Log)</h3>
+                                <button class="btn-sm" id="btnRefreshLog">🔄 Оновити журнал</button>
+                            </div>
+                            <div class="admin-table-container">
+                                <table class="admin-table" id="logTable">
+                                    <thead>
+                                        <tr>
+                                            <th>Час</th>
+                                            <th>Подія</th>
+                                            <th>Особа</th>
+                                            <th>Пристрій</th>
+                                            <th>Дистанція / Сигнал</th>
+                                            <th>Джерело</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="logTableBody">
+                                        <tr><td colspan="6">Завантаження журналу...</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script src="/static/js/app.js"></script>
+</body>
+</html>
+
+

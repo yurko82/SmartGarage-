@@ -1,0 +1,29 @@
+{
+    "F8:5C:7E:EE:7D:CC": {
+        "name": "JBL Clip 5",
+        "in_garage": true,
+        "alias": "\u0410\u0443\u0434\u0456\u043e\u0441\u0438\u0441\u0442\u0435\u043c\u0430",
+        "type": "speaker"
+    },
+    "A4:C1:38:EC:EC:6C": {
+        "name": "LYWSD03MMC",
+        "in_garage": false,
+        "alias": "2-\u0439 \u043f\u043e\u0432\u0435\u0440\u0445",
+        "floor": "floor2",
+        "type": "temperature_sensor"
+    },
+    "A4:C1:38:CC:CA:49": {
+        "name": "LYWSD03MMC",
+        "in_garage": true,
+        "alias": "\u041f\u0456\u0434\u0432\u0430\u043b",
+        "floor": "basement",
+        "type": "temperature_sensor"
+    },
+    "41:42:62:69:51:9B": {
+        "name": "JX-BT",
+        "in_garage": true,
+        "alias": "\u041c\u0443\u0437\u0438\u043a\u0430 1-\u0439 \u043f\u043e\u0432\u0435\u0440\u0445",
+        "floor": "floor1",
+        "type": "speaker"
+    }
+}

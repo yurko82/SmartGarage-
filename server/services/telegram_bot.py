@@ -1,0 +1,425 @@
+import base64
+import json
+import logging
+import threading
+import time
+from pathlib import Path
+from typing import Optional, Dict, Any
+import requests
+
+logger = logging.getLogger(__name__)
+
+
+class TelegramBot:
+    """Telegram Bot for remote SmartGarage monitoring, notifications, and control."""
+
+    def __init__(self, garage, config_path: Optional[str] = None):
+        self.garage = garage
+        self.config_path = Path(config_path) if config_path else Path(__file__).resolve().parent.parent.parent / "config" / "config.yaml"
+        self._running = False
+        self._thread: Optional[threading.Thread] = None
+        self._last_update_id = 0
+        self._load_config()
+
+    def _load_config(self):
+        from server.config import config
+        tg_cfg = config.get("telegram", {}) if isinstance(config, dict) else {}
+        self.enabled = tg_cfg.get("enabled", True)
+        self.token = tg_cfg.get("bot_token", "").strip()
+        self.admin_chat_id = tg_cfg.get("admin_chat_id")
+        self.admin_pin = str(tg_cfg.get("admin_pin", "7777")).strip()
+        self.notify_presence = tg_cfg.get("notify_presence", True)
+        self.notify_door = tg_cfg.get("notify_door", True)
+        self.api_base = f"https://api.telegram.org/bot{self.token}" if self.token else ""
+
+    def _save_admin_chat_id(self, chat_id: int):
+        self.admin_chat_id = chat_id
+        try:
+            import yaml
+            if self.config_path.exists():
+                with open(self.config_path, "r", encoding="utf-8") as f:
+                    data = yaml.safe_load(f) or {}
+                if "telegram" not in data:
+                    data["telegram"] = {}
+                data["telegram"]["admin_chat_id"] = chat_id
+                with open(self.config_path, "w", encoding="utf-8") as f:
+                    yaml.dump(data, f, allow_unicode=True, sort_keys=False)
+                logger.info(f"Saved Telegram admin_chat_id {chat_id} to config.")
+        except Exception as e:
+            logger.error(f"Failed to save admin_chat_id to config: {e}")
+
+    def start(self):
+        self._load_config()
+        if not self.enabled:
+            logger.info("Telegram Bot is disabled in config.")
+            return
+
+        if not self.token:
+            logger.warning("Telegram Bot token is empty. Bot worker will wait for token in config/config.yaml.")
+            return
+
+        if not self._running:
+            self._running = True
+            self._thread = threading.Thread(target=self._worker_loop, daemon=True, name="TelegramBotWorker")
+            self._thread.start()
+            logger.info("Telegram Bot worker started.")
+
+    def stop(self):
+        self._running = False
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout=2.0)
+        logger.info("Telegram Bot worker stopped.")
+
+    def _worker_loop(self):
+        logger.info("Telegram polling worker initialized.")
+        while self._running:
+            try:
+                if not self.token:
+                    time.sleep(10)
+                    self._load_config()
+                    continue
+
+                updates = self._get_updates(offset=self._last_update_id + 1, timeout=20)
+                if updates and isinstance(updates, list):
+                    for u in updates:
+                        up_id = u.get("update_id")
+                        if up_id:
+                            self._last_update_id = max(self._last_update_id, up_id)
+                        self._process_update(u)
+            except Exception as e:
+                logger.debug(f"Telegram polling exception: {e}")
+                time.sleep(3)
+
+    def _get_updates(self, offset: int = 0, timeout: int = 20) -> list:
+        try:
+            url = f"{self.api_base}/getUpdates"
+            params = {"offset": offset, "timeout": timeout, "allowed_updates": ["message", "callback_query"]}
+            r = requests.get(url, params=params, timeout=timeout + 5)
+            if r.status_code == 200:
+                data = r.json()
+                if data.get("ok"):
+                    return data.get("result", [])
+        except Exception:
+            pass
+        return []
+
+    def send_message(self, chat_id: int, text: str, reply_markup: Optional[dict] = None) -> bool:
+        if not self.token:
+            return False
+        try:
+            url = f"{self.api_base}/sendMessage"
+            payload = {
+                "chat_id": chat_id,
+                "text": text,
+                "parse_mode": "Markdown",
+            }
+            if reply_markup:
+                payload["reply_markup"] = reply_markup
+            r = requests.post(url, json=payload, timeout=6)
+            return r.status_code == 200
+        except Exception as e:
+            logger.error(f"Error sending Telegram message: {e}")
+            return False
+
+    def notify_admin(self, text: str):
+        """Send proactive notification to admin if registered."""
+        if self.admin_chat_id:
+            self.send_message(self.admin_chat_id, text)
+
+    def _get_main_keyboard(self) -> dict:
+        return {
+            "keyboard": [
+                [{"text": "📊 Статус гаража"}, {"text": "🌡️ Клімат"}],
+                [{"text": "👥 Присутність"}, {"text": "🚪 Ворота"}],
+                [{"text": "💡 Світло"}, {"text": "💨 Вентиляція"}]
+            ],
+            "resize_keyboard": True,
+            "one_time_keyboard": False
+        }
+
+    def _process_update(self, update: dict):
+        # 1. Handle Callback Queries (Inline buttons)
+        cb = update.get("callback_query")
+        if cb:
+            self._handle_callback_query(cb)
+            return
+
+        # 2. Handle Messages
+        msg = update.get("message")
+        if not msg:
+            return
+
+        chat_id = msg.get("chat", {}).get("id")
+        user = msg.get("from", {})
+        text = (msg.get("text") or "").strip()
+        voice = msg.get("voice")
+
+        # Authorization check
+        is_admin = (self.admin_chat_id is not None and str(chat_id) == str(self.admin_chat_id))
+
+        # Check PIN authorization
+        if not is_admin:
+            clean_text = text.replace("/start", "").strip()
+            if clean_text == self.admin_pin:
+                self._save_admin_chat_id(chat_id)
+                welcome = (
+                    f"🎉 *Вітаю, {user.get('first_name', 'Власнику')}!*\n\n"
+                    f"✅ Ви успішно авторизувалися як головний адміністратор **Smart Garage**.\n"
+                    f"Тепер ви можете повністю керувати системою, отримувати сповіщення та ставити будь-які запитання."
+                )
+                self.send_message(chat_id, welcome, reply_markup=self._get_main_keyboard())
+                return
+            else:
+                self.send_message(
+                    chat_id,
+                    "🔒 *Доступ обмежено.*\n\nВведіть правильний PIN-код адміністратора (наприклад: `7777`), щоб отримати доступ до керування гаражем."
+                )
+                return
+
+        # Authorized Admin Processing:
+        # Handle Voice message
+        if voice:
+            self._handle_voice_message(chat_id, voice)
+            return
+
+        # Handle Text commands
+        if not text:
+            return
+
+        low = text.lower()
+        if low in ("/start", "/help"):
+            help_text = (
+                "🤖 *Smart Garage AI — Пульт керування*\n\n"
+                "Оберіть кнопку в меню або надішліть будь-яке запитання/голосове повідомлення:\n\n"
+                "• 📊 *Статус гаража* — поточний огляд системи\n"
+                "• 🌡️ *Клімат* — температура й вологість по поверхах\n"
+                "• 👥 *Присутність* — хто зараз біля гаража\n"
+                "• 🚪 *Ворота* — керування воротами\n"
+                "• 💡 *Світло* — вмикання/вимикання світла\n"
+                "• 💨 *Вентиляція* — витяжка"
+            )
+            self.send_message(chat_id, help_text, reply_markup=self._get_main_keyboard())
+
+        elif low in ("📊 статус гаража", "/status", "статус"):
+            self._send_status(chat_id)
+
+        elif low in ("🌡️ клімат", "/temp", "/climate", "клімат", "температура"):
+            self._send_climate(chat_id)
+
+        elif low in ("👥 присутність", "/presence", "присутність", "хто в гаражі", "хто тут"):
+            self._send_presence(chat_id)
+
+        elif low in ("🚪 ворота", "/door", "ворота"):
+            self._send_door_menu(chat_id)
+
+        elif low in ("💡 світло", "/light", "світло"):
+            self._send_light_menu(chat_id)
+
+        elif low in ("💨 вентиляція", "/fan", "вентиляція"):
+            self._send_fan_menu(chat_id)
+
+        else:
+            # Route to Smart Garage AI Router (Fast Gemini 2.5 Flash / Commands)
+            try:
+                res = self.garage.router.execute(text)
+                if not res:
+                    res = "Команду виконано."
+                self.send_message(chat_id, res)
+            except Exception as e:
+                self.send_message(chat_id, f"⚠️ Помилка обробки: {e}")
+
+    def _send_status(self, chat_id: int):
+        try:
+            state = self.garage.esp32.get_telemetry()
+            bt = self.garage.bt_sensors.get_telemetry() if hasattr(self.garage, "bt_sensors") else {}
+            floors = bt.get("floors", {})
+            fb = floors.get("basement", {})
+
+            esp_online = "🟢 Онлайн (USB Serial)" if state.get("online") else "🔴 Офлайн"
+            temp_str = f"{fb.get('temperature', '--')}°C" if fb.get("temperature") is not None else "--"
+            hum_str = f"{fb.get('humidity', '--')}%" if fb.get("humidity") is not None else "--"
+
+            text = (
+                f"📊 *Стан Smart Garage:*\n\n"
+                f"• 📡 *ESP32-S3:* {esp_online}\n"
+                f"• ⚓ *Підвал (LYWSD03MMC):* `{temp_str}` (Вологість: `{hum_str}`, 🔋 `{fb.get('battery', '--')}%`)\n"
+                f"• 🏢 *2-й поверх:* `18.9°C` (Офлайн)\n"
+                f"• 🏠 *1-й поверх:* Очікує датчик\n"
+                f"• 🚪 *Ворота:* Очікує датчик\n"
+                f"• 💡 *Світло:* Очікує реле\n"
+            )
+            self.send_message(chat_id, text)
+        except Exception as e:
+            self.send_message(chat_id, f"Помилка отримання статусу: {e}")
+
+    def _send_climate(self, chat_id: int):
+        try:
+            bt = self.garage.bt_sensors.get_telemetry() if hasattr(self.garage, "bt_sensors") else {}
+            floors = bt.get("floors", {})
+            fb = floors.get("basement", {})
+            f2 = floors.get("floor2", {})
+
+            tb = fb.get("temperature", "--")
+            hb = fb.get("humidity", "--")
+            bb = fb.get("battery", "--")
+
+            t2 = f2.get("temperature", "--")
+            h2 = f2.get("humidity", "--")
+
+            msg = (
+                f"🌡️ *Мікроклімат приміщень:*\n\n"
+                f"⚓ *Підвал (Online):*\n"
+                f"• Температура: `{tb}°C`\n"
+                f"• Вологість: `{hb}%`\n"
+                f"• Заряд батареї: `🔋 {bb}%`\n\n"
+                f"🏢 *2-й поверх (Offline):*\n"
+                f"• Останній вимір: `{t2}°C` (вологість: `{h2}%`)\n\n"
+                f"🏠 *1-й поверх (Гараж):*\n"
+                f"• Очікує встановлення датчика на ESP32"
+            )
+            self.send_message(chat_id, msg)
+        except Exception as e:
+            self.send_message(chat_id, f"Помилка даних клімату: {e}")
+
+    def _send_presence(self, chat_id: int):
+        try:
+            p_status = self.garage.presence.get_status() if hasattr(self.garage, "presence") else {}
+            visitors = p_status.get("visitors_in_garage", [])
+            active = p_status.get("active_devices", [])
+
+            if not active and not visitors:
+                self.send_message(chat_id, "👥 *У гаражі та поруч наразі нікого не виявлено.*")
+                return
+
+            msg = "👥 *Виявлені пристрої та відвідувачі:*\n\n"
+            for d in active:
+                alias = d.get("alias") or d.get("name") or "Невідомий пристрій"
+                owner = f" ({d.get('owner')})" if d.get('owner') else ""
+                zone = d.get("zone", "поруч")
+                rssi = d.get("rssi", "--")
+                msg += f"• 📱 *{alias}{owner}* — зона: `{zone}` (RSSI: `{rssi} dBm`)\n"
+
+            self.send_message(chat_id, msg)
+        except Exception as e:
+            self.send_message(chat_id, f"Помилка перевірки присутності: {e}")
+
+    def _send_door_menu(self, chat_id: int):
+        reply_markup = {
+            "inline_keyboard": [
+                [
+                    {"text": "🟢 Відчинити ворота", "callback_data": "door_open"},
+                    {"text": "🔴 Зачинити ворота", "callback_data": "door_close"}
+                ]
+            ]
+        }
+        self.send_message(chat_id, "🚪 *Керування воротами:* (Очікує фізичного підключення реле)", reply_markup=reply_markup)
+
+    def _send_light_menu(self, chat_id: int):
+        reply_markup = {
+            "inline_keyboard": [
+                [
+                    {"text": "💡 Увімкнути світло", "callback_data": "light_on"},
+                    {"text": "🌑 Вимкнути світло", "callback_data": "light_off"}
+                ]
+            ]
+        }
+        self.send_message(chat_id, "💡 *Керування освітленням:* (Очікує фізичного підключення реле)", reply_markup=reply_markup)
+
+    def _send_fan_menu(self, chat_id: int):
+        reply_markup = {
+            "inline_keyboard": [
+                [
+                    {"text": "💨 Увімкнути вентиляцію", "callback_data": "fan_on"},
+                    {"text": "🛑 Вимкнути вентиляцію", "callback_data": "fan_off"}
+                ]
+            ]
+        }
+        self.send_message(chat_id, "💨 *Керування вентиляцією:* (Очікує фізичного підключення реле)", reply_markup=reply_markup)
+
+    def _handle_callback_query(self, cb: dict):
+        cb_id = cb.get("id")
+        data = cb.get("data")
+        msg = cb.get("message", {})
+        chat_id = msg.get("chat", {}).get("id")
+
+        # Answer callback to remove loading icon
+        try:
+            requests.post(f"{self.api_base}/answerCallbackQuery", json={"callback_query_id": cb_id}, timeout=3)
+        except Exception:
+            pass
+
+        if data == "door_open":
+            self.garage.esp32.door_open()
+            self.send_message(chat_id, "🚪 Надіслано сигнал відкриття воріт (реле).")
+        elif data == "door_close":
+            self.garage.esp32.door_close()
+            self.send_message(chat_id, "🚪 Надіслано сигнал закриття воріт (реле).")
+        elif data == "light_on":
+            self.garage.esp32.light_on()
+            self.send_message(chat_id, "💡 Світло увімкнено.")
+        elif data == "light_off":
+            self.garage.esp32.light_off()
+            self.send_message(chat_id, "🌑 Світло вимкнено.")
+        elif data == "fan_on":
+            self.garage.esp32.fan_on()
+            self.send_message(chat_id, "💨 Вентиляцію увімкнено.")
+        elif data == "fan_off":
+            self.garage.esp32.fan_off()
+            self.send_message(chat_id, "🛑 Вентиляцію вимкнено.")
+
+    def _handle_voice_message(self, chat_id: int, voice: dict):
+        file_id = voice.get("file_id")
+        if not file_id:
+            return
+
+        self.send_message(chat_id, "🎙️ *Слухаю голосове повідомлення...*")
+
+        try:
+            # 1. Get file path from Telegram
+            r = requests.get(f"{self.api_base}/getFile", params={"file_id": file_id}, timeout=5)
+            if r.status_code != 200:
+                self.send_message(chat_id, "⚠️ Не вдалося завантажити голосовий файл.")
+                return
+
+            file_path = r.json().get("result", {}).get("file_path")
+            download_url = f"https://api.telegram.org/file/bot{self.token}/{file_path}"
+            audio_data = requests.get(download_url, timeout=10).content
+
+            # 2. Transcribe via Gemini 2.5 Flash on OpenRouter
+            from server.config import config
+            api_key = config.get("llm", {}).get("api_key")
+            api_base = config.get("llm", {}).get("api_base", "https://openrouter.ai/api/v1")
+            
+            b64_audio = base64.b64encode(audio_data).decode("utf-8")
+            payload = {
+                "model": "google/gemini-2.5-flash",
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": "Розпізнай текст цього короткого голосового повідомлення українською мовою. Поверни ТІЛЬКИ розпізнаний текст без лапок і коментарів."},
+                            {"type": "input_audio", "input_audio": {"data": b64_audio, "format": "ogg"}}
+                        ]
+                    }
+                ],
+                "max_tokens": 100
+            }
+            resp = requests.post(f"{api_base.rstrip('/')}/chat/completions", headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}, json=payload, timeout=12)
+
+            transcript = ""
+            if resp.status_code == 200:
+                transcript = resp.json().get("choices", [{}])[0].get("message", {}).get("content", "").strip()
+
+            if not transcript:
+                self.send_message(chat_id, "⚠️ Не вдалося розпізнати слова в аудіо.")
+                return
+
+            self.send_message(chat_id, f"🗣️ *Ви сказали:* «{transcript}»")
+
+            # Execute command
+            reply = self.garage.router.execute(transcript)
+            self.send_message(chat_id, reply or "Команду виконано.")
+
+        except Exception as e:
+            logger.error(f"Voice message handling error: {e}")
+            self.send_message(chat_id, f"⚠️ Помилка обробки голосового повідомлення: {e}")

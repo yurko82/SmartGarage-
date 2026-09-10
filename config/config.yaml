@@ -1,10 +1,13 @@
 project:
   name: SmartGarage
-  version: 0.1.0
+  version: 0.1.9
 
 llm:
   provider: openrouter
-  model: openrouter/openai/gpt-4.1-mini
+  model: google/gemini-2.5-flash
+  api_base: https://openrouter.ai/api/v1
+  api_key: "" # Вкажіть тут або в .env (OPENROUTER_API_KEY)
+  temperature: 0
 
 local_llm:
   enabled: false
@@ -19,7 +22,34 @@ logs:
 
 esp32:
   enabled: true
+  host: "192.168.100.114"
+  port: 80
 
 server:
   host: 0.0.0.0
   port: 8000
+
+projector:
+  enabled: true
+  name: "HY350MAX"
+  ip: "192.168.100.191"
+  airplay_port: 57000
+  rest_port: 8899
+  dlna_port: 39235
+  dlna_uuid: "86257d31-b925-3e7f-9a41-b9ac6b4e0d1a"
+  primary_protocol: "airplay"
+  auto_discover: true
+
+admin:
+  pin: "7777"
+
+telegram:
+  enabled: true
+  bot_token: "" # Введіть токен від @BotFather
+  admin_chat_id: null # Автоматично прив'язується при надсиланні PIN 7777 боту
+  admin_pin: "7777"
+  notify_presence: true
+  notify_door: true
+
+
+

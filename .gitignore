@@ -5,3 +5,10 @@ __pycache__/
 .env.*
 logs/
 *.log
+*.pid
+*.part
+media/
+*.mp4
+.pio/
+.vscode/
+devices/sensor_cache.json

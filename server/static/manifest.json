@@ -1,0 +1,11 @@
+{
+  "name": "Smart Garage — 1-й Поверх",
+  "short_name": "SmartGarage 1F",
+  "description": "Панель керування 1-м поверхом: світло, датчики, медіа та голосовий асистент",
+  "start_url": "/dashboard",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0b0f19",
+  "theme_color": "#0f172a",
+  "icons": []
+}

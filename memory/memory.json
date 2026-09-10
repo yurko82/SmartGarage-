@@ -1,0 +1,56 @@
+{
+  "policy": "Only report and track physically installed hardware. Never fabricate or assume presence of unverified GPIO sensors until physically connected.",
+  "hardware_inventory": {
+    "esp32": {
+      "model": "ESP32-S3 DevKitC-1",
+      "connection": "USB Serial (/dev/ttyACM0) & Wi-Fi (192.168.100.114)",
+      "active_features": [
+        "BLE air scanning (presence detection)",
+        "Serial & Wi-Fi communication bridge"
+      ],
+      "physically_connected_gpio": []
+    },
+    "climate_sensors": {
+      "type": "Xiaomi Mijia LYWSD03MMC (BLE)",
+      "devices": {
+        "basement": {
+          "mac": "A4:C1:38:CC:CA:49",
+          "name": "Підвал",
+          "status": "active"
+        },
+        "floor2": {
+          "mac": "A4:C1:38:EC:EC:6C",
+          "name": "2-й поверх",
+          "status": "paired_offline"
+        }
+      }
+    },
+    "audio": {
+      "bluetooth_speakers": [
+        {
+          "name": "JBL Clip 5",
+          "mac": "F8:5C:7E:EE:7D:CC",
+          "status": "active"
+        },
+        {
+          "name": "JX-BT",
+          "mac": "41:42:62:69:51:9B",
+          "status": "active"
+        }
+      ]
+    },
+    "video_projector": {
+      "model": "HY350MAX",
+      "ip": "192.168.100.191",
+      "protocols": ["airplay", "dlna", "rest"],
+      "status": "active"
+    },
+    "planned_hardware_to_connect_later": [
+      "Ultrasonic distance sensor HC-SR04 (car presence)",
+      "MQ Gas/Smoke sensor",
+      "PIR motion sensor",
+      "Door reed switch",
+      "Relays for garage door, lighting, and exhaust fan"
+    ]
+  }
+}
