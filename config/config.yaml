@@ -51,5 +51,14 @@ telegram:
   notify_presence: true
   notify_door: true
 
+presence:
+  # Матчинг BLE-пристроїв з ротацією RPA (навушники, браслети без Classic BT).
+  # Вікно часу (сек), протягом якого новий невідомий RPA може бути визнаний
+  # тим самим пристроєм, що і той, який щойно зник.
+  rpa_continuity_window_sec: 90
+  # Максимальна різниця RSSI (dBm) між останнім відомим сигналом і новим,
+  # щоб вважати continuity-евристику застосовною.
+  rpa_continuity_rssi_tolerance: 10
+
 
 

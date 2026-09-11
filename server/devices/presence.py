@@ -17,9 +17,29 @@ class PresenceManager:
     """Manages presence detection, device registry, and visitor access logs.
     Supports tracking owners, family members, and guests via Bluetooth LE (RPA / Service UUIDs)
     and Classic Bluetooth (static MAC addresses).
+
+    BLE-only devices (earbuds, fitness bands) broadcast a Random Private Address (RPA)
+    that rotates roughly every ~15 minutes for privacy, so a raw MAC address alone is not
+    a durable identifier. record_sighting() therefore resolves an incoming sighting to a
+    registered device using multiple tiers, in order:
+
+      1. Static Classic Bluetooth MAC (classic_mac) - reliable, doesn't rotate.
+      2. A MAC already seen and recorded before (recent_ble_rpa).
+      3. Exact advertised device name (device_name), when a device broadcasts one.
+      4. Service UUID overlap (ble_services) - many BLE peripherals advertise a stable
+         custom Service UUID independent of RPA rotation.
+      5. "Continuity" heuristic: an unknown MAC appearing within a short time window of a
+         known device's last sighting, with similar RSSI, is treated as that same device
+         having rotated its RPA. This is a best-effort fallback for devices with no stable
+         Service UUID and no Classic BT support (tuned by presence.rpa_continuity_window_sec
+         and presence.rpa_continuity_rssi_tolerance in config.yaml).
+
+    None of these tiers require pairing/bonding with the device. For fully reliable
+    identification across RPA rotation, resolving the RPA via the device's IRK (after
+    bonding) is the "correct" Bluetooth-native solution but is out of scope here.
     """
 
-    def __init__(self, data_dir: Optional[Path] = None, logger=None):
+    def __init__(self, data_dir: Optional[Path] = None, logger=None, presence_config: Optional[Dict[str, Any]] = None):
         self.logger = logger or Logger()
         base_dir = data_dir or (Path(__file__).resolve().parent.parent.parent / "devices")
         self.devices_path = base_dir / "presence_devices.json"
@@ -32,6 +52,11 @@ class PresenceManager:
         # Away timeout in seconds (15 minutes of inactivity before marking as away)
         self.away_timeout = 900
         self._last_active_check = 0.0
+
+        # RPA-continuity matching parameters (see class docstring, tier 5).
+        cfg = presence_config or {}
+        self.rpa_continuity_window_sec = float(cfg.get("rpa_continuity_window_sec", 90))
+        self.rpa_continuity_rssi_tolerance = float(cfg.get("rpa_continuity_rssi_tolerance", 10))
 
         self._running = False
         self._worker_thread: Optional[threading.Thread] = None
@@ -199,6 +224,50 @@ class PresenceManager:
                         matched_device_id = dev_id
                         break
 
+            # 5. Match by Service UUID overlap. Many BLE-only peripherals (earbuds,
+            # fitness bands) keep advertising the same custom Service UUID across RPA
+            # rotations, even though the MAC itself changes every ~15 minutes.
+            match_reason = "mac_or_name"
+            if not matched_device_id and service_uuids:
+                incoming_uuids = {u.lower() for u in service_uuids if u}
+                if incoming_uuids:
+                    for dev_id, dev in self.devices.items():
+                        dev_uuids = {u.lower() for u in dev.get("ble_services", []) if u}
+                        if dev_uuids & incoming_uuids:
+                            matched_device_id = dev_id
+                            match_reason = "service_uuid"
+                            break
+
+            # 6. "Continuity" heuristic fallback: an unrecognized MAC that appears shortly
+            # after a known device went quiet, with a similar RSSI, is most likely that same
+            # device having rotated its RPA. Only applied as a last resort, and only against
+            # devices that were "present" (not devices that have been away a long time), to
+            # avoid falsely reassigning a stranger's device to someone's profile.
+            if not matched_device_id:
+                now_probe = time.time()
+                best_candidate = None
+                best_delta = None
+                for dev_id, dev in self.devices.items():
+                    if dev.get("status") != "present":
+                        continue
+                    last_seen = dev.get("last_seen") or 0
+                    elapsed = now_probe - last_seen
+                    if elapsed < 0 or elapsed > self.rpa_continuity_window_sec:
+                        continue
+                    last_rssi = dev.get("last_rssi")
+                    if last_rssi is None or rssi is None:
+                        continue
+                    rssi_delta = abs(last_rssi - rssi)
+                    if rssi_delta > self.rpa_continuity_rssi_tolerance:
+                        continue
+                    # Prefer the closest RSSI match if multiple devices are candidates.
+                    if best_delta is None or rssi_delta < best_delta:
+                        best_candidate = dev_id
+                        best_delta = rssi_delta
+                if best_candidate:
+                    matched_device_id = best_candidate
+                    match_reason = "rpa_continuity"
+
             if matched_device_id:
                 dev = self.devices[matched_device_id]
                 was_present = (dev.get("status") == "present")
@@ -225,6 +294,18 @@ class PresenceManager:
                         rssi=rssi,
                         source=source,
                         note="Пристрій з'явився в радіусі гаража"
+                    )
+                elif match_reason in ("service_uuid", "rpa_continuity"):
+                    # Not a new arrival, but log a low-noise SIGHTING so RPA rotations
+                    # are traceable in the presence log for debugging/tuning.
+                    self._add_log_entry(
+                        event="SIGHTING",
+                        device_id=matched_device_id,
+                        person_name=dev.get("name", "Невідомий"),
+                        device_name=dev.get("device_name", ""),
+                        rssi=rssi,
+                        source=source,
+                        note=f"RPA ротація розпізнана ({match_reason}): новий MAC {mac_upper}"
                     )
 
                 self._save_devices()

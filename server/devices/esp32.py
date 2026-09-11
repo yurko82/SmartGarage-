@@ -89,7 +89,7 @@ class ESP32Controller:
             except Exception:
                 pass
         elif line.startswith("BLE_DEVICE:"):
-            # format: BLE_DEVICE:mac=...|name=...|rssi=...
+            # format: BLE_DEVICE:mac=...|name=...|rssi=...|uuid=...
             parts = line[len("BLE_DEVICE:"):].split("|")
             info = {}
             for p in parts:
@@ -105,10 +105,12 @@ class ESP32Controller:
                         rssi_val = int(info.get("rssi", -99))
                     except ValueError:
                         rssi_val = -99
+                    uuid = info.get("uuid", "")
                     self._active_scan_devices[mac] = {
                         "mac": mac,
                         "name": info.get("name", ""),
-                        "rssi": rssi_val
+                        "rssi": rssi_val,
+                        "service_uuids": [uuid] if uuid else []
                     }
         elif "[BLE_SCAN] Completed" in line:
             with self._lock:
@@ -121,8 +123,15 @@ class ESP32Controller:
             try:
                 data = json.loads(raw_json)
                 if data.get("type") == "ble_scan":
+                    devices = data.get("devices", [])
+                    # Firmware reports a single "service_uuid" per device; normalize to the
+                    # "service_uuids" list shape expected by presence matching downstream
+                    # (server/devices/presence.py record_sighting, server/webapp.py).
+                    for dev in devices:
+                        uuid = dev.get("service_uuid")
+                        dev["service_uuids"] = [uuid] if uuid else []
                     with self._lock:
-                        self.last_ble_scan_results = data.get("devices", [])
+                        self.last_ble_scan_results = devices
                 with self._lock:
                     if "door" in data:
                         self.state["door"] = data["door"]
