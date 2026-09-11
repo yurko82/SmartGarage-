@@ -1,4 +1,5 @@
 import os
+from server.config import config
 from server.ai.manager import AIManager
 from server.memory.memory import Memory
 from server.logger.logger import Logger
@@ -24,7 +25,7 @@ class SmartGarage:
         self.projector = ProjectorController()
         self.esp32 = ESP32Controller()
         self.speaker = BluetoothSpeakerController(logger=self.logger)
-        self.presence = PresenceManager(logger=self.logger)
+        self.presence = PresenceManager(logger=self.logger, presence_config=config.get("presence", {}))
         self.bt_sensors = BluetoothSensorManager()
         self.telegram = TelegramBot(self)
 

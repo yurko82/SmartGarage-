@@ -108,7 +108,8 @@ class BleScanLogger: public BLEAdvertisedDeviceCallbacks {
     mac.toUpperCase();
     String name = advertisedDevice.haveName() ? advertisedDevice.getName().c_str() : "";
     int rssi = advertisedDevice.getRSSI();
-    Serial.printf("BLE_DEVICE:mac=%s|name=%s|rssi=%d\n", mac.c_str(), name.c_str(), rssi);
+    String uuid = advertisedDevice.haveServiceUUID() ? advertisedDevice.getServiceUUID().toString().c_str() : "";
+    Serial.printf("BLE_DEVICE:mac=%s|name=%s|rssi=%d|uuid=%s\n", mac.c_str(), name.c_str(), rssi, uuid.c_str());
   }
 };
 

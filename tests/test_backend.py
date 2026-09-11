@@ -2,6 +2,7 @@ import os
 os.environ["TESTING"] = "1"
 import unittest
 import tempfile
+import time
 from pathlib import Path
 import json
 
@@ -425,6 +426,174 @@ class TestAutomationEngine(unittest.TestCase):
         success, msg = self.engine.scenario_gas_alarm()
         self.assertTrue(success)
         self.assertTrue(self.esp.state["fan"])
+
+
+class TestPresenceBLEMatching(unittest.TestCase):
+    """Covers RPA-rotation matching for BLE-only devices (earbuds, fitness bands)
+    that don't respond to Classic Bluetooth, via Service UUID and continuity fallback.
+    """
+
+    def setUp(self):
+        from server.devices.presence import PresenceManager
+        self.tmp_dir = tempfile.TemporaryDirectory()
+        # Small window/tolerance for deterministic, fast tests.
+        self.presence = PresenceManager(
+            data_dir=Path(self.tmp_dir.name),
+            logger=DummyLogger(),
+            presence_config={
+                "rpa_continuity_window_sec": 120,
+                "rpa_continuity_rssi_tolerance": 10,
+            }
+        )
+        # Clear the auto-registered owner_phone/owner_watch defaults so tests
+        # only deal with the fixtures they set up explicitly.
+        self.presence.devices = {}
+        self.presence._save_devices()
+
+    def tearDown(self):
+        self.tmp_dir.cleanup()
+
+    def test_service_uuid_match_survives_rpa_rotation(self):
+        """A BLE-only device (e.g. earbuds) keeps its Service UUID across MAC rotation."""
+        self.presence.register_device(
+            device_id="owner_earbuds",
+            name="Юрій (Навушники)",
+            role="owner",
+            device_type="earbuds",
+            ble_services=["3e1d50cd-0000-0000-0000-000000000001"],
+            ble_mac="AA:AA:AA:AA:AA:01"
+        )
+
+        # New, never-before-seen MAC, but same Service UUID as registered.
+        result = self.presence.record_sighting(
+            mac="BB:BB:BB:BB:BB:02",
+            name="",
+            rssi=-55,
+            service_uuids=["3e1d50cd-0000-0000-0000-000000000001"],
+            source="esp32_ble"
+        )
+
+        self.assertIsNotNone(result)
+        self.assertEqual(result["id"], "owner_earbuds")
+        self.assertIn("BB:BB:BB:BB:BB:02", result["recent_ble_rpa"])
+        self.assertEqual(result["status"], "present")
+
+    def test_service_uuid_mismatch_does_not_match(self):
+        """A device advertising an unrelated Service UUID must not be matched."""
+        self.presence.register_device(
+            device_id="owner_earbuds",
+            name="Юрій (Навушники)",
+            role="owner",
+            ble_services=["3e1d50cd-0000-0000-0000-000000000001"],
+            ble_mac="AA:AA:AA:AA:AA:01"
+        )
+
+        result = self.presence.record_sighting(
+            mac="CC:CC:CC:CC:CC:03",
+            name="",
+            rssi=-55,
+            service_uuids=["00000000-1111-2222-3333-444444444444"],
+            source="esp32_ble"
+        )
+
+        self.assertIsNone(result)
+
+    def test_rpa_continuity_heuristic_matches_close_rssi_within_window(self):
+        """An unrecognized MAC appearing shortly after a known device vanished, with
+        similar RSSI and no Service UUID, is matched via the continuity fallback."""
+        self.presence.register_device(
+            device_id="owner_band",
+            name="Юрій (Браслет)",
+            role="owner",
+            device_type="bracelet",
+            ble_mac="AA:AA:AA:AA:AA:11"
+        )
+        # Simulate the device having been seen recently with a given RSSI.
+        with self.presence._lock:
+            self.presence.devices["owner_band"]["status"] = "present"
+            self.presence.devices["owner_band"]["last_rssi"] = -60
+            self.presence.devices["owner_band"]["last_seen"] = time.time() - 5
+
+        result = self.presence.record_sighting(
+            mac="DD:DD:DD:DD:DD:22",
+            name="",
+            rssi=-64,  # within tolerance (10 dBm) of -60
+            service_uuids=[],
+            source="esp32_ble"
+        )
+
+        self.assertIsNotNone(result)
+        self.assertEqual(result["id"], "owner_band")
+        self.assertIn("DD:DD:DD:DD:DD:22", result["recent_ble_rpa"])
+
+    def test_rpa_continuity_heuristic_rejects_outside_window(self):
+        """No continuity match once the device has been silent longer than the window."""
+        self.presence.register_device(
+            device_id="owner_band",
+            name="Юрій (Браслет)",
+            role="owner",
+            ble_mac="AA:AA:AA:AA:AA:11"
+        )
+        with self.presence._lock:
+            self.presence.devices["owner_band"]["status"] = "present"
+            self.presence.devices["owner_band"]["last_rssi"] = -60
+            # Outside the 120s test window.
+            self.presence.devices["owner_band"]["last_seen"] = time.time() - 300
+
+        result = self.presence.record_sighting(
+            mac="EE:EE:EE:EE:EE:33",
+            name="",
+            rssi=-61,
+            service_uuids=[],
+            source="esp32_ble"
+        )
+
+        self.assertIsNone(result)
+
+    def test_rpa_continuity_heuristic_rejects_large_rssi_delta(self):
+        """No continuity match if the RSSI jump is too large to plausibly be the same
+        physical device (more likely a different, unrelated peripheral)."""
+        self.presence.register_device(
+            device_id="owner_band",
+            name="Юрій (Браслет)",
+            role="owner",
+            ble_mac="AA:AA:AA:AA:AA:11"
+        )
+        with self.presence._lock:
+            self.presence.devices["owner_band"]["status"] = "present"
+            self.presence.devices["owner_band"]["last_rssi"] = -50
+            self.presence.devices["owner_band"]["last_seen"] = time.time() - 5
+
+        result = self.presence.record_sighting(
+            mac="FF:FF:FF:FF:FF:44",
+            name="",
+            rssi=-90,  # 40 dBm jump, well outside the 10 dBm tolerance
+            service_uuids=[],
+            source="esp32_ble"
+        )
+
+        self.assertIsNone(result)
+
+    def test_classic_mac_match_still_takes_priority(self):
+        """Existing Classic MAC matching behavior (e.g. owner's phone) is unchanged."""
+        self.presence.register_device(
+            device_id="owner_phone",
+            name="Юрій",
+            role="owner",
+            device_type="phone",
+            classic_mac="B8:7E:39:88:22:9B"
+        )
+
+        result = self.presence.record_sighting(
+            mac="B8:7E:39:88:22:9B",
+            name="",
+            rssi=-47,
+            service_uuids=[],
+            source="bluetooth_classic"
+        )
+
+        self.assertIsNotNone(result)
+        self.assertEqual(result["id"], "owner_phone")
 
 
 if __name__ == "__main__":
