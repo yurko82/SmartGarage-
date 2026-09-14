@@ -17,7 +17,7 @@ def generate_climate_chart(points: List[Dict[str, Any]], stats: Dict[str, Any],
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
         import matplotlib.dates as mdates
-        from datetime import datetime
+        from datetime import datetime, timedelta
 
         # Extract timestamps and values
         dts = []
@@ -76,11 +76,21 @@ def generate_climate_chart(points: List[Dict[str, Any]], stats: Dict[str, Any],
         ax_hum.set_ylim(bottom=max(0, min(hums) - 10) if hums and min(hums) is not None else 0,
                         top=min(100, max(hums) + 10) if hums and max(hums) is not None else 100)
 
-        # Format X Axis Dates
-        if hours > 24:
+        # Set exact X Axis limits matching requested period (24h, 48h, 7d)
+        now_dt = datetime.now()
+        start_dt = now_dt - timedelta(hours=hours)
+        ax_temp.set_xlim(left=start_dt, right=now_dt)
+
+        # Format X Axis Dates and Locators
+        if hours <= 24:
+            ax_temp.xaxis.set_major_locator(mdates.HourLocator(interval=4))
+            ax_temp.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
+        elif hours <= 48:
+            ax_temp.xaxis.set_major_locator(mdates.HourLocator(interval=8))
             ax_temp.xaxis.set_major_formatter(mdates.DateFormatter("%d.%m %H:%M"))
         else:
-            ax_temp.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
+            ax_temp.xaxis.set_major_locator(mdates.DayLocator(interval=1))
+            ax_temp.xaxis.set_major_formatter(mdates.DateFormatter("%d.%m"))
         fig.autofmt_xdate(rotation=25, ha="right")
 
         # Titles and stats banner
@@ -90,7 +100,7 @@ def generate_climate_chart(points: List[Dict[str, Any]], stats: Dict[str, Any],
         cur_h = stats.get("current_hum", "--")
 
         fig.suptitle(f"Smart Garage • Динаміка клімату: {floor_title}", color=title_color, fontsize=13, fontweight="bold", y=0.98)
-        ax_temp.set_title(f"Період: {int(hours)}г | Зараз: {cur_t}°C, {cur_h}% | Мін: {min_t}°C | Макс: {max_t}°C",
+        ax_temp.set_title(f"Масштаб: {int(hours)}г | Точок: {len(valid_temps)} | Зараз: {cur_t}°C, {cur_h}% | Мін: {min_t}°C | Макс: {max_t}°C",
                           color=text_color, fontsize=9.5, pad=10)
 
         # Spines styling

@@ -142,6 +142,38 @@ class TelegramBot:
             logger.debug(f"Error editing Telegram message: {e}")
             return self.send_message(chat_id, text, reply_markup=reply_markup)
 
+    def edit_photo_message(self, chat_id: int, message_id: int, photo_bytes: bytes, caption: Optional[str] = None, reply_markup: Optional[dict] = None) -> bool:
+        """Edit an existing photo message in-place using editMessageMedia."""
+        if not self.token:
+            return False
+        try:
+            url = f"{self.api_base}/editMessageMedia"
+            media_obj = {
+                "type": "photo",
+                "media": "attach://photo_file",
+            }
+            if caption:
+                media_obj["caption"] = caption
+                media_obj["parse_mode"] = "Markdown"
+
+            data = {
+                "chat_id": chat_id,
+                "message_id": message_id,
+                "media": json.dumps(media_obj)
+            }
+            if reply_markup:
+                data["reply_markup"] = json.dumps(reply_markup)
+
+            files = {"photo_file": ("chart.png", photo_bytes, "image/png")}
+            r = requests.post(url, data=data, files=files, timeout=12)
+            if r.status_code == 200:
+                return True
+            logger.debug(f"editMessageMedia returned {r.status_code}: {r.text}")
+            return self.send_photo(chat_id, photo_bytes, caption=caption, reply_markup=reply_markup)
+        except Exception as e:
+            logger.error(f"Error editing photo message: {e}")
+            return self.send_photo(chat_id, photo_bytes, caption=caption, reply_markup=reply_markup)
+
     def send_photo(self, chat_id: int, photo_bytes: bytes, caption: Optional[str] = None, reply_markup: Optional[dict] = None) -> bool:
         if not self.token:
             return False
@@ -162,7 +194,7 @@ class TelegramBot:
             logger.error(f"Error sending Telegram photo: {e}")
             return False
 
-    def send_climate_chart(self, chat_id: int, floor: str = "basement", hours: float = 24.0) -> bool:
+    def send_climate_chart(self, chat_id: int, floor: str = "basement", hours: float = 24.0, message_id: Optional[int] = None) -> bool:
         """Render and send a dual-axis climate history chart with interactive range buttons."""
         try:
             from server.storage.chart_renderer import generate_climate_chart
@@ -228,6 +260,8 @@ class TelegramBot:
                 ]
             }
 
+            if message_id:
+                return self.edit_photo_message(chat_id, message_id, img_bytes, caption=caption, reply_markup=reply_markup)
             return self.send_photo(chat_id, img_bytes, caption=caption, reply_markup=reply_markup)
 
         except Exception as e:
@@ -631,7 +665,7 @@ class TelegramBot:
             if len(parts) == 3:
                 _, c_floor, c_hours = parts
                 try:
-                    self.send_climate_chart(chat_id, floor=c_floor, hours=float(c_hours))
+                    self.send_climate_chart(chat_id, floor=c_floor, hours=float(c_hours), message_id=msg.get("message_id"))
                 except Exception as ec:
                     logger.error(f"Failed handling chart callback: {ec}")
 
