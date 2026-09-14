@@ -703,6 +703,7 @@ class TestAITools(unittest.TestCase):
         self.assertIn("run_scenario", names)
         self.assertIn("speaker_control", names)
         self.assertIn("get_climate_history", names)
+        self.assertIn("show_climate_chart", names)
 
     def test_control_device_door(self):
         res = self.dispatcher.execute("control_device", {"device": "door", "action": "open"})
@@ -727,10 +728,37 @@ class TestAITools(unittest.TestCase):
         self.assertTrue(res["success"])
         self.assertIn("виконано", res["message"])
 
+    def test_show_climate_chart_tool(self):
+        from unittest.mock import MagicMock
+        self.garage.telegram.send_climate_chart = MagicMock(return_value=True)
+        res = self.dispatcher.execute("show_climate_chart", {"floor": "floor1", "hours": 24}, session_id="tg_12345")
+        self.assertTrue(res["success"])
+        self.assertTrue(res["fallback_to_basement"])
+        self.garage.telegram.send_climate_chart.assert_called_once_with(chat_id=12345, floor="basement", hours=24.0)
+
     def test_unknown_tool(self):
         res = self.dispatcher.execute("non_existent_tool", {})
         self.assertFalse(res["success"])
         self.assertIn("Невідомий інструмент", res["error"])
+
+
+class TestChartRenderer(unittest.TestCase):
+
+    def test_generate_climate_chart(self):
+        from server.storage.chart_renderer import generate_climate_chart
+        points = [
+            {"timestamp": time.time() - 3600, "temperature": 18.5, "humidity": 70.0},
+            {"timestamp": time.time(), "temperature": 18.8, "humidity": 71.5},
+        ]
+        stats = {"current_temp": 18.8, "min_temp": 18.5, "max_temp": 18.8, "current_hum": 71.5}
+        chart_bytes = generate_climate_chart(points, stats, floor_title="Підвал", hours=24.0)
+        self.assertIsNotNone(chart_bytes)
+        self.assertTrue(isinstance(chart_bytes, bytes))
+        self.assertTrue(chart_bytes.startswith(b"\x89PNG\r\n\x1a\n"))
+
+    def test_generate_climate_chart_empty(self):
+        from server.storage.chart_renderer import generate_climate_chart
+        self.assertIsNone(generate_climate_chart([], {}))
 
 
 if __name__ == "__main__":

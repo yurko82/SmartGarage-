@@ -115,6 +115,29 @@ GARAGE_TOOLS = [
                 "required": ["floor"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "show_climate_chart",
+            "description": "Згенерувати графік (PNG зображення) динаміки температури та вологості і надіслати в чат користувачу (Telegram). Якщо користувач просить графік для гаража (1-го поверху), де датчик ще очікує встановлення, обирай floor='basement' і поясни, що надіслано графік підвалу.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "floor": {
+                        "type": "string",
+                        "enum": ["basement", "floor2", "floor1"],
+                        "description": "Поверх / приміщення: basement (підвал - активний датчик), floor2 (2-й поверх), floor1 (1-й поверх / гараж)."
+                    },
+                    "hours": {
+                        "type": "integer",
+                        "enum": [24, 48, 168],
+                        "description": "Період часу в годинах: 24 (доба), 48 (2 доби) або 168 (тиждень). За замовчуванням 24."
+                    }
+                },
+                "required": ["floor"]
+            }
+        }
     }
 ]
 
@@ -125,7 +148,7 @@ class ToolDispatcher:
     def __init__(self, garage=None):
         self.garage = garage
 
-    def execute(self, tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+    def execute(self, tool_name: str, arguments: Dict[str, Any], session_id: str = "default") -> Dict[str, Any]:
         """Execute a tool call and return structured result dict."""
         if not self.garage:
             return {"success": False, "error": "SmartGarage instance not bound to ToolDispatcher"}
@@ -188,6 +211,34 @@ class ToolDispatcher:
                         "points_count": len(res.get("points", []))
                     }
                 return {"success": False, "error": "База даних телеметрії недоступна"}
+
+            elif tool_name == "show_climate_chart":
+                floor = arguments.get("floor", "basement")
+                hours = float(arguments.get("hours", 24))
+                chat_id = None
+                if session_id and str(session_id).startswith("tg_"):
+                    try:
+                        chat_id = int(str(session_id).replace("tg_", ""))
+                    except Exception:
+                        pass
+                if not chat_id and hasattr(self.garage, "telegram") and self.garage.telegram.admin_chat_id:
+                    chat_id = self.garage.telegram.admin_chat_id
+
+                fallback = False
+                if floor in ("floor1", "garage", "1"):
+                    floor = "basement"
+                    fallback = True
+
+                if hasattr(self.garage, "telegram") and chat_id:
+                    ok = self.garage.telegram.send_climate_chart(chat_id=chat_id, floor=floor, hours=hours)
+                    return {
+                        "success": ok,
+                        "floor": floor,
+                        "hours": hours,
+                        "fallback_to_basement": fallback,
+                        "message": f"Графік клімату ({floor}, {int(hours)}г) успішно надіслано в Telegram." if ok else "Не вдалося згенерувати або надіслати графік в Telegram"
+                    }
+                return {"success": False, "error": "Telegram чат недоступний для надсилання графіка"}
 
             else:
                 return {"success": False, "error": f"Невідомий інструмент: {tool_name}"}

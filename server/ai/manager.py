@@ -162,7 +162,7 @@ class AIManager:
                                 except Exception:
                                     fn_args = {}
 
-                                result = self.tool_dispatcher.execute(fn_name, fn_args)
+                                result = self.tool_dispatcher.execute(fn_name, fn_args, session_id=session_id)
                                 tool_summaries.append(result.get("message") or result.get("error") or str(result))
                                 messages.append({
                                     "role": "tool",

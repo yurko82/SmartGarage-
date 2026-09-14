@@ -121,6 +121,96 @@ class TelegramBot:
             logger.error(f"Error sending Telegram message: {e}")
             return False
 
+    def send_photo(self, chat_id: int, photo_bytes: bytes, caption: Optional[str] = None, reply_markup: Optional[dict] = None) -> bool:
+        if not self.token:
+            return False
+        try:
+            url = f"{self.api_base}/sendPhoto"
+            data = {"chat_id": chat_id}
+            if caption:
+                data["caption"] = caption
+                data["parse_mode"] = "Markdown"
+            if reply_markup:
+                data["reply_markup"] = json.dumps(reply_markup)
+            files = {
+                "photo": ("climate_chart.png", photo_bytes, "image/png")
+            }
+            r = requests.post(url, data=data, files=files, timeout=12)
+            return r.status_code == 200
+        except Exception as e:
+            logger.error(f"Error sending Telegram photo: {e}")
+            return False
+
+    def send_climate_chart(self, chat_id: int, floor: str = "basement", hours: float = 24.0) -> bool:
+        """Render and send a dual-axis climate history chart with interactive range buttons."""
+        try:
+            from server.storage.chart_renderer import generate_climate_chart
+            if not hasattr(self.garage, "telemetry_db") or not self.garage.telemetry_db:
+                self.send_message(chat_id, "⚠️ База даних телеметрії недоступна для побудови графіка.")
+                return False
+
+            hours_int = int(hours) if hours in (24, 48, 168) else int(hours)
+            query_floor = floor
+            floor_titles = {
+                "basement": "Підвал",
+                "floor2": "2-й поверх",
+                "floor1": "1-й поверх (Гараж)"
+            }
+
+            res = self.garage.telemetry_db.get_history(floor=query_floor, hours=hours, limit=100)
+            points = res.get("points", [])
+            stats = res.get("stats", {})
+
+            fallback = False
+            if (not points or floor == "floor1") and floor != "basement":
+                res_b = self.garage.telemetry_db.get_history(floor="basement", hours=hours, limit=100)
+                if res_b.get("points"):
+                    points = res_b.get("points", [])
+                    stats = res_b.get("stats", {})
+                    query_floor = "basement"
+                    fallback = True
+
+            floor_title = floor_titles.get(query_floor, query_floor)
+            img_bytes = generate_climate_chart(points, stats, floor_title=floor_title, hours=hours)
+            if not img_bytes:
+                self.send_message(chat_id, f"⚠️ Немає збережених кліматичних даних для приміщення '{floor}' за обраний період.")
+                return False
+
+            cur_t = stats.get("current_temp", "--")
+            min_t = stats.get("min_temp", "--")
+            max_t = stats.get("max_temp", "--")
+            cur_h = stats.get("current_hum", "--")
+
+            caption = (
+                f"📈 *Графік клімату: {floor_title}*\n"
+                f"⏱️ Період: *{hours_int} год*\n"
+                f"🌡️ Зараз: `{cur_t}°C` (мін: `{min_t}°C`, макс: `{max_t}°C`)\n"
+                f"💧 Вологість: `{cur_h}%`"
+            )
+            if fallback:
+                caption += "\n\nℹ️ _Датчик у гаражі (1-й поверх) ще очікує підключення, тому відображено активний датчик підвалу._"
+
+            reply_markup = {
+                "inline_keyboard": [
+                    [
+                        {"text": f"{'🔘 ' if hours_int==24 else ''}24 год", "callback_data": f"chart_{query_floor}_24"},
+                        {"text": f"{'🔘 ' if hours_int==48 else ''}48 год", "callback_data": f"chart_{query_floor}_48"},
+                        {"text": f"{'🔘 ' if hours_int==168 else ''}7 днів", "callback_data": f"chart_{query_floor}_168"}
+                    ],
+                    [
+                        {"text": f"{'🔘 ' if query_floor=='basement' else ''}⚓ Підвал", "callback_data": f"chart_basement_{hours_int}"},
+                        {"text": f"{'🔘 ' if query_floor=='floor2' else ''}🏢 2-й поверх", "callback_data": f"chart_floor2_{hours_int}"}
+                    ]
+                ]
+            }
+
+            return self.send_photo(chat_id, img_bytes, caption=caption, reply_markup=reply_markup)
+
+        except Exception as e:
+            logger.error(f"Error in send_climate_chart: {e}")
+            self.send_message(chat_id, f"⚠️ Помилка побудови графіка: {e}")
+            return False
+
     def notify_admin(self, text: str):
         """Send proactive notification to admin if registered."""
         if self.admin_chat_id:
@@ -129,7 +219,7 @@ class TelegramBot:
     def _get_main_keyboard(self) -> dict:
         return {
             "keyboard": [
-                [{"text": "📊 Статус гаража"}, {"text": "🌡️ Клімат"}],
+                [{"text": "📊 Статус гаража"}, {"text": "🌡️ Клімат"}, {"text": "📈 Графік"}],
                 [{"text": "👥 Присутність"}, {"text": "🚪 Ворота"}],
                 [{"text": "💡 Світло"}, {"text": "💨 Вентиляція"}]
             ],
@@ -193,6 +283,7 @@ class TelegramBot:
                 "Оберіть кнопку в меню або надішліть будь-яке запитання/голосове повідомлення:\n\n"
                 "• 📊 *Статус гаража* — поточний огляд системи\n"
                 "• 🌡️ *Клімат* — температура й вологість по поверхах\n"
+                "• 📈 *Графік* — графік зміни температури та вологості\n"
                 "• 👥 *Присутність* — хто зараз біля гаража\n"
                 "• 🚪 *Ворота* — керування воротами\n"
                 "• 💡 *Світло* — вмикання/вимикання світла\n"
@@ -205,6 +296,9 @@ class TelegramBot:
 
         elif low in ("🌡️ клімат", "/temp", "/climate", "клімат", "температура"):
             self._send_climate(chat_id)
+
+        elif low in ("📈 графік", "/chart", "графік", "графік клімату", "графік температур", "покажи графік"):
+            self.send_climate_chart(chat_id, floor="basement", hours=24.0)
 
         elif low in ("👥 присутність", "/presence", "присутність", "хто в гаражі", "хто тут"):
             self._send_presence(chat_id)
@@ -366,6 +460,14 @@ class TelegramBot:
         elif data == "fan_off":
             self.garage.esp32.fan_off()
             self.send_message(chat_id, "🛑 Вентиляцію вимкнено.")
+        elif data and data.startswith("chart_"):
+            parts = data.split("_")
+            if len(parts) == 3:
+                _, c_floor, c_hours = parts
+                try:
+                    self.send_climate_chart(chat_id, floor=c_floor, hours=float(c_hours))
+                except Exception as ec:
+                    logger.error(f"Failed handling chart callback: {ec}")
 
     def _handle_voice_message(self, chat_id: int, voice: dict):
         file_id = voice.get("file_id")
