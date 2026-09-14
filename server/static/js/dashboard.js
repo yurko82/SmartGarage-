@@ -759,7 +759,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 };
 
                 // Floor 1 (Garage - currently waiting for sensor)
-                const hasF1 = f1.temperature !== null && f1.temperature !== undefined;
+                const isOnlineF1 = !!f1.online;
+                const hasF1 = isOnlineF1 && f1.temperature !== null && f1.temperature !== undefined;
                 const t1 = hasF1 ? Number(f1.temperature).toFixed(1) : '--';
                 const h1 = (hasF1 && f1.humidity !== null && f1.humidity !== undefined) ? Number(f1.humidity).toFixed(0) : '--';
                 const tip1 = formatUpdateTime(f1);
@@ -777,11 +778,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (batFloor1) batFloor1.textContent = hasF1 ? `🔋 ${f1.battery || 100}%` : '--';
 
                 // Floor 2 (LYWSD03MMC BLE)
-                const hasF2 = f2.temperature !== null && f2.temperature !== undefined;
+                const isOnlineF2 = !!f2.online;
+                const hasF2 = isOnlineF2 && f2.temperature !== null && f2.temperature !== undefined;
                 const t2 = hasF2 ? Number(f2.temperature).toFixed(1) : '--';
                 const h2 = (hasF2 && f2.humidity !== null && f2.humidity !== undefined) ? Number(f2.humidity).toFixed(0) : '--';
-                const b2 = (f2.battery !== null && f2.battery !== undefined) ? f2.battery : 99;
-                const isOnlineF2 = !!f2.online;
+                const b2 = hasF2 && f2.battery !== null && f2.battery !== undefined ? `🔋 ${f2.battery}%` : '--';
                 const tip2 = formatUpdateTime(f2);
                 if (valTempFloor2) {
                     valTempFloor2.textContent = t2;
@@ -793,14 +794,15 @@ document.addEventListener('DOMContentLoaded', () => {
                     valHumFloor2.textContent = h2;
                     valHumFloor2.title = tip2;
                 }
-                if (subFloor2) subFloor2.textContent = hasF2 ? `${isOnlineF2 ? 'Онлайн' : 'Офлайн'} • ${f2.last_updated_time || '--:--'}` : 'Очікує підключення';
-                if (batFloor2) batFloor2.textContent = hasF2 ? `🔋 ${b2}%` : '--';
+                if (subFloor2) subFloor2.textContent = isOnlineF2 ? `Онлайн • ${f2.last_updated_time || '--:--'}` : 'Офлайн (немає зв\'язку)';
+                if (batFloor2) batFloor2.textContent = b2;
 
                 // Basement (LYWSD03MMC BLE)
-                const hasFB = fb.temperature !== null && fb.temperature !== undefined;
+                const isOnlineFB = !!fb.online;
+                const hasFB = isOnlineFB && fb.temperature !== null && fb.temperature !== undefined;
                 const tb = hasFB ? Number(fb.temperature).toFixed(1) : '--';
                 const hb = (hasFB && fb.humidity !== null && fb.humidity !== undefined) ? Number(fb.humidity).toFixed(0) : '--';
-                const bb = (fb.battery !== null && fb.battery !== undefined) ? fb.battery : 99;
+                const bb = (hasFB && fb.battery !== null && fb.battery !== undefined) ? `🔋 ${fb.battery}%` : '--';
                 const tipB = formatUpdateTime(fb);
                 if (valTempBasement) {
                     valTempBasement.textContent = tb;
@@ -813,7 +815,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     valHumBasement.title = tipB;
                 }
                 if (subBasement) subBasement.textContent = hasFB ? `${getComfort(Number(tb), Number(hb))} • ${fb.last_updated_time || '--:--'}` : 'Очікує даних';
-                if (batBasement) batBasement.textContent = hasFB ? `🔋 ${bb}%` : '--';
+                if (batBasement) batBasement.textContent = bb;
 
                 // BLE sensors summary (Count configured BLE climate sensors)
                 const totalBleSensors = 2; // Basement + Floor 2
@@ -954,6 +956,341 @@ document.addEventListener('DOMContentLoaded', () => {
             loadMediaChips();
         });
     }
+
+    // ==========================================
+    // CLIMATE DYNAMICS MODAL & CHART LOGIC
+    // ==========================================
+    const climateModal = document.getElementById('climateModal');
+    const modalCloseBtn = document.getElementById('modalCloseBtn');
+    const modalRefreshBtn = document.getElementById('modalRefreshBtn');
+    const modalFloorIcon = document.getElementById('modalFloorIcon');
+    const modalFloorTitle = document.getElementById('modalFloorTitle');
+    const modalFloorSubtitle = document.getElementById('modalFloorSubtitle');
+    const modalRangeTabs = document.getElementById('modalRangeTabs');
+    const modalEmptyState = document.getElementById('modalEmptyState');
+    const modalEmptyMsg = document.getElementById('modalEmptyMsg');
+    const modalClimateChartCanvas = document.getElementById('modalClimateChart');
+
+    const statMinTemp = document.getElementById('statMinTemp');
+    const statMaxTemp = document.getElementById('statMaxTemp');
+    const statAvgTemp = document.getElementById('statAvgTemp');
+    const statMinHum = document.getElementById('statMinHum');
+    const statMaxHum = document.getElementById('statMaxHum');
+    const statAvgHum = document.getElementById('statAvgHum');
+
+    const FLOOR_INFO = {
+        floor1: {
+            title: '1-й поверх (Гараж)',
+            subtitle: 'Датчик очікує підключення',
+            icon: '🏠'
+        },
+        floor2: {
+            title: '2-й поверх (Житловий)',
+            subtitle: 'Xiaomi LYWSD03MMC (BLE)',
+            icon: '🏢'
+        },
+        basement: {
+            title: 'Підвал (Сховище)',
+            subtitle: 'Xiaomi LYWSD03MMC (BLE)',
+            icon: '⚓'
+        }
+    };
+
+    let activeModalFloor = 'basement';
+    let activeModalHours = 24;
+    let climateChart = null;
+
+    function openClimateModal(floorKey) {
+        if (!climateModal) return;
+        activeModalFloor = floorKey || 'basement';
+        const info = FLOOR_INFO[activeModalFloor] || {
+            title: activeModalFloor,
+            subtitle: 'Кліматичний датчик',
+            icon: '📊'
+        };
+
+        if (modalFloorIcon) modalFloorIcon.textContent = info.icon;
+        if (modalFloorTitle) modalFloorTitle.textContent = info.title;
+        if (modalFloorSubtitle) modalFloorSubtitle.textContent = info.subtitle;
+
+        climateModal.style.display = 'flex';
+        climateModal.setAttribute('aria-hidden', 'false');
+        requestAnimationFrame(() => {
+            climateModal.classList.add('open');
+        });
+
+        loadClimateHistory();
+    }
+
+    function closeClimateModal() {
+        if (!climateModal) return;
+        climateModal.classList.remove('open');
+        setTimeout(() => {
+            climateModal.style.display = 'none';
+            climateModal.setAttribute('aria-hidden', 'true');
+        }, 220);
+    }
+
+    async function loadClimateHistory() {
+        if (!modalClimateChartCanvas) return;
+
+        if (modalEmptyState) {
+            modalEmptyState.style.display = 'none';
+        }
+
+        try {
+            const resp = await fetch(`/api/telemetry/history?floor=${encodeURIComponent(activeModalFloor)}&hours=${activeModalHours}`);
+            const data = await resp.json();
+
+            if (!data.success || !data.points || data.points.length === 0) {
+                if (modalEmptyState) {
+                    modalEmptyState.style.display = 'flex';
+                    if (modalEmptyMsg) {
+                        modalEmptyMsg.textContent = activeModalFloor === 'floor1'
+                            ? 'Для 1-го поверху фізичний датчик ще не встановлено.'
+                            : 'Накопичення історії замірів триває (заміри фіксуються кожні кілька хвилин)...';
+                    }
+                }
+                updateModalStats(null);
+                if (climateChart) {
+                    climateChart.destroy();
+                    climateChart = null;
+                }
+                return;
+            }
+
+            updateModalStats(data.stats);
+            renderClimateChart(data.points);
+
+        } catch (err) {
+            console.error('Error fetching climate history:', err);
+            if (modalEmptyState) {
+                modalEmptyState.style.display = 'flex';
+                if (modalEmptyMsg) modalEmptyMsg.textContent = 'Не вдалося завантажити дані замірів.';
+            }
+        }
+    }
+
+    function updateModalStats(stats) {
+        if (!stats || stats.min_temp === undefined || stats.min_temp === null) {
+            if (statMinTemp) statMinTemp.textContent = '--';
+            if (statMaxTemp) statMaxTemp.textContent = '--';
+            if (statAvgTemp) statAvgTemp.textContent = '--';
+            if (statMinHum) statMinHum.textContent = '--';
+            if (statMaxHum) statMaxHum.textContent = '--';
+            if (statAvgHum) statAvgHum.textContent = '--';
+            return;
+        }
+
+        if (statMinTemp) statMinTemp.textContent = `${stats.min_temp} °C`;
+        if (statMaxTemp) statMaxTemp.textContent = `${stats.max_temp} °C`;
+        if (statAvgTemp) statAvgTemp.textContent = `${stats.avg_temp} °C`;
+        if (statMinHum) statMinHum.textContent = `${stats.min_hum}%`;
+        if (statMaxHum) statMaxHum.textContent = `${stats.max_hum}%`;
+        if (statAvgHum) statAvgHum.textContent = `${stats.avg_hum}%`;
+    }
+
+    function renderClimateChart(points) {
+        if (typeof Chart === 'undefined') {
+            console.warn('Chart.js is not loaded');
+            return;
+        }
+
+        const labels = points.map(p => {
+            if (activeModalHours > 24 && p.datetime) {
+                return p.datetime.slice(5, 16);
+            }
+            return p.time || '';
+        });
+        const temps = points.map(p => p.temperature);
+        const hums = points.map(p => p.humidity);
+
+        if (climateChart) {
+            climateChart.destroy();
+            climateChart = null;
+        }
+
+        const ctx = modalClimateChartCanvas.getContext('2d');
+        const tempGradient = ctx.createLinearGradient(0, 0, 0, 300);
+        tempGradient.addColorStop(0, 'rgba(56, 189, 248, 0.35)');
+        tempGradient.addColorStop(1, 'rgba(56, 189, 248, 0.0)');
+
+        const humGradient = ctx.createLinearGradient(0, 0, 0, 300);
+        humGradient.addColorStop(0, 'rgba(34, 197, 94, 0.25)');
+        humGradient.addColorStop(1, 'rgba(34, 197, 94, 0.0)');
+
+        climateChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [
+                    {
+                        label: 'Температура (°C)',
+                        data: temps,
+                        borderColor: '#38bdf8',
+                        backgroundColor: tempGradient,
+                        borderWidth: 2.2,
+                        tension: 0.35,
+                        fill: true,
+                        yAxisID: 'yTemp',
+                        pointRadius: points.length > 50 ? 0 : 3,
+                        pointHoverRadius: 6,
+                        pointBackgroundColor: '#38bdf8'
+                    },
+                    {
+                        label: 'Вологість (%)',
+                        data: hums,
+                        borderColor: '#22c55e',
+                        backgroundColor: humGradient,
+                        borderWidth: 2,
+                        borderDash: [4, 4],
+                        tension: 0.35,
+                        fill: false,
+                        yAxisID: 'yHum',
+                        pointRadius: points.length > 50 ? 0 : 3,
+                        pointHoverRadius: 6,
+                        pointBackgroundColor: '#22c55e'
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: {
+                    mode: 'index',
+                    intersect: false,
+                },
+                plugins: {
+                    legend: {
+                        display: true,
+                        position: 'top',
+                        labels: {
+                            color: '#94a3b8',
+                            font: { family: "'Inter', sans-serif", size: 12 },
+                            usePointStyle: true,
+                            boxWidth: 8
+                        }
+                    },
+                    tooltip: {
+                        backgroundColor: 'rgba(15, 23, 42, 0.92)',
+                        titleColor: '#f1f5f9',
+                        bodyColor: '#cbd5e1',
+                        borderColor: 'rgba(56, 189, 248, 0.4)',
+                        borderWidth: 1,
+                        padding: 10,
+                        boxPadding: 4,
+                        usePointStyle: true,
+                        callbacks: {
+                            label: function(context) {
+                                let label = context.dataset.label || '';
+                                if (label) label += ': ';
+                                if (context.parsed.y !== null) {
+                                    label += context.dataset.yAxisID === 'yTemp'
+                                        ? context.parsed.y + ' °C'
+                                        : context.parsed.y + ' %';
+                                }
+                                return label;
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        grid: {
+                            color: 'rgba(255, 255, 255, 0.05)',
+                            drawBorder: false
+                        },
+                        ticks: {
+                            color: '#64748b',
+                            maxRotation: 0,
+                            autoSkip: true,
+                            maxTicksLimit: 8,
+                            font: { size: 11 }
+                        }
+                    },
+                    yTemp: {
+                        type: 'linear',
+                        display: true,
+                        position: 'left',
+                        grid: {
+                            color: 'rgba(255, 255, 255, 0.06)',
+                            drawBorder: false
+                        },
+                        ticks: {
+                            color: '#38bdf8',
+                            callback: v => `${v}°C`,
+                            font: { size: 11 }
+                        }
+                    },
+                    yHum: {
+                        type: 'linear',
+                        display: true,
+                        position: 'right',
+                        grid: {
+                            drawOnChartArea: false,
+                            drawBorder: false
+                        },
+                        ticks: {
+                            color: '#22c55e',
+                            callback: v => `${v}%`,
+                            font: { size: 11 }
+                        },
+                        min: 0,
+                        max: 100
+                    }
+                }
+            }
+        });
+    }
+
+    // Modal Events Binding
+    if (modalCloseBtn) {
+        modalCloseBtn.addEventListener('click', closeClimateModal);
+    }
+    if (climateModal) {
+        climateModal.addEventListener('click', (e) => {
+            if (e.target === climateModal) {
+                closeClimateModal();
+            }
+        });
+    }
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && climateModal && climateModal.classList.contains('open')) {
+            closeClimateModal();
+        }
+    });
+
+    if (modalRefreshBtn) {
+        modalRefreshBtn.addEventListener('click', () => {
+            hapticFeedback();
+            modalRefreshBtn.textContent = '⏳ Оновлення...';
+            loadClimateHistory().finally(() => {
+                setTimeout(() => {
+                    modalRefreshBtn.textContent = '🔄 Оновити';
+                }, 500);
+            });
+        });
+    }
+
+    if (modalRangeTabs) {
+        modalRangeTabs.addEventListener('click', (e) => {
+            const btn = e.target.closest('.range-btn');
+            if (!btn) return;
+            modalRangeTabs.querySelectorAll('.range-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            activeModalHours = parseFloat(btn.dataset.hours) || 24;
+            loadClimateHistory();
+        });
+    }
+
+    // Attach click listeners to floor cards
+    document.querySelectorAll('.floor-card[data-floor]').forEach(card => {
+        card.addEventListener('click', () => {
+            hapticFeedback();
+            const floorKey = card.getAttribute('data-floor');
+            openClimateModal(floorKey);
+        });
+    });
 
     // Initial Load & Regular Polling
     fetchTelemetry();

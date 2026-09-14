@@ -54,8 +54,8 @@ WebServer server(80);
 bool lightState = false;
 bool fanState = false;
 String doorState = "closed";
-float temperature = 21.3;
-float humidity = 63.0;
+float temperature = 0.0;
+float humidity = 0.0;
 int distanceCm = 240;
 bool carPresent = false;
 bool motionDetected = false;
@@ -85,8 +85,8 @@ struct BleFloorSensor {
 };
 
 BleFloorSensor bleSensors[] = {
-  {"A4:C1:38:EC:EC:6C", "2-й поверх", "floor2", 21.3, 63.0, 99, true, 0},
-  {"A4:C1:38:CC:CA:49", "Підвал", "basement", 21.2, 65.0, 99, true, 0}
+  {"A4:C1:38:EC:EC:6C", "2-й поверх", "floor2", 0.0, 0.0, 0, false, 0},
+  {"A4:C1:38:CC:CA:49", "Підвал", "basement", 0.0, 0.0, 0, false, 0}
 };
 const int NUM_BLE_SENSORS = sizeof(bleSensors) / sizeof(bleSensors[0]);
 
@@ -174,16 +174,17 @@ bool readBleSensor(int idx) {
   bool connected = pClient->connect(pAddress);
   if (!connected) {
     Serial.println("[BLE] Connect failed.");
+    s.online = false;
     delete pClient;
     return false;
   }
 
+  bool gotData = false;
   // 1. Temperature & Humidity
   BLERemoteService* pRemoteService = pClient->getService(envServiceUUID);
   if (pRemoteService != nullptr) {
     BLERemoteCharacteristic* pRemoteChar = pRemoteService->getCharacteristic(envCharUUID);
     if (pRemoteChar != nullptr) {
-      bool gotData = false;
       if (pRemoteChar->canRead()) {
         std::string value = pRemoteChar->readValue();
         if (value.length() >= 3) {
@@ -218,6 +219,7 @@ bool readBleSensor(int idx) {
           s.hum = nHum;
           s.online = true;
           s.lastUpdated = millis();
+          gotData = true;
           Serial.printf("[BLE] Notify %s: %.1f C, %.0f %%%\n", s.name, s.temp, s.hum);
         }
       }
@@ -240,12 +242,16 @@ bool readBleSensor(int idx) {
   pClient->disconnect();
   delete pClient;
 
+  if (!gotData) {
+    s.online = false;
+  }
+
   if (idx == 0 && s.online) {
     temperature = s.temp;
     humidity = s.hum;
   }
 
-  return true;
+  return gotData;
 }
 
 void pollAllBleSensors() {
@@ -282,8 +288,13 @@ String buildTelemetryJson() {
   doc["door"] = doorState;
   doc["light"] = lightState;
   doc["fan"] = fanState;
-  doc["temperature"] = temperature;
-  doc["humidity"] = humidity;
+  if (temperature > 0.0) {
+    doc["temperature"] = temperature;
+    doc["humidity"] = humidity;
+  } else {
+    doc["temperature"] = nullptr;
+    doc["humidity"] = nullptr;
+  }
   doc["distance_cm"] = distanceCm;
   doc["car_present"] = carPresent;
   doc["motion_detected"] = motionDetected;
@@ -295,20 +306,27 @@ String buildTelemetryJson() {
   JsonObject f1 = fl["floor1"].to<JsonObject>();
   f1["name"] = "1-й поверх (Гараж)";
   f1["floor"] = "floor1";
-  f1["temperature"] = temperature;
-  f1["humidity"] = humidity;
-  f1["battery"] = 100;
-  f1["online"] = true;
+  f1["temperature"] = nullptr;
+  f1["humidity"] = nullptr;
+  f1["battery"] = nullptr;
+  f1["online"] = false;
 
   for (int i = 0; i < NUM_BLE_SENSORS; i++) {
     JsonObject item = fl[bleSensors[i].floor].to<JsonObject>();
     item["name"] = bleSensors[i].name;
     item["floor"] = bleSensors[i].floor;
-    item["temperature"] = bleSensors[i].temp;
-    item["humidity"] = bleSensors[i].hum;
-    item["battery"] = bleSensors[i].battery;
-    item["online"] = bleSensors[i].online;
     item["mac"] = bleSensors[i].mac;
+    bool is_online = bleSensors[i].online && (bleSensors[i].lastUpdated > 0) && (millis() - bleSensors[i].lastUpdated < 30UL * 60UL * 1000UL);
+    item["online"] = is_online;
+    if (is_online) {
+      item["temperature"] = bleSensors[i].temp;
+      item["humidity"] = bleSensors[i].hum;
+      item["battery"] = bleSensors[i].battery;
+    } else {
+      item["temperature"] = nullptr;
+      item["humidity"] = nullptr;
+      item["battery"] = nullptr;
+    }
   }
 
   String jsonBody;

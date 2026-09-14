@@ -12,6 +12,8 @@ try:
 except ImportError:
     BLEAK_AVAILABLE = False
 
+from server.storage.telemetry_db import TelemetryDB
+
 logger = logging.getLogger(__name__)
 
 CHAR_DATA_NOTIFY = "ebe0ccc1-7a0a-4b0c-8a1a-6ff2997da3a6"
@@ -21,13 +23,14 @@ CHAR_BATTERY = "00002a19-0000-1000-8000-00805f9b34fb"
 class BluetoothSensorManager:
     """Manages Bluetooth LE sensor devices (temperature, humidity, battery, etc.)."""
 
-    def __init__(self, config_path: Optional[str] = None):
+    def __init__(self, config_path: Optional[str] = None, telemetry_db: Optional[TelemetryDB] = None):
         if config_path is None:
             base_dir = Path(__file__).resolve().parent.parent.parent
             self.config_path = base_dir / "devices" / "bluetooth_devices.json"
         else:
             self.config_path = Path(config_path)
 
+        self.telemetry_db = telemetry_db or TelemetryDB()
         self.cache_path = self.config_path.parent / "sensor_cache.json"
         self._lock = threading.Lock()
         self._running = False
@@ -282,6 +285,20 @@ class BluetoothSensorManager:
 
             if updated:
                 self._save_cache()
+                if hasattr(self, "telemetry_db") and self.telemetry_db:
+                    try:
+                        f_k = self.sensors.get(mac, {}).get("floor") or "garage"
+                        name_s = self.sensors.get(mac, {}).get("alias") or self.sensors.get(mac, {}).get("name")
+                        self.telemetry_db.record(
+                            floor=f_k,
+                            temperature=temp_found,
+                            humidity=hum_found,
+                            battery=battery_found,
+                            mac=mac,
+                            sensor_name=name_s
+                        )
+                    except Exception as edb:
+                        logger.debug(f"TelemetryDB recording error for {mac}: {edb}")
 
         except Exception as e:
             logger.debug(f"Exception connecting to sensor {mac}: {e}")
@@ -313,13 +330,14 @@ class BluetoothSensorManager:
                         f_key = "floor2"
 
                 if f_key in floors:
+                    is_online = bool(s.get("online", False))
                     floors[f_key] = {
                         "name": s.get("alias") or floors[f_key]["name"],
                         "floor": f_key,
-                        "temperature": s.get("temperature"),
-                        "humidity": s.get("humidity"),
-                        "battery": s.get("battery"),
-                        "online": s.get("online", False),
+                        "temperature": s.get("temperature") if is_online else None,
+                        "humidity": s.get("humidity") if is_online else None,
+                        "battery": s.get("battery") if is_online else None,
+                        "online": is_online,
                         "mac": s.get("mac"),
                         "last_updated": s.get("last_updated")
                     }

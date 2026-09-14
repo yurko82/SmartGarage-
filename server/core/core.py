@@ -13,6 +13,7 @@ from server.automation.engine import AutomationEngine
 from server.utils.files import FileManager
 from server.services.telegram_bot import TelegramBot
 from server.router.router import CommandRouter
+from server.storage.telemetry_db import TelemetryDB
 
 
 class SmartGarage:
@@ -22,11 +23,12 @@ class SmartGarage:
         self.logger = Logger()
         self.ai = AIManager()
         self.memory = Memory()
+        self.telemetry_db = TelemetryDB()
         self.projector = ProjectorController()
         self.esp32 = ESP32Controller()
         self.speaker = BluetoothSpeakerController(logger=self.logger)
         self.presence = PresenceManager(logger=self.logger, presence_config=config.get("presence", {}))
-        self.bt_sensors = BluetoothSensorManager()
+        self.bt_sensors = BluetoothSensorManager(telemetry_db=self.telemetry_db)
         self.telegram = TelegramBot(self)
 
         # Wire presence arrival notifications to Telegram

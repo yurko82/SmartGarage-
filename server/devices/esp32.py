@@ -34,8 +34,8 @@ class ESP32Controller:
             "door": "closed",         # open | closed | opening | closing
             "light": False,           # True (ON) | False (OFF)
             "fan": False,             # True (ON) | False (OFF)
-            "temperature": 21.5,      # °C
-            "humidity": 48.0,         # %
+            "temperature": None,
+            "humidity": None,
             "car_present": False,
             "distance_cm": 240,       # Distance to obstacle / car
             "motion_detected": False,

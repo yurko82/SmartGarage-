@@ -12,3 +12,6 @@ media/
 .pio/
 .vscode/
 devices/sensor_cache.json
+*.db
+*.db-wal
+*.db-shm

@@ -137,10 +137,10 @@
                 <!-- 3-Floor Climate Grid -->
                 <div class="floor-climate-grid">
                     <!-- Floor 1 (This Floor) -->
-                    <div class="floor-card highlight" id="floorCard1">
+                    <div class="floor-card highlight" id="floorCard1" data-floor="floor1" title="📊 Натисніть для перегляду графіка динаміки">
                         <div class="floor-card-header">
                             <span class="floor-card-title">🏠 1-й поверх</span>
-                            <span class="floor-card-badge">Тут</span>
+                            <span class="floor-card-badge">Тут • 📈</span>
                         </div>
                         <div class="floor-metrics-row">
                             <div class="floor-metric">
@@ -159,10 +159,10 @@
                     </div>
 
                     <!-- Floor 2 -->
-                    <div class="floor-card" id="floorCard2">
+                    <div class="floor-card" id="floorCard2" data-floor="floor2" title="📊 Натисніть для перегляду графіка динаміки">
                         <div class="floor-card-header">
                             <span class="floor-card-title">🏢 2-й поверх</span>
-                            <span class="floor-card-badge">BLE</span>
+                            <span class="floor-card-badge">BLE • 📈</span>
                         </div>
                         <div class="floor-metrics-row">
                             <div class="floor-metric">
@@ -181,10 +181,10 @@
                     </div>
 
                     <!-- Basement -->
-                    <div class="floor-card" id="floorCardBasement">
+                    <div class="floor-card" id="floorCardBasement" data-floor="basement" title="📊 Натисніть для перегляду графіка динаміки">
                         <div class="floor-card-header">
                             <span class="floor-card-title">⚓ Підвал</span>
-                            <span class="floor-card-badge">Сховище</span>
+                            <span class="floor-card-badge">Сховище • 📈</span>
                         </div>
                         <div class="floor-metrics-row">
                             <div class="floor-metric">
@@ -447,6 +447,51 @@
         </footer>
     </div>
 
-    <script src="/static/js/dashboard.js"></script>
+    <!-- CLIMATE DYNAMICS MODAL -->
+    <div id="climateModal" class="modal-overlay" style="display: none;" aria-hidden="true">
+        <div class="modal-card">
+            <div class="modal-header">
+                <div class="modal-title-wrap">
+                    <span class="modal-icon" id="modalFloorIcon">📊</span>
+                    <div>
+                        <h3 id="modalFloorTitle">Динаміка показників</h3>
+                        <span class="modal-subtitle" id="modalFloorSubtitle">Підвал (LYWSD03MMC)</span>
+                    </div>
+                </div>
+                <button type="button" class="modal-close-btn" id="modalCloseBtn" title="Закрити">✕</button>
+            </div>
+
+            <!-- RANGE SELECTOR & STATS BAR -->
+            <div class="modal-controls">
+                <div class="range-tabs" id="modalRangeTabs">
+                    <button class="range-btn active" data-hours="24">24 години</button>
+                    <button class="range-btn" data-hours="48">48 годин</button>
+                    <button class="range-btn" data-hours="168">7 днів</button>
+                </div>
+                <div class="modal-stat-pills" id="modalStatPills">
+                    <span class="pill-stat temp">🌡️ Мін: <b id="statMinTemp">--</b> | Макс: <b id="statMaxTemp">--</b> | Сер: <b id="statAvgTemp">--</b></span>
+                    <span class="pill-stat hum">💧 Мін: <b id="statMinHum">--</b> | Макс: <b id="statMaxHum">--</b> | Сер: <b id="statAvgHum">--</b></span>
+                </div>
+            </div>
+
+            <!-- CHART CONTAINER -->
+            <div class="modal-chart-body">
+                <canvas id="modalClimateChart"></canvas>
+                <div id="modalEmptyState" class="modal-empty-state" style="display: none;">
+                    <span>⏳</span>
+                    <p id="modalEmptyMsg">Накопичення історії замірів для цього датчика триває...</p>
+                </div>
+            </div>
+
+            <!-- MODAL FOOTER -->
+            <div class="modal-footer">
+                <span class="modal-footer-hint">💡 Заміри автоматично фіксуються в локальній базі даних SQLite</span>
+                <button class="btn-modal-action" id="modalRefreshBtn">🔄 Оновити</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/chart.min.js"></script>
+    <script src="/static/js/dashboard.js?v=0.2.1"></script>
 </body>
 </html>

@@ -16,21 +16,6 @@ class TelemetryHistory:
         self.maxlen = maxlen
         self._history = deque(maxlen=maxlen)
         self._lock = threading.Lock()
-        self._seed_initial_data()
-
-    def _seed_initial_data(self):
-        now = time.time()
-        for i in range(15, 0, -1):
-            t = now - (i * 120)  # 2-minute steps
-            self._history.append({
-                "timestamp": t,
-                "time": time.strftime("%H:%M", time.localtime(t)),
-                "temperature": round(21.5 + (0.4 * ((i % 5) - 2)), 1),
-                "humidity": round(48.0 + (0.6 * ((i % 4) - 1)), 1),
-                "car_present": False,
-                "door": "closed",
-                "light": False
-            })
 
     def add(self, temp, hum, door="closed", light=False, car=False):
         with self._lock:
@@ -187,16 +172,21 @@ def garage_state():
     esp_floors = state.get("floors", {})
     if isinstance(esp_floors, dict):
         for fk, fval in esp_floors.items():
-            if isinstance(fval, dict) and fval.get("temperature") is not None and fval.get("mac"):
-                if fk not in floors:
-                    floors[fk] = dict(fval)
-                else:
-                    floors[fk]["temperature"] = fval["temperature"]
-                    floors[fk]["humidity"] = fval.get("humidity", floors[fk].get("humidity"))
-                    floors[fk]["battery"] = fval.get("battery", floors[fk].get("battery"))
-                    floors[fk]["online"] = fval.get("online", True)
-                floors[fk]["last_updated"] = fval.get("last_updated") or time.time()
-                floors[fk]["source"] = "esp32"
+            if isinstance(fval, dict) and fval.get("mac"):
+                is_esp_online = bool(fval.get("online", False))
+                if is_esp_online and fval.get("temperature") is not None:
+                    if fk not in floors:
+                        floors[fk] = dict(fval)
+                    else:
+                        floors[fk]["temperature"] = fval["temperature"]
+                        floors[fk]["humidity"] = fval.get("humidity", floors[fk].get("humidity"))
+                        floors[fk]["battery"] = fval.get("battery", floors[fk].get("battery"))
+                        floors[fk]["online"] = True
+                    floors[fk]["last_updated"] = fval.get("last_updated") or time.time()
+                    floors[fk]["source"] = "esp32"
+                elif not is_esp_online and fk in floors:
+                    # Sensor is confirmed offline by ESP32; ensure online is False
+                    floors[fk]["online"] = False
 
     # Mark uninstalled floors clearly (e.g. Floor 1 currently has no physical sensor)
     if "floor1" not in floors or not floors["floor1"].get("mac"):
@@ -232,14 +222,6 @@ def garage_state():
             primary_name = floors[pref_floor]["name"]
             primary_lu = floors[pref_floor].get("last_updated")
             break
-    if primary_temp is None:
-        for pref_floor in ("basement", "floor2", "floor1"):
-            if pref_floor in floors and floors[pref_floor].get("temperature") is not None:
-                primary_temp = floors[pref_floor]["temperature"]
-                primary_hum = floors[pref_floor]["humidity"]
-                primary_name = floors[pref_floor]["name"]
-                primary_lu = floors[pref_floor].get("last_updated")
-                break
 
     state["temperature"] = primary_temp
     state["humidity"] = primary_hum
@@ -271,6 +253,19 @@ def garage_state():
     # Record point into telemetry history only if real readings exist
     if primary_temp is not None:
         telemetry_history.add(temp=primary_temp, hum=primary_hum or 0, door="closed", light=False, car=False)
+
+    # Persist all active floor measurements into SQLite
+    if hasattr(garage, "telemetry_db") and garage.telemetry_db:
+        for fk, fval in floors.items():
+            if isinstance(fval, dict) and fval.get("temperature") is not None and fval.get("online"):
+                garage.telemetry_db.record(
+                    floor=fk,
+                    temperature=fval.get("temperature"),
+                    humidity=fval.get("humidity"),
+                    battery=fval.get("battery"),
+                    mac=fval.get("mac"),
+                    sensor_name=fval.get("name")
+                )
 
     return jsonify({
         "success": True,
@@ -314,9 +309,27 @@ def bind_sensor_route():
 
 @app.route("/api/telemetry/history", methods=["GET"])
 def get_telemetry_history():
+    floor = request.args.get("floor")
+    try:
+        hours = float(request.args.get("hours", 24))
+    except (ValueError, TypeError):
+        hours = 24.0
+    try:
+        limit = int(request.args.get("limit", 500))
+    except (ValueError, TypeError):
+        limit = 500
+
+    if hasattr(garage, "telemetry_db") and garage.telemetry_db:
+        res = garage.telemetry_db.get_history(floor=floor, hours=hours, limit=limit)
+        # Compatibility with existing index.html / app.js
+        res["history"] = res.get("points", [])
+        return jsonify(res)
+
     return jsonify({
         "success": True,
-        "history": telemetry_history.get_all()
+        "history": telemetry_history.get_all(),
+        "points": telemetry_history.get_all(),
+        "stats": {}
     })
 
 
@@ -343,12 +356,27 @@ def esp32_telemetry():
                         s["last_updated"] = time.time()
                 garage.bt_sensors._save_cache()
 
+            # Record into SQLite TelemetryDB
+            if hasattr(garage, "telemetry_db") and garage.telemetry_db:
+                for fk, fval in data["floors"].items():
+                    if isinstance(fval, dict) and fval.get("temperature") is not None:
+                        garage.telemetry_db.record(
+                            floor=fk,
+                            temperature=fval["temperature"],
+                            humidity=fval.get("humidity"),
+                            battery=fval.get("battery"),
+                            mac=fval.get("mac"),
+                            sensor_name=fval.get("name")
+                        )
+
         temp = data.get("temperature", 21.3)
         hum = data.get("humidity", 63.0)
         door = garage.esp32.state.get("door", "closed")
         light = garage.esp32.state.get("light", False)
         car = data.get("car_present", False)
         telemetry_history.add(temp=temp, hum=hum, door=door, light=light, car=car)
+        if hasattr(garage, "telemetry_db") and garage.telemetry_db and "floors" not in data:
+            garage.telemetry_db.record(floor="basement", temperature=temp, humidity=hum)
 
     return jsonify({
         "success": success,

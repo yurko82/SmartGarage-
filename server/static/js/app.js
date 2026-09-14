@@ -181,9 +181,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
 
                     // Floor 2 (Xiaomi LYWSD03MMC)
-                    const hasF2 = f2 && f2.temperature !== undefined && f2.temperature !== null;
-                    const t2 = hasF2 ? `${Number(f2.temperature).toFixed(1)} °C` : 'Очікує датчик';
-                    const isOnlineF2 = f2 && f2.online;
+                    const isOnlineF2 = f2 && !!f2.online;
+                    const hasF2 = isOnlineF2 && f2.temperature !== undefined && f2.temperature !== null;
+                    const t2 = hasF2 ? `${Number(f2.temperature).toFixed(1)} °C` : '-- °C';
                     const tip2 = formatTime(f2, '2-й поверх');
                     if (telTempFloor2) {
                         telTempFloor2.textContent = t2;
@@ -195,7 +195,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         chartCardTempF2.title = tip2;
                     }
                     if (chartCardSubF2) {
-                        chartCardSubF2.textContent = hasF2 ? `${isOnlineF2 ? 'Онлайн' : 'Офлайн'} • ${f2.last_updated_time || '--:--'} • 🔋 ${f2.battery || 99}%` : 'Очікує підключення';
+                        chartCardSubF2.textContent = isOnlineF2 ? `Онлайн • ${f2.last_updated_time || '--:--'} • 🔋 ${f2.battery || 99}%` : 'Офлайн (немає зв\'язку)';
                     }
 
                     // Basement (Xiaomi LYWSD03MMC - Online)

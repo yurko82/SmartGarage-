@@ -9,6 +9,7 @@ import json
 from server.memory.memory import Memory
 from server.commands.processor import CommandProcessor
 from server.router.router import CommandRouter
+from server.storage.telemetry_db import TelemetryDB
 from server.webapp import app
 
 
@@ -270,8 +271,19 @@ class TestWebApp(unittest.TestCase):
             self.assertEqual(dash_css.status_code, 200)
         with self.client.get("/static/js/dashboard.js") as dash_js:
             self.assertEqual(dash_js.status_code, 200)
+        with self.client.get("/static/js/chart.min.js") as chart_res:
+            self.assertEqual(chart_res.status_code, 200)
         with self.client.get("/manifest.json") as manifest_res:
             self.assertEqual(manifest_res.status_code, 200)
+
+    def test_telemetry_history_endpoint(self):
+        res = self.client.get("/api/telemetry/history?floor=basement&hours=24")
+        self.assertEqual(res.status_code, 200)
+        data = res.get_json()
+        self.assertTrue(data["success"])
+        self.assertIn("history", data)
+        self.assertIn("points", data)
+        self.assertIn("stats", data)
 
     def test_system_stats_endpoint(self):
         res = self.client.get("/api/system/stats")
@@ -594,6 +606,76 @@ class TestPresenceBLEMatching(unittest.TestCase):
 
         self.assertIsNotNone(result)
         self.assertEqual(result["id"], "owner_phone")
+
+
+class TestTelemetryDB(unittest.TestCase):
+
+    def setUp(self):
+        self.tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".db")
+        self.tmp.close()
+        self.db_path = Path(self.tmp.name)
+        self.db = TelemetryDB(db_path=str(self.db_path))
+
+    def tearDown(self):
+        if self.db_path.exists():
+            self.db_path.unlink()
+        wal = self.db_path.with_name(self.db_path.name + "-wal")
+        shm = self.db_path.with_name(self.db_path.name + "-shm")
+        if wal.exists(): wal.unlink()
+        if shm.exists(): shm.unlink()
+
+    def test_record_and_get_history(self):
+        # Record initial reading
+        now = time.time()
+        ok1 = self.db.record(floor="basement", temperature=21.5, humidity=55.0, battery=90, timestamp=now - 3600, force=True)
+        self.assertTrue(ok1)
+
+        ok2 = self.db.record(floor="basement", temperature=22.0, humidity=54.0, battery=89, timestamp=now, force=True)
+        self.assertTrue(ok2)
+
+        ok3 = self.db.record(floor="floor2", temperature=23.0, humidity=50.0, battery=95, timestamp=now, force=True)
+        self.assertTrue(ok3)
+
+        # Query basement history
+        history_b = self.db.get_history(floor="basement", hours=24)
+        self.assertTrue(history_b["success"])
+        self.assertEqual(len(history_b["points"]), 2)
+        stats = history_b["stats"]
+        self.assertEqual(stats["count"], 2)
+        self.assertEqual(stats["min_temp"], 21.5)
+        self.assertEqual(stats["max_temp"], 22.0)
+        self.assertEqual(stats["current_temp"], 22.0)
+
+        # Query floor2 history
+        history_f2 = self.db.get_history(floor="floor2", hours=24)
+        self.assertTrue(history_f2["success"])
+        self.assertEqual(len(history_f2["points"]), 1)
+        self.assertEqual(history_f2["stats"]["current_temp"], 23.0)
+
+    def test_rate_limiting(self):
+        now = time.time()
+        # First record
+        ok1 = self.db.record(floor="basement", temperature=20.0, humidity=50.0, timestamp=now)
+        self.assertTrue(ok1)
+
+        # Immediate record with identical values within 60s should be skipped
+        ok2 = self.db.record(floor="basement", temperature=20.0, humidity=50.0, timestamp=now + 10)
+        self.assertFalse(ok2)
+
+        # Significant change should be recorded
+        ok3 = self.db.record(floor="basement", temperature=21.0, humidity=50.0, timestamp=now + 15)
+        self.assertTrue(ok3)
+
+    def test_latest_by_floor(self):
+        now = time.time()
+        self.db.record(floor="basement", temperature=18.5, humidity=60.0, timestamp=now - 10, force=True)
+        self.db.record(floor="floor2", temperature=22.2, humidity=48.0, timestamp=now, force=True)
+
+        latest = self.db.get_latest_by_floor()
+        self.assertIn("basement", latest)
+        self.assertIn("floor2", latest)
+        self.assertEqual(latest["basement"]["temperature"], 18.5)
+        self.assertEqual(latest["floor2"]["temperature"], 22.2)
 
 
 if __name__ == "__main__":
