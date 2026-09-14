@@ -10,6 +10,7 @@ from server.memory.memory import Memory
 from server.commands.processor import CommandProcessor
 from server.router.router import CommandRouter
 from server.storage.telemetry_db import TelemetryDB
+from server.ai.tools import GARAGE_TOOLS, ToolDispatcher
 from server.webapp import app
 
 
@@ -22,9 +23,11 @@ class DummyLogger:
 class DummyAI:
     def __init__(self):
         self.called_with = None
+        self.last_context = None
 
-    def chat(self, prompt):
+    def chat(self, prompt, context_info=""):
         self.called_with = prompt
+        self.last_context = context_info
         return f"AI response to: {prompt}"
 
 
@@ -216,6 +219,12 @@ class TestCommandRouter(unittest.TestCase):
         response = self.router.execute("Tell me a joke")
         self.assertEqual(response, "AI response to: Tell me a joke")
         self.assertEqual(self.ai.called_with, "Tell me a joke")
+
+    def test_routes_ai_query_with_context_provider(self):
+        router = CommandRouter(self.processor, self.ai, context_provider=lambda: "temp: 20C")
+        res = router.execute("What is the temperature?")
+        self.assertEqual(self.ai.called_with, "What is the temperature?")
+        self.assertEqual(self.ai.last_context, "temp: 20C")
 
     def test_empty_or_none_prompt(self):
         self.assertEqual(self.router.execute(""), "")
@@ -676,6 +685,52 @@ class TestTelemetryDB(unittest.TestCase):
         self.assertIn("floor2", latest)
         self.assertEqual(latest["basement"]["temperature"], 18.5)
         self.assertEqual(latest["floor2"]["temperature"], 22.2)
+
+
+class TestAITools(unittest.TestCase):
+
+    def setUp(self):
+        from server.core.core import SmartGarage
+        self.garage = SmartGarage(start_workers=False)
+        self.dispatcher = ToolDispatcher(self.garage)
+
+    def test_garage_tools_schema(self):
+        self.assertTrue(len(GARAGE_TOOLS) >= 5)
+        names = [t["function"]["name"] for t in GARAGE_TOOLS]
+        self.assertIn("control_device", names)
+        self.assertIn("play_media", names)
+        self.assertIn("stop_media", names)
+        self.assertIn("run_scenario", names)
+        self.assertIn("speaker_control", names)
+        self.assertIn("get_climate_history", names)
+
+    def test_control_device_door(self):
+        res = self.dispatcher.execute("control_device", {"device": "door", "action": "open"})
+        self.assertTrue(res["success"])
+        self.assertIn("відчиняються", res["message"])
+
+        res_close = self.dispatcher.execute("control_device", {"device": "door", "action": "close"})
+        self.assertTrue(res_close["success"])
+        self.assertIn("зачиняються", res_close["message"])
+
+    def test_control_device_light_and_fan(self):
+        res_l = self.dispatcher.execute("control_device", {"device": "light", "action": "on"})
+        self.assertTrue(res_l["success"])
+        self.assertTrue(self.garage.esp32.state["light"])
+
+        res_f = self.dispatcher.execute("control_device", {"device": "fan", "action": "on"})
+        self.assertTrue(res_f["success"])
+        self.assertTrue(self.garage.esp32.state["fan"])
+
+    def test_run_scenario(self):
+        res = self.dispatcher.execute("run_scenario", {"scenario": "arrival"})
+        self.assertTrue(res["success"])
+        self.assertIn("виконано", res["message"])
+
+    def test_unknown_tool(self):
+        res = self.dispatcher.execute("non_existent_tool", {})
+        self.assertFalse(res["success"])
+        self.assertIn("Невідомий інструмент", res["error"])
 
 
 if __name__ == "__main__":

@@ -221,7 +221,7 @@ class TelegramBot:
         else:
             # Route to Smart Garage AI Router (Fast Gemini 2.5 Flash / Commands)
             try:
-                res = self.garage.router.execute(text)
+                res = self.garage.router.execute(text, session_id=f"tg_{chat_id}")
                 if not res:
                     res = "Команду виконано."
                 self.send_message(chat_id, res)
@@ -417,7 +417,7 @@ class TelegramBot:
             self.send_message(chat_id, f"🗣️ *Ви сказали:* «{transcript}»")
 
             # Execute command
-            reply = self.garage.router.execute(transcript)
+            reply = self.garage.router.execute(transcript, session_id=f"tg_{chat_id}")
             self.send_message(chat_id, reply or "Команду виконано.")
 
         except Exception as e:

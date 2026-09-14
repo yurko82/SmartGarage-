@@ -735,7 +735,7 @@ def command():
             "response": "Missing command"
         }), 400
 
-    response = garage.router.execute(command_text)
+    response = garage.router.execute(command_text, session_id="web_console")
 
     return jsonify({
         "success": True,

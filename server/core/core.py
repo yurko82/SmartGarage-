@@ -14,6 +14,7 @@ from server.utils.files import FileManager
 from server.services.telegram_bot import TelegramBot
 from server.router.router import CommandRouter
 from server.storage.telemetry_db import TelemetryDB
+from server.ai.tools import ToolDispatcher
 
 
 class SmartGarage:
@@ -31,12 +32,47 @@ class SmartGarage:
         self.bt_sensors = BluetoothSensorManager(telemetry_db=self.telemetry_db)
         self.telegram = TelegramBot(self)
 
-        # Wire presence arrival notifications to Telegram
+        # Wire proactive presence arrival/departure notifications to Telegram
         def _on_presence_event(entry):
-            if entry.get("event") == "ARRIVED":
-                name = entry.get("person_name") or entry.get("device_name") or "Пристрій"
-                zone = entry.get("proximity", "поруч")
-                self.telegram.notify_admin(f"🔔 *Smart Garage:* Помічено прибуття: `{name}` (зона: `{zone}`)")
+            event = entry.get("event")
+            name = entry.get("person_name") or entry.get("device_name") or "Пристрій"
+            role = str(entry.get("role") or "").lower()
+            zone = entry.get("proximity", "поруч")
+            is_owner = ("owner" in role) or ("власник" in name.lower()) or ("юрій" in name.lower())
+
+            if event == "ARRIVED":
+                if is_owner:
+                    try:
+                        greeting_prompt = (
+                            f"Власник Юрій щойно прибув у гараж (зона: {zone}). "
+                            f"Сформулюй коротке, ввічливе та технологічне привітання від імені Smart Garage (1-2 речення). "
+                            f"Згадай один найважливіший факт про поточний стан (клімат підвалу або готовність гаража)."
+                        )
+                        ai_greeting = self.ai.chat(greeting_prompt, context_info=self.get_context_snapshot())
+                        self.telegram.notify_admin(f"👋 {ai_greeting}")
+                    except Exception:
+                        self.telegram.notify_admin(f"🔔 *Smart Garage:* Помічено прибуття: `{name}` (зона: `{zone}`)")
+                else:
+                    self.telegram.notify_admin(f"🔔 *Smart Garage:* Помічено прибуття: `{name}` (зона: `{zone}`)")
+
+            elif event == "DEPARTED":
+                if is_owner:
+                    alerts = []
+                    if hasattr(self, "esp32") and self.esp32:
+                        st = self.esp32.get_telemetry()
+                        if st.get("door") == "open":
+                            alerts.append("🚪 Ворота залишилися ВІДЧИНЕНИМИ")
+                        if st.get("light"):
+                            alerts.append("💡 Світло залишилося УВІМКНЕНИМ")
+
+                    if alerts:
+                        alert_text = "\n".join(f"• {a}" for a in alerts)
+                        self.telegram.notify_admin(
+                            f"⚠️ *Увага, Юрію! Ви залишили гараж, але:*\n{alert_text}\n\n"
+                            f"Надішліть «закрий ворота» чи «вимкни світло» для виправлення."
+                        )
+                    else:
+                        self.telegram.notify_admin("🚗 *Smart Garage:* Власник залишив зону гаража. Безпека в нормі.")
 
         if hasattr(self.presence, "set_event_callback"):
             self.presence.set_event_callback(_on_presence_event)
@@ -50,10 +86,65 @@ class SmartGarage:
 
         self.automation = AutomationEngine(self.esp32, self.projector, self.memory, self.logger)
         self.commands = CommandProcessor(self.logger, self.memory, self.projector, self.esp32, self.automation, self.bt_sensors, speaker=self.speaker, presence=self.presence)
+        self.tool_dispatcher = ToolDispatcher(self)
+        if hasattr(self.ai, "set_tool_dispatcher"):
+            self.ai.set_tool_dispatcher(self.tool_dispatcher)
+
         self.router = CommandRouter(
             self.commands,
-            self.ai
+            self.ai,
+            context_provider=self.get_context_snapshot
         )
+
+    def get_context_snapshot(self) -> str:
+        """Builds an informative, compact text snapshot of the garage's real-time state for AI."""
+        import time
+        now_str = time.strftime("%Y-%m-%d %H:%M:%S")
+        lines = [f"- Дата та час: {now_str}"]
+
+        # 1. Hardware / ESP32
+        if hasattr(self, "esp32") and self.esp32:
+            st = self.esp32.get_telemetry()
+            esp_status = "онлайн (USB-Serial)" if st.get("online") else "офлайн"
+            door = st.get("door", "зачинено")
+            light = "увімкнено" if st.get("light") else "вимкнено"
+            fan = "увімкнено" if st.get("fan") else "вимкнено"
+            lines.append(f"- Обладнання ESP32-S3: {esp_status} | Ворота: {door} | Світло: {light} | Вентиляція: {fan}")
+
+        # 2. Climate across floors
+        if hasattr(self, "bt_sensors") and self.bt_sensors:
+            t = self.bt_sensors.get_telemetry()
+            floors = t.get("floors", {})
+            fb = floors.get("basement", {})
+            f2 = floors.get("floor2", {})
+            f1 = floors.get("floor1", {})
+
+            b_desc = f"{fb.get('temperature')}°C, вологість {fb.get('humidity')}%, батарея {fb.get('battery')}% (онлайн)" if fb.get("online") and fb.get("temperature") is not None else "офлайн"
+            f2_desc = f"{f2.get('temperature')}°C, вологість {f2.get('humidity')}% (онлайн)" if f2.get("online") and f2.get("temperature") is not None else "офлайн"
+            f1_desc = f"{f1.get('temperature')}°C" if f1.get("online") and f1.get("temperature") is not None else "очікує встановлення фізичного датчика"
+
+            lines.append(f"- Клімат Підвал (LYWSD03MMC): {b_desc}")
+            lines.append(f"- Клімат 2-й поверх (LYWSD03MMC): {f2_desc}")
+            lines.append(f"- Клімат 1-й поверх (Гараж): {f1_desc}")
+
+        # 3. Presence
+        if hasattr(self, "presence") and self.presence:
+            p_status = self.presence.get_status()
+            present = p_status.get("present_now", [])
+            if present:
+                names = [f"{d.get('name')} ({d.get('role', 'гість')}, зона: {d.get('proximity', 'поруч')})" for d in present]
+                lines.append(f"- Присутність: виявлено поруч: {', '.join(names)}")
+            else:
+                lines.append("- Присутність: біля гаража наразі нікого не виявлено (власник відсутній)")
+
+        # 4. Multimedia & Audio
+        if hasattr(self, "projector") and self.projector:
+            proj_online = self.projector.is_reachable()
+            lines.append(f"- Проектор HY350MAX (192.168.100.191): {'онлайн' if proj_online else 'очікування/вимкнено'}")
+        if hasattr(self, "speaker") and self.speaker:
+            lines.append(f"- BT-колонка JBL Clip 5: {'підключено' if self.speaker.is_connected() else 'не підключено'}")
+
+        return "\n".join(lines)
 
 
 
