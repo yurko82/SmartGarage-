@@ -813,6 +813,47 @@ class TestTelegramClimateSubmenu(unittest.TestCase):
         self.assertIn("Вулиця", captured["text"])
 
 
+class TestPresenceGreetingDebounce(unittest.TestCase):
+
+    def test_owner_arrival_greeting_debounced(self):
+        from unittest.mock import MagicMock
+        from server.core.core import SmartGarage
+
+        garage = SmartGarage(start_workers=False)
+        garage.telegram.notify_admin = MagicMock()
+        garage.ai.chat = MagicMock(return_value="Привіт, Юрію!")
+
+        cb = garage.presence.event_callback
+        self.assertIsNotNone(cb)
+
+        # 1. Phone arrives
+        event_phone = {
+            "event": "ARRIVED",
+            "device_id": "owner_phone",
+            "person_name": "Юрій (Власник)",
+            "device_name": "Motorola Edge 50 Pro",
+            "role": "owner",
+            "proximity": "immediate",
+            "source": "bluetooth_classic"
+        }
+        cb(event_phone)
+        self.assertEqual(garage.telegram.notify_admin.call_count, 1)
+
+        # 2. Watch paired event arrives immediately after (0.002s later)
+        event_watch = {
+            "event": "ARRIVED",
+            "device_id": "owner_watch",
+            "person_name": "Юрій (Смарт-годинник)",
+            "device_name": "Смарт-годинник",
+            "role": "owner",
+            "proximity": "near",
+            "source": "paired_with_owner"
+        }
+        cb(event_watch)
+        # Should still be exactly 1 call (no duplicate greeting)
+        self.assertEqual(garage.telegram.notify_admin.call_count, 1)
+
+
 if __name__ == "__main__":
     unittest.main()
 

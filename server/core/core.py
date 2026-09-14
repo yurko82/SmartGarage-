@@ -1,4 +1,6 @@
 import os
+import time
+import threading
 from server.config import config
 from server.ai.manager import AIManager
 from server.memory.memory import Memory
@@ -33,15 +35,40 @@ class SmartGarage:
         self.telegram = TelegramBot(self)
 
         # Wire proactive presence arrival/departure notifications to Telegram
+        _last_owner_greeting_ts = 0.0
+        _last_owner_departure_ts = 0.0
+        _presence_lock = threading.Lock()
+
         def _on_presence_event(entry):
+            nonlocal _last_owner_greeting_ts, _last_owner_departure_ts
             event = entry.get("event")
             name = entry.get("person_name") or entry.get("device_name") or "Пристрій"
             role = str(entry.get("role") or "").lower()
             zone = entry.get("proximity", "поруч")
+            source = str(entry.get("source") or "")
+            device_id = str(entry.get("device_id") or "")
             is_owner = ("owner" in role) or ("власник" in name.lower()) or ("юрій" in name.lower())
+
+            # Ignore secondary paired accessory arrivals (e.g. watch paired to phone)
+            if source == "paired_with_owner":
+                return
+
+            # Check device-specific auto_welcome setting if available
+            if hasattr(self, "presence") and self.presence and device_id in self.presence.devices:
+                dev = self.presence.devices[device_id]
+                if not dev.get("auto_welcome", True):
+                    return
+
+            now = time.time()
 
             if event == "ARRIVED":
                 if is_owner:
+                    with _presence_lock:
+                        # Debounce owner greetings to at most once every 10 minutes (600s)
+                        if now - _last_owner_greeting_ts < 600:
+                            return
+                        _last_owner_greeting_ts = now
+
                     try:
                         greeting_prompt = (
                             f"Власник Юрій щойно прибув у гараж (зона: {zone}). "
@@ -57,6 +84,12 @@ class SmartGarage:
 
             elif event == "DEPARTED":
                 if is_owner:
+                    with _presence_lock:
+                        # Debounce owner departures to at most once every 10 minutes (600s)
+                        if now - _last_owner_departure_ts < 600:
+                            return
+                        _last_owner_departure_ts = now
+
                     alerts = []
                     if hasattr(self, "esp32") and self.esp32:
                         st = self.esp32.get_telemetry()
