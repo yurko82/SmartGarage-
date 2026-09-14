@@ -121,6 +121,27 @@ class TelegramBot:
             logger.error(f"Error sending Telegram message: {e}")
             return False
 
+    def edit_message(self, chat_id: int, message_id: int, text: str, reply_markup: Optional[dict] = None) -> bool:
+        if not self.token:
+            return False
+        try:
+            url = f"{self.api_base}/editMessageText"
+            payload = {
+                "chat_id": chat_id,
+                "message_id": message_id,
+                "text": text,
+                "parse_mode": "Markdown",
+            }
+            if reply_markup:
+                payload["reply_markup"] = reply_markup
+            r = requests.post(url, json=payload, timeout=6)
+            if r.status_code == 200:
+                return True
+            return self.send_message(chat_id, text, reply_markup=reply_markup)
+        except Exception as e:
+            logger.debug(f"Error editing Telegram message: {e}")
+            return self.send_message(chat_id, text, reply_markup=reply_markup)
+
     def send_photo(self, chat_id: int, photo_bytes: bytes, caption: Optional[str] = None, reply_markup: Optional[dict] = None) -> bool:
         if not self.token:
             return False
@@ -200,6 +221,9 @@ class TelegramBot:
                     [
                         {"text": f"{'🔘 ' if query_floor=='basement' else ''}⚓ Підвал", "callback_data": f"chart_basement_{hours_int}"},
                         {"text": f"{'🔘 ' if query_floor=='floor2' else ''}🏢 2-й поверх", "callback_data": f"chart_floor2_{hours_int}"}
+                    ],
+                    [
+                        {"text": "🔙 До меню температури", "callback_data": "clim_menu"}
                     ]
                 ]
             }
@@ -219,7 +243,7 @@ class TelegramBot:
     def _get_main_keyboard(self) -> dict:
         return {
             "keyboard": [
-                [{"text": "📊 Статус гаража"}, {"text": "🌡️ Клімат"}, {"text": "📈 Графік"}],
+                [{"text": "📊 Статус гаража"}, {"text": "🌡️ Температура"}],
                 [{"text": "👥 Присутність"}, {"text": "🚪 Ворота"}],
                 [{"text": "💡 Світло"}, {"text": "💨 Вентиляція"}]
             ],
@@ -282,8 +306,7 @@ class TelegramBot:
                 "🤖 *Smart Garage AI — Пульт керування*\n\n"
                 "Оберіть кнопку в меню або надішліть будь-яке запитання/голосове повідомлення:\n\n"
                 "• 📊 *Статус гаража* — поточний огляд системи\n"
-                "• 🌡️ *Клімат* — температура й вологість по поверхах\n"
-                "• 📈 *Графік* — графік зміни температури та вологості\n"
+                "• 🌡️ *Температура* — підменю (1-й поверх, 2-й поверх, підвал, вулиця, графік)\n"
                 "• 👥 *Присутність* — хто зараз біля гаража\n"
                 "• 🚪 *Ворота* — керування воротами\n"
                 "• 💡 *Світло* — вмикання/вимикання світла\n"
@@ -294,8 +317,20 @@ class TelegramBot:
         elif low in ("📊 статус гаража", "/status", "статус"):
             self._send_status(chat_id)
 
-        elif low in ("🌡️ клімат", "/temp", "/climate", "клімат", "температура"):
-            self._send_climate(chat_id)
+        elif low in ("🌡️ температура", "🌡️ клімат", "/temp", "/climate", "клімат", "температура"):
+            self._send_climate_menu(chat_id)
+
+        elif low in ("1 поверх", "1-й поверх", "перший поверх", "гараж"):
+            self._send_floor1_details(chat_id)
+
+        elif low in ("2 поверх", "2-й поверх", "другий поверх"):
+            self._send_floor2_details(chat_id)
+
+        elif low in ("підвал", "підвал температура"):
+            self._send_basement_details(chat_id)
+
+        elif low in ("вулиця", "вулична температура", "погода"):
+            self._send_outdoor_details(chat_id)
 
         elif low in ("📈 графік", "/chart", "графік", "графік клімату", "графік температур", "покажи графік"):
             self.send_climate_chart(chat_id, floor="basement", hours=24.0)
@@ -342,38 +377,159 @@ class TelegramBot:
                 f"• 🚪 *Ворота:* Очікує датчик\n"
                 f"• 💡 *Світло:* Очікує реле\n"
             )
-            self.send_message(chat_id, text)
+            self.send_message(chat_id, text, reply_markup=self._get_main_keyboard())
         except Exception as e:
-            self.send_message(chat_id, f"Помилка отримання статусу: {e}")
+            self.send_message(chat_id, f"Помилка отримання статусу: {e}", reply_markup=self._get_main_keyboard())
 
-    def _send_climate(self, chat_id: int):
+    def _send_climate_menu(self, chat_id: int, message_id: Optional[int] = None):
         try:
             bt = self.garage.bt_sensors.get_telemetry() if hasattr(self.garage, "bt_sensors") else {}
             floors = bt.get("floors", {})
             fb = floors.get("basement", {})
             f2 = floors.get("floor2", {})
+            f1 = floors.get("floor1", {})
 
-            tb = fb.get("temperature", "--")
-            hb = fb.get("humidity", "--")
-            bb = fb.get("battery", "--")
+            tb = f"{fb.get('temperature')}°C" if fb.get('temperature') is not None else "--"
+            hb = f"{fb.get('humidity')}%" if fb.get('humidity') is not None else "--"
+            stat_b = "🟢 Онлайн" if fb.get("online") else "⚪ В базі"
 
-            t2 = f2.get("temperature", "--")
-            h2 = f2.get("humidity", "--")
+            t2 = f"{f2.get('temperature')}°C" if f2.get('temperature') is not None else "--"
+            stat_2 = "🟢 Онлайн" if f2.get("online") else "🔴 Офлайн"
+
+            t1 = f"{f1.get('temperature')}°C" if f1.get('temperature') is not None else "Очікує датчик"
+            stat_1 = "🟢 Онлайн" if f1.get("online") else "⏳ Очікує підключення"
 
             msg = (
-                f"🌡️ *Мікроклімат приміщень:*\n\n"
-                f"⚓ *Підвал (Online):*\n"
-                f"• Температура: `{tb}°C`\n"
-                f"• Вологість: `{hb}%`\n"
-                f"• Заряд батареї: `🔋 {bb}%`\n\n"
-                f"🏢 *2-й поверх (Offline):*\n"
-                f"• Останній вимір: `{t2}°C` (вологість: `{h2}%`)\n\n"
-                f"🏠 *1-й поверх (Гараж):*\n"
-                f"• Очікує встановлення датчика на ESP32"
+                "🌡️ *Клімат та температура Smart Garage*\n\n"
+                f"• 🏠 *1-й поверх (Гараж):* `{t1}` ({stat_1})\n"
+                f"• 🏢 *2-й поверх:* `{t2}` ({stat_2})\n"
+                f"• ⚓ *Підвал:* `{tb}` (вологість: `{hb}`, {stat_b})\n"
+                f"• 🌳 *Вулиця:* `Очікує датчик` (⏳ Не встановлено)\n\n"
+                "👇 _Оберіть локацію для детальної інформації або перегляду графіка:_"
             )
-            self.send_message(chat_id, msg)
+
+            reply_markup = {
+                "inline_keyboard": [
+                    [
+                        {"text": "🏠 1-й поверх", "callback_data": "clim_floor1"},
+                        {"text": "🏢 2-й поверх", "callback_data": "clim_floor2"}
+                    ],
+                    [
+                        {"text": "⚓ Підвал", "callback_data": "clim_basement"},
+                        {"text": "🌳 Вулиця", "callback_data": "clim_outdoor"}
+                    ],
+                    [
+                        {"text": "📈 Графік зміни температур", "callback_data": "chart_basement_24"}
+                    ]
+                ]
+            }
+
+            if message_id:
+                self.edit_message(chat_id, message_id, msg, reply_markup=reply_markup)
+            else:
+                self.send_message(chat_id, msg, reply_markup=reply_markup)
         except Exception as e:
+            logger.error(f"Error showing climate menu: {e}")
             self.send_message(chat_id, f"Помилка даних клімату: {e}")
+
+    def _send_floor1_details(self, chat_id: int, message_id: Optional[int] = None):
+        msg = (
+            "🏠 *1-й поверх (Гараж)*\n\n"
+            "• Стан: ⏳ Фізичний датчик очікує підключення до ESP32-S3 (DHT22 / BME280).\n"
+            "• Температура: `--`\n"
+            "• Вологість: `--`\n\n"
+            "ℹ️ _Ви можете переглянути графік температури підвалу, де працює активний датчик._"
+        )
+        reply_markup = {
+            "inline_keyboard": [
+                [{"text": "📈 Графік (Підвал)", "callback_data": "chart_basement_24"}],
+                [{"text": "🔙 До меню температури", "callback_data": "clim_menu"}]
+            ]
+        }
+        if message_id:
+            self.edit_message(chat_id, message_id, msg, reply_markup=reply_markup)
+        else:
+            self.send_message(chat_id, msg, reply_markup=reply_markup)
+
+    def _send_floor2_details(self, chat_id: int, message_id: Optional[int] = None):
+        bt = self.garage.bt_sensors.get_telemetry() if hasattr(self.garage, "bt_sensors") else {}
+        f2 = bt.get("floors", {}).get("floor2", {})
+        t2 = f"{f2.get('temperature')}°C" if f2.get('temperature') is not None else "--"
+        h2 = f"{f2.get('humidity')}%" if f2.get('humidity') is not None else "--"
+        b2 = f"{f2.get('battery')}%" if f2.get('battery') is not None else "--"
+        online2 = "🟢 Онлайн" if f2.get("online") else "🔴 Офлайн (останні збережені дані)"
+
+        msg = (
+            "🏢 *2-й поверх (Житлове приміщення)*\n\n"
+            "• Датчик: `Xiaomi Mijia LYWSD03MMC` (BLE)\n"
+            f"• Температура: `{t2}`\n"
+            f"• Вологість: `{h2}`\n"
+            f"• Заряд батареї: `🔋 {b2}`\n"
+            f"• Стан зв'язку: {online2}"
+        )
+        reply_markup = {
+            "inline_keyboard": [
+                [
+                    {"text": "📈 Графік 2-го поверху", "callback_data": "chart_floor2_24"},
+                    {"text": "📈 Графік підвалу", "callback_data": "chart_basement_24"}
+                ],
+                [{"text": "🔙 До меню температури", "callback_data": "clim_menu"}]
+            ]
+        }
+        if message_id:
+            self.edit_message(chat_id, message_id, msg, reply_markup=reply_markup)
+        else:
+            self.send_message(chat_id, msg, reply_markup=reply_markup)
+
+    def _send_basement_details(self, chat_id: int, message_id: Optional[int] = None):
+        bt = self.garage.bt_sensors.get_telemetry() if hasattr(self.garage, "bt_sensors") else {}
+        fb = bt.get("floors", {}).get("basement", {})
+        tb = f"{fb.get('temperature')}°C" if fb.get('temperature') is not None else "--"
+        hb = f"{fb.get('humidity')}%" if fb.get('humidity') is not None else "--"
+        bb = f"{fb.get('battery')}%" if fb.get('battery') is not None else "--"
+        online_b = "🟢 Онлайн" if fb.get("online") else "⚪ В базі даних"
+
+        msg = (
+            "⚓ *Підвал (Основний кліматичний вузол)*\n\n"
+            "• Датчик: `Xiaomi Mijia LYWSD03MMC` (BLE)\n"
+            f"• Температура: `{tb}`\n"
+            f"• Вологість: `{hb}`\n"
+            f"• Заряд батареї: `🔋 {bb}`\n"
+            f"• Стан зв'язку: {online_b}"
+        )
+        reply_markup = {
+            "inline_keyboard": [
+                [
+                    {"text": "📈 Графік 24г", "callback_data": "chart_basement_24"},
+                    {"text": "📈 Графік 48г", "callback_data": "chart_basement_48"},
+                    {"text": "📈 Графік 7д", "callback_data": "chart_basement_168"}
+                ],
+                [{"text": "🔙 До меню температури", "callback_data": "clim_menu"}]
+            ]
+        }
+        if message_id:
+            self.edit_message(chat_id, message_id, msg, reply_markup=reply_markup)
+        else:
+            self.send_message(chat_id, msg, reply_markup=reply_markup)
+
+    def _send_outdoor_details(self, chat_id: int, message_id: Optional[int] = None):
+        msg = (
+            "🌳 *Вулиця (Зовнішній клімат)*\n\n"
+            "• Стан: ⏳ Фізичний вуличний датчик ще не встановлений.\n"
+            "• Поточна температура: `--`\n"
+            "• Вологість: `--`\n\n"
+            "ℹ️ _Після підключення вуличного датчика тут відображатиметься актуальна температура на подвір'ї та графік коливань._"
+        )
+        reply_markup = {
+            "inline_keyboard": [
+                [{"text": "📈 Графік підвалу", "callback_data": "chart_basement_24"}],
+                [{"text": "🔙 До меню температури", "callback_data": "clim_menu"}]
+            ]
+        }
+        if message_id:
+            self.edit_message(chat_id, message_id, msg, reply_markup=reply_markup)
+        else:
+            self.send_message(chat_id, msg, reply_markup=reply_markup)
 
     def _send_presence(self, chat_id: int):
         try:
@@ -460,6 +616,16 @@ class TelegramBot:
         elif data == "fan_off":
             self.garage.esp32.fan_off()
             self.send_message(chat_id, "🛑 Вентиляцію вимкнено.")
+        elif data == "clim_menu":
+            self._send_climate_menu(chat_id, message_id=msg.get("message_id"))
+        elif data == "clim_floor1":
+            self._send_floor1_details(chat_id, message_id=msg.get("message_id"))
+        elif data == "clim_floor2":
+            self._send_floor2_details(chat_id, message_id=msg.get("message_id"))
+        elif data == "clim_basement":
+            self._send_basement_details(chat_id, message_id=msg.get("message_id"))
+        elif data == "clim_outdoor":
+            self._send_outdoor_details(chat_id, message_id=msg.get("message_id"))
         elif data and data.startswith("chart_"):
             parts = data.split("_")
             if len(parts) == 3:

@@ -761,6 +761,58 @@ class TestChartRenderer(unittest.TestCase):
         self.assertIsNone(generate_climate_chart([], {}))
 
 
+class TestTelegramClimateSubmenu(unittest.TestCase):
+
+    def setUp(self):
+        from server.core.core import SmartGarage
+        self.garage = SmartGarage(start_workers=False)
+        self.tg = self.garage.telegram
+        self.tg.send_message = lambda chat_id, text, reply_markup=None: True
+        self.tg.edit_message = lambda chat_id, message_id, text, reply_markup=None: True
+
+    def test_main_keyboard_has_temperature(self):
+        kb = self.tg._get_main_keyboard()
+        buttons = [b["text"] for row in kb["keyboard"] for b in row]
+        self.assertIn("🌡️ Температура", buttons)
+        self.assertIn("📊 Статус гаража", buttons)
+
+    def test_climate_menu_markup(self):
+        captured = {}
+        def mock_send(chat_id, text, reply_markup=None):
+            captured["text"] = text
+            captured["markup"] = reply_markup
+            return True
+        self.tg.send_message = mock_send
+
+        self.tg._send_climate_menu(12345)
+        self.assertIn("Клімат та температура Smart Garage", captured["text"])
+        callbacks = [btn["callback_data"] for row in captured["markup"]["inline_keyboard"] for btn in row]
+        self.assertIn("clim_floor1", callbacks)
+        self.assertIn("clim_floor2", callbacks)
+        self.assertIn("clim_basement", callbacks)
+        self.assertIn("clim_outdoor", callbacks)
+        self.assertIn("chart_basement_24", callbacks)
+
+    def test_floor_details(self):
+        captured = {}
+        def mock_send(chat_id, text, reply_markup=None):
+            captured["text"] = text
+            return True
+        self.tg.send_message = mock_send
+
+        self.tg._send_floor1_details(12345)
+        self.assertIn("1-й поверх", captured["text"])
+
+        self.tg._send_floor2_details(12345)
+        self.assertIn("2-й поверх", captured["text"])
+
+        self.tg._send_basement_details(12345)
+        self.assertIn("Підвал", captured["text"])
+
+        self.tg._send_outdoor_details(12345)
+        self.assertIn("Вулиця", captured["text"])
+
+
 if __name__ == "__main__":
     unittest.main()
 
