@@ -854,6 +854,98 @@ class TestPresenceGreetingDebounce(unittest.TestCase):
         self.assertEqual(garage.telegram.notify_admin.call_count, 1)
 
 
+
+class TestAudioAndRadio(unittest.TestCase):
+
+    def setUp(self):
+        self.client = app.test_client()
+
+    def test_radio_fetch_from_mirrors_fallback(self):
+        from unittest.mock import MagicMock, patch
+        from server.services.radio_service import RadioService
+
+        radio = RadioService()
+        resp_ok = MagicMock()
+        resp_ok.status_code = 200
+        resp_ok.json.return_value = [{"name": "Test FM", "url": "https://test.fm/stream"}]
+
+        with patch("requests.get") as mock_get:
+            # First 2 mirrors fail, 3rd succeeds
+            mock_get.side_effect = [
+                Exception("Connection timeout"),
+                MagicMock(status_code=500),
+                resp_ok
+            ]
+            result = radio._fetch_from_mirrors("/json/stations/top")
+            self.assertEqual(result, [{"name": "Test FM", "url": "https://test.fm/stream"}])
+            self.assertEqual(mock_get.call_count, 3)
+
+    def test_radio_fetch_from_mirrors_all_fail(self):
+        from unittest.mock import patch
+        from server.services.radio_service import RadioService
+
+        radio = RadioService()
+        with patch("requests.get") as mock_get:
+            mock_get.side_effect = Exception("All mirrors unreachable")
+            result = radio._fetch_from_mirrors("/json/stations/top")
+            self.assertIsNone(result)
+
+    def test_media_delete_path_traversal(self):
+        # 1. Path traversal attempt
+        res = self.client.post("/api/media/delete", json={"filename": "../../etc/passwd"})
+        self.assertEqual(res.status_code, 404)
+        data = res.get_json()
+        self.assertFalse(data["success"])
+        self.assertEqual(data["response"], "Файл не знайдено")
+
+        # 2. Directory traversal attempt
+        res_dir = self.client.post("/api/media/delete", json={"filename": ".."})
+        self.assertEqual(res_dir.status_code, 404)
+
+        # 3. Empty filename
+        res_empty = self.client.post("/api/media/delete", json={"filename": ""})
+        self.assertEqual(res_empty.status_code, 400)
+
+    def test_media_delete_legitimate_file(self):
+        from server.webapp import MEDIA_DIR
+        test_file = MEDIA_DIR / "temp_unit_test_file.mp4"
+        test_file.write_text("dummy test content")
+        try:
+            self.assertTrue(test_file.exists())
+            res = self.client.post("/api/media/delete", json={"filename": "temp_unit_test_file.mp4"})
+            self.assertEqual(res.status_code, 200)
+            self.assertTrue(res.get_json()["success"])
+            self.assertFalse(test_file.exists())
+        finally:
+            if test_file.exists():
+                test_file.unlink()
+
+    def test_radio_play_invalid_url_scheme_api(self):
+        # file:// scheme must be rejected with 400
+        res = self.client.post("/api/radio/play", json={"url": "file:///etc/passwd"})
+        self.assertEqual(res.status_code, 400)
+        self.assertFalse(res.get_json()["success"])
+        self.assertIn("Неприпустима схема URL", res.get_json()["response"])
+
+        # ftp:// scheme must be rejected with 400
+        res_ftp = self.client.post("/api/radio/play", json={"url": "ftp://example.com/stream"})
+        self.assertEqual(res_ftp.status_code, 400)
+        self.assertFalse(res_ftp.get_json()["success"])
+
+        # Missing url
+        res_no_url = self.client.post("/api/radio/play", json={})
+        self.assertEqual(res_no_url.status_code, 400)
+
+    def test_speaker_play_stream_invalid_scheme(self):
+        from server.devices.bluetooth_speaker import BluetoothSpeakerController
+        speaker = BluetoothSpeakerController()
+        # Invalid schemes or empty URLs must return False
+        self.assertFalse(speaker.play_stream("file:///etc/shadow"))
+        self.assertFalse(speaker.play_stream("rtsp://internal/cam"))
+        self.assertFalse(speaker.play_stream(""))
+        self.assertFalse(speaker.play_stream("   "))
+
+
 if __name__ == "__main__":
     unittest.main()
 

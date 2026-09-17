@@ -1,6 +1,26 @@
 #!/bin/bash
 set -e
 
+FORCE=0
+for arg in "$@"; do
+    if [ "$arg" = "--force" ] || [ "$arg" = "-f" ]; then
+        FORCE=1
+    fi
+done
+
+if [ "$FORCE" -ne 1 ]; then
+    echo "⚠️  УВАГА: цей патч сумісний виключно з ревізією чіпа Broadcom BCM20702 A1."
+    echo "На поточному сервері (ThinkPad E530c) встановлено ревізію A0 (bcdDevice 1.12)."
+    echo "Встановлення цього патчу СПРИЧИНЯЄ критичне зависання Bluetooth-лінка (link tx timeout)."
+    echo "Деталі та аналіз див. у docs/BLUETOOTH_AUDIO_INVESTIGATION.md."
+    read -p "Ви дійсно бажаєте примусово продовжити? Введіть 'yes': " confirm
+    if [ "$confirm" != "yes" ]; then
+        echo "Скасовано користувачем."
+        exit 1
+    fi
+fi
+
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FIRMWARE_SRC="$SCRIPT_DIR/BCM20702A1-0a5c-21f4.hcd"
 

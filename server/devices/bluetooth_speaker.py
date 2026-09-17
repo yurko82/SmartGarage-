@@ -293,6 +293,12 @@ class BluetoothSpeakerController:
         if not target_url:
             return False
 
+        from urllib.parse import urlparse
+        parsed = urlparse(target_url)
+        if parsed.scheme not in ("http", "https"):
+            self.logger.warning(f"Rejected invalid audio stream URL scheme '{parsed.scheme}': {target_url}")
+            return False
+
         title = track_title or "Інтернет-радіо"
 
         # Ensure speaker is connected if possible

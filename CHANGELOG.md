@@ -2,6 +2,17 @@
 
 All notable changes to the Smart Garage Infrastructure project will be documented in this file.
 
+## [0.2.7] - 2026-09-17
+
+### Security & Hardening
+- **Audit #3 Corrective Actions**:
+  - **Script Safety & Broadcom Hardware Revision Guard**: скрипт [`scripts/install_bt_firmware.sh`](file:///home/yurko/AI/SmartGarage/scripts/install_bt_firmware.sh) доповнено попередженням про несумісність стороннього HCD-патчу з ревізією чіпа Broadcom BCM20702 A0 та інтерактивним підтвердженням / прапорцем `--force`.
+  - **Audio Stream URL Scheme Allow-list**: ендпоінт `/api/radio/play` та метод `BluetoothSpeakerController.play_stream` валідують URL-схеми, дозволяючи лише `http://` та `https://` та відхиляючи небезпечні схеми (зокрема `file://`) з кодом HTTP 400.
+  - **Media Path Traversal Hardening**: ендпоінт `/api/media/delete` посилено перевіркою `str(target).startswith(media_dir_resolved + "/") and target.is_file()`, запобігаючи несанкціонованому виходу за межі каталогу `media/`.
+  - **Documentation & Checklist Validation**: у [`docs/BLUETOOTH_AUDIO_INVESTIGATION.md`](file:///home/yurko/AI/SmartGarage/docs/BLUETOOTH_AUDIO_INVESTIGATION.md) оновлено чек-лист з фактичними статусами (відкат прошивки виконано, захист API покрито тестами, тест локальним звуком та перевірка JX-BT / JBL Clip 5 готові до запуску).
+  - **Repository Hygiene**: динамічний лог присутності `devices/presence_log.json` вилучено з індексу Git і додано до `.gitignore`. Додано [`memory/README.md`](file:///home/yurko/AI/SmartGarage/memory/README.md) з обґрунтуванням збереження `memory/memory.json` у Git як персистентної бази знань між сесіями.
+  - **Unit Testing**: додано тестовий клас `TestAudioAndRadio` в [`tests/test_backend.py`](file:///home/yurko/AI/SmartGarage/tests/test_backend.py) (RadioService fallback дзеркал, валідація схем відтворення стрімів, захист від path traversal під час видалення медіа; 71 тест успішно пройдено).
+
 ## [0.2.6] - 2026-09-17
 
 ### Added & Fixed

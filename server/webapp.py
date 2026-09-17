@@ -3,6 +3,7 @@ import time
 from collections import deque
 import threading
 import traceback
+import urllib.parse
 import psutil
 from flask import Flask, request, jsonify, render_template, send_from_directory
 from .core.core import SmartGarage
@@ -673,7 +674,8 @@ def media_delete():
         return jsonify({"success": False, "response": "Не вказано файл"}), 400
 
     target = (MEDIA_DIR / filename).resolve()
-    if not str(target).startswith(str(MEDIA_DIR.resolve())) or not target.exists():
+    media_dir_resolved = str(MEDIA_DIR.resolve())
+    if not str(target).startswith(media_dir_resolved + "/") or not target.is_file():
         return jsonify({"success": False, "response": "Файл не знайдено"}), 404
 
     try:
@@ -913,6 +915,10 @@ def radio_play():
     name = data.get("name", "Інтернет-радіо").strip()
     if not url:
         return jsonify({"success": False, "response": "Не вказано URL потоку"}), 400
+
+    parsed_url = urllib.parse.urlparse(url)
+    if parsed_url.scheme not in ("http", "https"):
+        return jsonify({"success": False, "response": "Неприпустима схема URL (дозволено лише http:// та https://)"}), 400
 
     ok = garage.speaker.play_stream(url, track_title=name)
     spk_name = garage.speaker.name or "колонці"
