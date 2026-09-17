@@ -3,12 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <meta name="theme-color" content="#070b14">
+    <meta name="theme-color" content="#0f172a">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>Smart Garage — Панель 1-го поверху</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🏠</text></svg>">
     <link rel="manifest" href="/manifest.json">
-    <link rel="stylesheet" href="/static/css/dashboard.css">
+    <link rel="stylesheet" href="/static/css/theme.css?v=0.3.1">
+    <link rel="stylesheet" href="/static/css/dashboard.css?v=0.3.1">
 </head>
 <body>
     <div class="dashboard-container">
@@ -30,21 +32,21 @@
 
             <!-- ACTION TOOLBAR -->
             <div class="header-actions">
-                <button class="btn-header" id="btnWakeLock" title="Тримати екран увімкненим">
+                <button class="btn-header" id="btnWakeLock" title="Тримати екран увімкненим" aria-label="Тримати екран увімкненим">
                     <span>☀️</span>
                     <span class="btn-label">Екран: Авто</span>
                 </button>
-                <button class="btn-header" id="btnTts" class="active" title="Озвучення відповідей">
+                <button class="btn-header active" id="btnTts" title="Озвучення відповідей" aria-label="Озвучення відповідей голосом">
                     <span>🔊</span>
                     <span class="btn-label">Голос: Увімк</span>
                 </button>
-                <button class="btn-header" id="btnFullscreen" title="Повний екран">
+                <button class="btn-header" id="btnFullscreen" title="Повний екран" aria-label="Увімкнути повний екран">
                     <span>⛶</span>
                 </button>
-                <button class="btn-header" id="btnRefresh" title="Оновити дані">
+                <button class="btn-header" id="btnRefresh" title="Оновити дані" aria-label="Оновити дані дашборду">
                     <span>🔄</span>
                 </button>
-                <a href="/#admin" class="btn-header" title="Закрита адмін-частина" style="text-decoration: none; color: inherit;">
+                <a href="/#admin" class="btn-header" title="Закрита адмін-частина" aria-label="Перейти до адмін-панелі" style="text-decoration: none; color: inherit;">
                     <span>🔒</span>
                     <span class="btn-label">Адмінка</span>
                 </a>
@@ -87,7 +89,7 @@
 
                 <div class="tiles-row">
                     <!-- Main Light Tile -->
-                    <div class="touch-tile" id="tileLight">
+                    <div class="touch-tile" id="tileLight" role="button" tabindex="0" aria-label="Головне світло: перемкнути">
                         <div class="tile-icon-box">💡</div>
                         <div>
                             <div class="tile-label">Головне світло</div>
@@ -96,7 +98,7 @@
                     </div>
 
                     <!-- Fan / Ventilation Tile -->
-                    <div class="touch-tile" id="tileFan">
+                    <div class="touch-tile" id="tileFan" role="button" tabindex="0" aria-label="Вентиляція: перемкнути">
                         <div class="tile-icon-box">💨</div>
                         <div>
                             <div class="tile-label">Вентиляція</div>
@@ -105,7 +107,7 @@
                     </div>
 
                     <!-- Gate / Door Tile -->
-                    <div class="touch-tile" id="tileDoor">
+                    <div class="touch-tile" id="tileDoor" role="button" tabindex="0" aria-label="Ворота або двері: перемкнути">
                         <div class="tile-icon-box">🚪</div>
                         <div>
                             <div class="tile-label">Ворота / Двері</div>
@@ -116,14 +118,15 @@
 
                 <!-- Quick Lighting Actions -->
                 <div class="quick-action-strip">
-                    <button class="btn-pill" id="btnAllLightsOn">
+                    <button class="btn-pill" id="btnAllLightsOn" aria-label="Увімкнути все освітлення">
                         <span>💡</span> Увімкнути все
                     </button>
-                    <button class="btn-pill" id="btnAllLightsOff">
+                    <button class="btn-pill" id="btnAllLightsOff" aria-label="Вимкнути все освітлення">
                         <span>🌑</span> Вимкнути все
                     </button>
                 </div>
             </section>
+
 
             <!-- 2. SENSORS & MICROCLIMATE -->
             <section class="card col-6">
@@ -137,7 +140,7 @@
                 <!-- 3-Floor Climate Grid -->
                 <div class="floor-climate-grid">
                     <!-- Floor 1 (This Floor) -->
-                    <div class="floor-card highlight" id="floorCard1" data-floor="floor1" title="📊 Натисніть для перегляду графіка динаміки">
+                    <div class="floor-card highlight" id="floorCard1" data-floor="floor1" role="button" tabindex="0" title="📊 Натисніть для перегляду графіка динаміки" aria-label="Графік динаміки клімату: 1-й поверх">
                         <div class="floor-card-header">
                             <span class="floor-card-title">🏠 1-й поверх</span>
                             <span class="floor-card-badge">Тут • 📈</span>
@@ -159,7 +162,7 @@
                     </div>
 
                     <!-- Floor 2 -->
-                    <div class="floor-card" id="floorCard2" data-floor="floor2" title="📊 Натисніть для перегляду графіка динаміки">
+                    <div class="floor-card" id="floorCard2" data-floor="floor2" role="button" tabindex="0" title="📊 Натисніть для перегляду графіка динаміки" aria-label="Графік динаміки клімату: 2-й поверх">
                         <div class="floor-card-header">
                             <span class="floor-card-title">🏢 2-й поверх</span>
                             <span class="floor-card-badge">BLE • 📈</span>
@@ -181,7 +184,7 @@
                     </div>
 
                     <!-- Basement -->
-                    <div class="floor-card" id="floorCardBasement" data-floor="basement" title="📊 Натисніть для перегляду графіка динаміки">
+                    <div class="floor-card" id="floorCardBasement" data-floor="basement" role="button" tabindex="0" title="📊 Натисніть для перегляду графіка динаміки" aria-label="Графік динаміки клімату: Підвал">
                         <div class="floor-card-header">
                             <span class="floor-card-title">⚓ Підвал</span>
                             <span class="floor-card-badge">Сховище • 📈</span>
@@ -241,7 +244,7 @@
                 </div>
 
                 <div class="voice-interactive-box">
-                    <button class="mic-hero-btn" id="btnMicHero" title="Натисніть і говоріть команду">
+                    <button class="mic-hero-btn" id="btnMicHero" title="Натисніть і говоріть команду" aria-label="Голосовий помічник: натисніть і говоріть команду">
                         <span>🎤</span>
                     </button>
                     <div class="voice-status-text" id="voiceStatusText">
@@ -260,8 +263,8 @@
                     </div>
 
                     <form class="voice-input-form" id="voiceForm">
-                        <input type="text" class="voice-input-field" id="voiceInput" placeholder="Або введіть команду текстом...">
-                        <button type="submit" class="voice-submit-btn">➤</button>
+                        <input type="text" class="voice-input-field" id="voiceInput" placeholder="Або введіть команду текстом..." aria-label="Введення команди текстом">
+                        <button type="submit" class="voice-submit-btn" aria-label="Надіслати голосову команду">➤</button>
                     </form>
                 </div>
             </section>
@@ -276,31 +279,32 @@
                 </div>
 
                 <div class="scenarios-grid">
-                    <button class="scenario-btn" data-scenario="night">
+                    <button class="scenario-btn" data-scenario="night" aria-label="Сценарій: Добраніч (вимкнути все)">
                         <span class="scenario-icon">🌙</span>
                         <span class="scenario-title">Добраніч</span>
                         <span class="scenario-sub">Вимкнути все</span>
                     </button>
 
-                    <button class="scenario-btn" data-scenario="cinema">
+                    <button class="scenario-btn" data-scenario="cinema" aria-label="Сценарій: Кінотеатр (проектор & світло)">
                         <span class="scenario-icon">🍿</span>
                         <span class="scenario-title">Кінотеатр</span>
                         <span class="scenario-sub">Проектор & світло</span>
                     </button>
 
-                    <button class="scenario-btn" data-scenario="safety">
+                    <button class="scenario-btn" data-scenario="safety" aria-label="Сценарій: Провітрювання (витяжка 100%)">
                         <span class="scenario-icon">💨</span>
                         <span class="scenario-title">Провітрювання</span>
                         <span class="scenario-sub">Витяжка 100%</span>
                     </button>
 
-                    <button class="scenario-btn" data-scenario="departure">
+                    <button class="scenario-btn" data-scenario="departure" aria-label="Сценарій: Повний Standby (енергозбереження)">
                         <span class="scenario-icon">🔒</span>
                         <span class="scenario-title">Повний Standby</span>
                         <span class="scenario-sub">Енергозбереження</span>
                     </button>
                 </div>
             </section>
+
 
             <!-- 5. MEDIA HUB & PROJECTOR REMOTE -->
             <section class="card col-6">
@@ -316,16 +320,16 @@
 
                 <!-- Playback Controls -->
                 <div class="media-controls-row">
-                    <button class="btn-media" id="btnProjPause">⏸ Пауза</button>
-                    <button class="btn-media" id="btnProjResume">▶ Продовжити</button>
-                    <button class="btn-media danger" id="btnProjStop">⏹ Зупинити</button>
-                    <button class="btn-media" id="btnProjMirror">🖥️ Екран</button>
+                    <button class="btn-media" id="btnProjPause" aria-label="Пауза відео на проекторі">⏸ Пауза</button>
+                    <button class="btn-media" id="btnProjResume" aria-label="Продовжити відео на проекторі">▶ Продовжити</button>
+                    <button class="btn-media danger" id="btnProjStop" aria-label="Зупинити відео на проекторі">⏹ Зупинити</button>
+                    <button class="btn-media" id="btnProjMirror" aria-label="Трансляція екрану на проектор">🖥️ Екран</button>
                 </div>
 
                 <!-- Online Stream Search -->
                 <form class="media-stream-form" id="mediaStreamForm">
-                    <input type="text" class="media-stream-input" id="mediaStreamInput" placeholder="Пошук на YouTube або URL..." required>
-                    <button type="submit" class="btn-pill" style="max-width: 130px;">
+                    <input type="text" class="media-stream-input" id="mediaStreamInput" placeholder="Пошук на YouTube або URL..." aria-label="Пошук на YouTube або прямий URL" required>
+                    <button type="submit" class="btn-pill" style="max-width: 130px;" aria-label="Стрімити відео на проектор">
                         <span>▶ Стрімити</span>
                     </button>
                 </form>
@@ -360,8 +364,8 @@
                         <div style="font-size: 0.75rem; color: var(--text-muted);" id="jblMac">MAC: F8:5C:7E:EE:7D:CC</div>
                     </div>
                     <div style="display: flex; gap: 8px;">
-                        <button class="btn-pill" id="btnJblConnect" style="background: rgba(0, 240, 255, 0.15); color: var(--accent-cyan); cursor: pointer;">🔗 З'єднати</button>
-                        <button class="btn-pill" id="btnJblDisconnect" style="background: rgba(255, 0, 85, 0.15); color: var(--accent-pink); cursor: pointer; display: none;">🔌 Відключити</button>
+                        <button class="btn-pill" id="btnJblConnect" style="background: rgba(0, 240, 255, 0.15); color: var(--accent-cyan); cursor: pointer;" aria-label="Підключити Bluetooth колонку">🔗 З'єднати</button>
+                        <button class="btn-pill" id="btnJblDisconnect" style="background: rgba(255, 0, 85, 0.15); color: var(--accent-pink); cursor: pointer; display: none;" aria-label="Відключити Bluetooth колонку">🔌 Відключити</button>
                     </div>
                 </div>
 
@@ -371,7 +375,7 @@
                         <span style="font-size: 0.8rem; color: var(--text-muted);">🎚️ Гучність динаміка</span>
                         <span style="font-size: 0.85rem; font-weight: 700; color: var(--accent-cyan);" id="jblVolumeVal">75%</span>
                     </div>
-                    <input type="range" min="0" max="100" value="75" class="range-slider" id="jblVolumeSlider" style="width: 100%; accent-color: var(--accent-cyan); cursor: pointer;">
+                    <input type="range" min="0" max="100" value="75" class="range-slider" id="jblVolumeSlider" aria-label="Гучність Bluetooth колонки" style="width: 100%; accent-color: var(--accent-cyan); cursor: pointer;">
                 </div>
 
                 <!-- Now Playing & Controls -->
@@ -382,15 +386,15 @@
 
                 <!-- Playback Buttons -->
                 <div class="media-controls-row" style="margin-bottom: 12px;">
-                    <button class="btn-media" id="btnJblPause">⏸ Пауза</button>
-                    <button class="btn-media" id="btnJblResume">▶ Продовжити</button>
-                    <button class="btn-media danger" id="btnJblStop">⏹ Зупинити</button>
+                    <button class="btn-media" id="btnJblPause" aria-label="Пауза аудіо на колонці">⏸ Пауза</button>
+                    <button class="btn-media" id="btnJblResume" aria-label="Продовжити аудіо на колонці">▶ Продовжити</button>
+                    <button class="btn-media danger" id="btnJblStop" aria-label="Зупинити відтворення на колонці">⏹ Зупинити</button>
                 </div>
 
                 <!-- Quick Play Form -->
                 <form class="media-stream-form" id="jblPlayForm">
-                    <input type="text" class="media-stream-input" id="jblPlayInput" placeholder="Увімкнути трек на колонці..." required>
-                    <button type="submit" class="btn-pill" style="max-width: 120px; background: rgba(0, 240, 255, 0.2); color: var(--accent-cyan); cursor: pointer;">
+                    <input type="text" class="media-stream-input" id="jblPlayInput" placeholder="Увімкнути трек на колонці..." aria-label="URL або назва треку для колонки" required>
+                    <button type="submit" class="btn-pill" style="max-width: 120px; background: rgba(0, 240, 255, 0.2); color: var(--accent-cyan); cursor: pointer;" aria-label="Відтворити аудіо на колонці">
                         <span>▶ Грати</span>
                     </button>
                 </form>
@@ -406,9 +410,9 @@
 
                     <!-- Search Input -->
                     <div style="display: flex; gap: 6px; margin-bottom: 8px;">
-                        <input type="text" id="radioSearchInput" class="media-stream-input" placeholder="🔍 Пошук радіо (рок, лаундж, назва...)" style="font-size: 0.82rem; padding: 6px 10px;">
-                        <button type="button" id="btnRadioSearch" class="btn-pill" style="padding: 0 12px; background: rgba(0, 240, 255, 0.15); color: var(--accent-cyan); cursor: pointer;">Знайти</button>
-                        <button type="button" id="btnRadioReset" class="btn-pill" style="padding: 0 8px; background: rgba(255, 255, 255, 0.06); color: var(--text-muted); cursor: pointer;" title="Популярні станції України">🇺🇦 Топ</button>
+                        <input type="text" id="radioSearchInput" class="media-stream-input" placeholder="🔍 Пошук радіо (рок, лаундж, назва...)" aria-label="Пошук інтернет-радіостанції" style="font-size: 0.82rem; padding: 6px 10px;">
+                        <button type="button" id="btnRadioSearch" class="btn-pill" style="padding: 0 12px; background: rgba(0, 240, 255, 0.15); color: var(--accent-cyan); cursor: pointer;" aria-label="Знайти радіостанцію">Знайти</button>
+                        <button type="button" id="btnRadioReset" class="btn-pill" style="padding: 0 8px; background: rgba(255, 255, 255, 0.06); color: var(--text-muted); cursor: pointer;" title="Популярні станції України" aria-label="Показати популярні станції України">🇺🇦 Топ</button>
                     </div>
 
                     <!-- Station Chips / Grid -->
@@ -480,15 +484,15 @@
                         <span class="modal-subtitle" id="modalFloorSubtitle">Підвал (LYWSD03MMC)</span>
                     </div>
                 </div>
-                <button type="button" class="modal-close-btn" id="modalCloseBtn" title="Закрити">✕</button>
+                <button type="button" class="modal-close-btn" id="modalCloseBtn" title="Закрити" aria-label="Закрити модальне вікно графіка">✕</button>
             </div>
 
             <!-- RANGE SELECTOR & STATS BAR -->
             <div class="modal-controls">
                 <div class="range-tabs" id="modalRangeTabs">
-                    <button class="range-btn active" data-hours="24">24 години</button>
-                    <button class="range-btn" data-hours="48">48 годин</button>
-                    <button class="range-btn" data-hours="168">7 днів</button>
+                    <button class="range-btn active" data-hours="24" aria-label="Період графіка: 24 години">24 години</button>
+                    <button class="range-btn" data-hours="48" aria-label="Період графіка: 48 годин">48 годин</button>
+                    <button class="range-btn" data-hours="168" aria-label="Період графіка: 7 днів">7 днів</button>
                 </div>
                 <div class="modal-stat-pills" id="modalStatPills">
                     <span class="pill-stat temp">🌡️ Мін: <b id="statMinTemp">--</b> | Макс: <b id="statMaxTemp">--</b> | Сер: <b id="statAvgTemp">--</b></span>
@@ -508,8 +512,9 @@
             <!-- MODAL FOOTER -->
             <div class="modal-footer">
                 <span class="modal-footer-hint">💡 Заміри автоматично фіксуються в локальній базі даних SQLite</span>
-                <button class="btn-modal-action" id="modalRefreshBtn">🔄 Оновити</button>
+                <button class="btn-modal-action" id="modalRefreshBtn" aria-label="Оновити дані графіка">🔄 Оновити</button>
             </div>
+
         </div>
     </div>
 

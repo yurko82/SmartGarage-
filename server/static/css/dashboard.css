@@ -1,31 +1,10 @@
 :root {
-    --bg-main: #070b14;
-    --bg-card: rgba(17, 24, 39, 0.85);
-    --bg-card-hover: rgba(30, 41, 59, 0.9);
-    --bg-card-active: rgba(30, 58, 138, 0.3);
-    --border-card: rgba(255, 255, 255, 0.08);
-    --border-active: rgba(59, 130, 246, 0.5);
-    
-    --text-primary: #f8fafc;
-    --text-secondary: #94a3b8;
-    --text-muted: #64748b;
-    
-    --accent-blue: #3b82f6;
-    --accent-cyan: #06b6d4;
-    --accent-green: #10b981;
-    --accent-amber: #f59e0b;
-    --accent-red: #ef4444;
-    --accent-purple: #8b5cf6;
-    
-    --glow-amber: 0 0 25px rgba(245, 158, 11, 0.35);
+    --bg-card-active: rgba(56, 189, 248, 0.15);
+    --border-active: var(--accent);
+    --glow-amber: var(--glow-warning);
+    --glow-green: var(--glow-success);
+    --glow-blue: var(--glow-info);
     --glow-cyan: 0 0 25px rgba(6, 182, 212, 0.35);
-    --glow-green: 0 0 25px rgba(16, 185, 129, 0.35);
-    --glow-blue: 0 0 25px rgba(59, 130, 246, 0.35);
-    
-    --radius-sm: 10px;
-    --radius-md: 16px;
-    --radius-lg: 24px;
-    --radius-full: 9999px;
 }
 
 * {
@@ -40,9 +19,19 @@ input, button {
     user-select: auto;
 }
 
+/* User-select exemption: allow copying telemetry, sensors, timestamps, and readings */
+.sensor-value, .status-value, .climate-reading, .device-ip,
+.sensor-val, .sensor-sub, .floor-metric-val, .floor-metric-lbl, .floor-card-footer,
+.clock-time, .clock-date, .pill-highlight, .tile-status,
+.dialog-text, .station-title, .station-genre, .station-bitrate,
+.modal-stat-val, .modal-time {
+    user-select: text !important;
+    -webkit-user-select: text !important;
+}
+
 body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-    background: radial-gradient(circle at 10% 20%, #0d1527 0%, var(--bg-main) 90%);
+    font-family: var(--font-family);
+    background: radial-gradient(circle at 10% 20%, #1e293b 0%, var(--bg-main) 90%);
     color: var(--text-primary);
     min-height: 100vh;
     overflow-x: hidden;
@@ -83,15 +72,16 @@ body {
 
 .brand-logo {
     font-size: 2rem;
-    background: linear-gradient(135deg, var(--accent-blue), var(--accent-cyan));
+    background: linear-gradient(135deg, var(--accent), var(--accent-cyan));
     width: 48px;
     height: 48px;
     display: flex;
     align-items: center;
     justify-content: center;
-    border-radius: 14px;
-    box-shadow: var(--glow-blue);
+    border-radius: var(--radius-md);
+    box-shadow: 0 4px 12px rgba(56, 189, 248, 0.2);
 }
+
 
 .brand-info h1 {
     font-size: 1.25rem;

@@ -1,0 +1,80 @@
+/* ==========================================================================
+   Smart Garage — Unified Theme & Design System Tokens
+   Shared between Chat Assistant (index.html) and Floor Touch Dashboard (dashboard.html)
+   ========================================================================== */
+
+:root {
+    /* Base surfaces — з index.html (менш агресивний, ніж #070b14) */
+    --bg-main: #0f172a;
+    --bg-surface: #1e293b;
+    --bg-surface-hover: #334155;
+    --border-color: #334155;
+
+    /* Text — --text-muted освітлений з #64748b до #94a3b8 для WCAG AA контрасту на --bg-main */
+    --text-primary: #f8fafc;
+    --text-secondary: #94a3b8;
+    --text-muted: #94a3b8;
+
+    /* Primary accent (бренд, кнопки, посилання) */
+    --accent: #38bdf8;
+    --accent-hover: #0ea5e9;
+
+    /* Semantic accents — лише для СТАНІВ (успіх/тривога/попередження), не декор за замовчуванням */
+    --success: #22c55e;
+    --danger: #ef4444;
+    --warning: #f59e0b;
+    --info: #38bdf8;
+
+    /* Domain-specific accents (клімат, мультимедіа, сенсори) */
+    --accent-blue: #38bdf8;
+    --accent-cyan: #06b6d4;
+    --accent-green: #22c55e;
+    --accent-amber: #f59e0b;
+    --accent-red: #ef4444;
+    --accent-purple: #8b5cf6;
+    --accent-pink: #ec4899;
+
+    /* Unified radius scale — компроміс між 6/10/14 і 10/16/24 */
+    --radius-sm: 8px;
+    --radius-md: 12px;
+    --radius-lg: 18px;
+    --radius-full: 9999px;
+
+    /* Glow — opt-in утиліта, застосовувати ТІЛЬКИ на активні/критичні елементи (тривога, активний сценарій), не на кожну картку */
+    --glow-danger: 0 0 25px rgba(239, 68, 68, 0.35);
+    --glow-success: 0 0 25px rgba(34, 197, 94, 0.35);
+    --glow-warning: 0 0 25px rgba(245, 158, 11, 0.35);
+    --glow-info: 0 0 25px rgba(56, 189, 248, 0.35);
+
+    /* Backwards-compatibility aliases for existing component styles */
+    --bg-card: var(--bg-surface);
+    --bg-card-hover: var(--bg-surface-hover);
+    --border-card: var(--border-color);
+    --border-active: var(--accent);
+
+    --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
+}
+
+/* ==========================================================================
+   Global Data Selection Utilities (WCAG & Usability)
+   Ensures sensor values, logs, and readings can be selected and copied
+   ========================================================================== */
+.sensor-value, .status-value, .climate-reading, .device-ip,
+.sensor-val, .sensor-sub, .floor-metric-val, .floor-metric-lbl, .floor-card-footer,
+.clock-time, .clock-date, .pill-highlight, .tile-status,
+.dialog-text, .station-title, .station-genre, .station-bitrate,
+.modal-stat-val, .modal-time {
+    user-select: text !important;
+    -webkit-user-select: text !important;
+}
+
+/* Accessibility: focus ring styles for keyboard navigation */
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+[role="button"]:focus-visible,
+[tabindex="0"]:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}

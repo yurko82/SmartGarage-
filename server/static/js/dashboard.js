@@ -421,6 +421,21 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // Keyboard activation (Enter/Space) for interactive tiles and floor cards
+    const floorCard1 = document.getElementById('floorCard1');
+    const floorCard2 = document.getElementById('floorCard2');
+    const floorCardBasement = document.getElementById('floorCardBasement');
+    [tileLight, tileFan, tileDoor, floorCard1, floorCard2, floorCardBasement].forEach(el => {
+        if (!el) return;
+        el.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                el.click();
+            }
+        });
+    });
+
+
     if (btnAllLightsOn) {
         btnAllLightsOn.addEventListener('click', async () => {
             hapticFeedback();
@@ -712,6 +727,9 @@ document.addEventListener('DOMContentLoaded', () => {
         stations.forEach(st => {
             const chip = document.createElement('div');
             chip.className = 'radio-chip';
+            chip.setAttribute('role', 'button');
+            chip.setAttribute('tabindex', '0');
+            chip.setAttribute('aria-label', `Увімкнути радіостанцію ${st.name}`);
             if (currentRadioUrl === st.url) {
                 chip.classList.add('active');
             }
@@ -726,7 +744,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 ${primaryTag ? `<span class="radio-tag">${primaryTag}</span>` : ''}
             `;
 
+            chip.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    chip.click();
+                }
+            });
+
             chip.addEventListener('click', async () => {
+
                 hapticFeedback();
                 currentRadioUrl = st.url;
                 document.querySelectorAll('.radio-chip').forEach(c => c.classList.remove('active'));

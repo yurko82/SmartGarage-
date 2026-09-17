@@ -4,7 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Smart Garage — AI Control Center</title>
-    <link rel="stylesheet" href="/static/css/style.css?v=0.3.0">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🏠</text></svg>">
+    <link rel="stylesheet" href="/static/css/theme.css?v=0.3.1">
+    <link rel="stylesheet" href="/static/css/style.css?v=0.3.1">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
@@ -14,7 +16,7 @@
             <div class="brand">
                 <div class="brand-icon">⚡</div>
                 <div class="brand-text">
-                    <h2>Smart Garage</h2>
+                    <h1 class="brand-title">Smart Garage</h1>
                     <span class="brand-sub">AI Infrastructure</span>
                 </div>
             </div>
@@ -86,20 +88,20 @@
             <div class="quick-actions">
                 <h3>Керування гаражем</h3>
                 <div class="action-btn-row">
-                    <button class="quick-btn mini-btn" data-cmd="door toggle">
+                    <button class="quick-btn mini-btn" data-cmd="door toggle" aria-label="Перемкнути стан воріт">
                         <span class="icon">🚪</span> Ворота
                     </button>
-                    <button class="quick-btn mini-btn" data-cmd="light toggle">
+                    <button class="quick-btn mini-btn" data-cmd="light toggle" aria-label="Перемкнути головне світло">
                         <span class="icon">💡</span> Світло
                     </button>
                 </div>
-                <button class="quick-btn" data-cmd="sensors">
+                <button class="quick-btn" data-cmd="sensors" aria-label="Показати показники всіх датчиків">
                     <span class="icon">📊</span> Усі датчики
                 </button>
-                <button class="quick-btn" data-cmd="project status">
+                <button class="quick-btn" data-cmd="project status" aria-label="Перевірити статус проектора HY350MAX">
                     <span class="icon">📽️</span> Проектор HY350MAX
                 </button>
-                <button class="quick-btn" data-cmd="project screen">
+                <button class="quick-btn" data-cmd="project screen" aria-label="Запустити трансляцію екрану на проектор">
                     <span class="icon">🖥️</span> Трансляція екрану
                 </button>
             </div>
@@ -107,25 +109,25 @@
             <div class="quick-actions">
                 <h3>Сценарії автоматизації</h3>
                 <div class="action-btn-row">
-                    <button class="quick-btn mini-btn" data-cmd="я приїхав">
+                    <button class="quick-btn mini-btn" data-cmd="я приїхав" aria-label="Сценарій автоматизації: Прибуття">
                         <span class="icon">🚗</span> Прибуття
                     </button>
-                    <button class="quick-btn mini-btn" data-cmd="я поїхав">
+                    <button class="quick-btn mini-btn" data-cmd="я поїхав" aria-label="Сценарій автоматизації: Від'їзд">
                         <span class="icon">🔒</span> Від'їзд
                     </button>
                 </div>
                 <div class="action-btn-row">
-                    <button class="quick-btn mini-btn" data-cmd="добраніч">
+                    <button class="quick-btn mini-btn" data-cmd="добраніч" aria-label="Сценарій автоматизації: Добраніч">
                         <span class="icon">🌙</span> Добраніч
                     </button>
-                    <button class="quick-btn mini-btn" data-cmd="кінотеатр">
+                    <button class="quick-btn mini-btn" data-cmd="кінотеатр" aria-label="Сценарій автоматизації: Кінотеатр">
                         <span class="icon">🍿</span> Кінотеатр
                     </button>
                 </div>
             </div>
 
             <div class="sidebar-footer">
-                <button class="btn-secondary" id="clearBtn">
+                <button class="btn-secondary" id="clearBtn" aria-label="Очистити історію консолі">
                     🗑️ Очистити історію
                 </button>
             </div>
@@ -134,26 +136,26 @@
         <!-- Main Content with Tabs -->
         <main class="main-content">
             <header class="main-header">
-                <div class="header-nav">
-                    <button class="tab-btn active" data-tab="consoleTab">
+                <div class="header-nav" role="tablist">
+                    <button class="tab-btn active" data-tab="consoleTab" role="tab" aria-selected="true" aria-label="Вкладка: Консоль AI">
                         <span>💬</span> Консоль AI
                     </button>
-                    <button class="tab-btn" data-tab="chartsTab">
+                    <button class="tab-btn" data-tab="chartsTab" role="tab" aria-selected="false" aria-label="Вкладка: Графіки та Датчики">
                         <span>📈</span> Графіки та Датчики
                     </button>
-                    <button class="tab-btn" data-tab="mediaTab">
+                    <button class="tab-btn" data-tab="mediaTab" role="tab" aria-selected="false" aria-label="Вкладка: Медіахаб & Проектор">
                         <span>🎬</span> Медіахаб & Проектор
                     </button>
-                    <button class="tab-btn" data-tab="adminTab" id="adminTabBtn">
+                    <button class="tab-btn" data-tab="adminTab" id="adminTabBtn" role="tab" aria-selected="false" aria-label="Вкладка: Адмін-панель">
                         <span>🔒</span> Адмінка
                     </button>
                 </div>
                 <div class="header-actions">
-                    <a href="/dashboard" class="btn-icon" style="text-decoration: none; color: inherit;" title="Відкрити тач-дашборд 1-го поверху">
+                    <a href="/dashboard" class="btn-icon" style="text-decoration: none; color: inherit;" title="Відкрити тач-дашборд 1-го поверху" aria-label="Відкрити тач-дашборд 1-го поверху">
                         <span>📱</span>
                         <span>Дашборд 1F</span>
                     </a>
-                    <button id="ttsToggleBtn" class="btn-icon" title="Озвучення відповідей голосом">
+                    <button id="ttsToggleBtn" class="btn-icon" title="Озвучення відповідей голосом" aria-label="Озвучення відповідей голосом">
                         <span id="ttsIcon">🔊</span>
                         <span class="tts-label">Озвучення: Увімк</span>
                     </button>
@@ -163,6 +165,7 @@
             <!-- TAB 1: Console -->
             <div class="tab-pane active" id="consoleTab">
                 <div class="console-wrapper">
+
                     <div id="history" class="history-container">
                         <div class="entry system-entry">
                             <div class="entry-meta">
@@ -188,7 +191,7 @@
                     </div>
 
                     <form id="commandForm" class="input-form">
-                        <button type="button" id="voiceBtn" class="btn-voice" title="Голосовий ввід (натисніть і говоріть)">
+                        <button type="button" id="voiceBtn" class="btn-voice" title="Голосовий ввід (натисніть і говоріть)" aria-label="Голосовий ввід (натисніть і говоріть)">
                             <span class="mic-icon">🎤</span>
                         </button>
                         <input 
@@ -197,8 +200,9 @@
                             placeholder="Напишіть або скажіть команду ('відкрий ворота', 'увімкни світло', 'яка температура')..." 
                             autocomplete="off"
                             autofocus
+                            aria-label="Введення текстової команди"
                         >
-                        <button type="submit" id="executeBtn" class="btn-primary">
+                        <button type="submit" id="executeBtn" class="btn-primary" aria-label="Надіслати команду">
                             <span>Надіслати</span>
                             <span class="send-icon">➤</span>
                         </button>
@@ -263,7 +267,7 @@
                     <div class="chart-box">
                         <div class="chart-header">
                             <h3>📊 Динаміка температури та вологості (Real-time)</h3>
-                            <button class="btn-sm" id="refreshChartBtn">🔄 Оновити</button>
+                            <button class="btn-sm" id="refreshChartBtn" aria-label="Оновити графік динаміки">🔄 Оновити</button>
                         </div>
                         <div class="chart-canvas-container">
                             <canvas id="telemetryChart"></canvas>
@@ -282,10 +286,10 @@
                             <span class="proj-ip" id="jblStatusText">Статус: Відключено</span>
                         </div>
                         <div class="proj-actions">
-                            <button class="btn-ctrl" id="jblConnectBtn">🔗 Підключити</button>
-                            <button class="btn-ctrl" id="jblPauseBtn">⏸ Пауза</button>
-                            <button class="btn-ctrl" id="jblResumeBtn">▶ Продовжити</button>
-                            <button class="btn-ctrl btn-danger-sm" id="jblStopBtn">⏹ Зупинити</button>
+                            <button class="btn-ctrl" id="jblConnectBtn" aria-label="Підключити колонку JBL">🔗 Підключити</button>
+                            <button class="btn-ctrl" id="jblPauseBtn" aria-label="Пауза колонки JBL">⏸ Пауза</button>
+                            <button class="btn-ctrl" id="jblResumeBtn" aria-label="Продовжити відтворення на колонці JBL">▶ Продовжити</button>
+                            <button class="btn-ctrl btn-danger-sm" id="jblStopBtn" aria-label="Зупинити відтворення на колонці JBL">⏹ Зупинити</button>
                         </div>
                     </div>
 
@@ -301,9 +305,9 @@
 
                         <!-- Radio Search -->
                         <div style="display: flex; gap: 8px;">
-                            <input type="text" id="fullRadioSearchInput" placeholder="🔍 Пошук станції або жанру (рок, хіт, лаундж, jazz...)" style="flex: 1; padding: 8px 14px; font-size: 13px; background: var(--bg-main); border: 1px solid var(--border-color); border-radius: var(--radius-md); color: var(--text-primary); outline: none;">
-                            <button type="button" id="fullBtnRadioSearch" class="btn-ctrl" style="padding: 0 14px;">Знайти</button>
-                            <button type="button" id="fullBtnRadioReset" class="btn-ctrl" style="padding: 0 10px;" title="Популярні українські станції">🇺🇦 Топ</button>
+                            <input type="text" id="fullRadioSearchInput" placeholder="🔍 Пошук станції або жанру (рок, хіт, лаундж, jazz...)" aria-label="Пошук радіостанції або жанру" style="flex: 1; padding: 8px 14px; font-size: 13px; background: var(--bg-main); border: 1px solid var(--border-color); border-radius: var(--radius-md); color: var(--text-primary); outline: none;">
+                            <button type="button" id="fullBtnRadioSearch" class="btn-ctrl" style="padding: 0 14px;" aria-label="Знайти станцію">Знайти</button>
+                            <button type="button" id="fullBtnRadioReset" class="btn-ctrl" style="padding: 0 10px;" title="Популярні українські станції" aria-label="Показати популярні українські станції">🇺🇦 Топ</button>
                         </div>
 
                         <!-- Radio Stations Container -->
@@ -319,10 +323,10 @@
                             <span class="proj-ip" id="projIpText">IP: 10.228.30.59</span>
                         </div>
                         <div class="proj-actions">
-                            <button class="btn-ctrl" id="projPauseBtn">⏸ Пауза</button>
-                            <button class="btn-ctrl" id="projResumeBtn">▶ Продовжити</button>
-                            <button class="btn-ctrl btn-danger-sm" id="projStopBtn">⏹ Зупинити</button>
-                            <button class="btn-ctrl" id="projMirrorBtn">🖥️ Трансляція екрану</button>
+                            <button class="btn-ctrl" id="projPauseBtn" aria-label="Пауза відео на проекторі">⏸ Пауза</button>
+                            <button class="btn-ctrl" id="projResumeBtn" aria-label="Продовжити відео на проекторі">▶ Продовжити</button>
+                            <button class="btn-ctrl btn-danger-sm" id="projStopBtn" aria-label="Зупинити відео на проекторі">⏹ Зупинити</button>
+                            <button class="btn-ctrl" id="projMirrorBtn" aria-label="Трансляція екрану на проектор">🖥️ Трансляція екрану</button>
                         </div>
                     </div>
 
@@ -330,8 +334,8 @@
                     <div class="stream-box">
                         <h3>🌐 Онлайн стрімінг (YouTube / Пряме посилання)</h3>
                         <form id="streamForm" class="stream-form">
-                            <input type="text" id="streamInput" placeholder="Введіть назву відео або посилання на YouTube..." required>
-                            <button type="submit" class="btn-primary">
+                            <input type="text" id="streamInput" placeholder="Введіть назву відео або посилання на YouTube..." aria-label="Посилання на YouTube або назва відео" required>
+                            <button type="submit" class="btn-primary" aria-label="Стрімити на проектор">
                                 <span>▶ Стрімити на проектор</span>
                             </button>
                         </form>
@@ -343,14 +347,14 @@
                             <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
                                 <h3>📁 Локальна медіатека (<code>media/</code>)</h3>
                                 <div class="media-filter-tabs" style="display: flex; gap: 6px;">
-                                    <button class="btn-sm active" id="filterAllMediaBtn">Всі</button>
-                                    <button class="btn-sm" id="filterFilesBtn">Файли</button>
-                                    <button class="btn-sm" id="filterStreamsBtn">Стріми</button>
+                                    <button class="btn-sm active" id="filterAllMediaBtn" aria-label="Фільтр: Всі файли та стріми">Всі</button>
+                                    <button class="btn-sm" id="filterFilesBtn" aria-label="Фільтр: Лише локальні файли">Файли</button>
+                                    <button class="btn-sm" id="filterStreamsBtn" aria-label="Фільтр: Лише збережені стріми">Стріми</button>
                                 </div>
                             </div>
                             <div style="display: flex; gap: 8px;">
-                                <button class="btn-sm btn-danger-sm" id="cleanupStreamsBtn" title="Видалити всі тимчасові кешовані стріми YouTube">🧹 Очистити стріми</button>
-                                <button class="btn-sm" id="refreshMediaBtn">🔄 Оновити</button>
+                                <button class="btn-sm btn-danger-sm" id="cleanupStreamsBtn" title="Видалити всі тимчасові кешовані стріми YouTube" aria-label="Видалити всі тимчасові кешовані стріми YouTube">🧹 Очистити стріми</button>
+                                <button class="btn-sm" id="refreshMediaBtn" aria-label="Оновити список медіа">🔄 Оновити</button>
                             </div>
                         </div>
                         <div class="media-grid" id="mediaGrid">
@@ -369,8 +373,8 @@
                         <h2>Закрита адмін-частина</h2>
                         <p>Введіть PIN-код адміністратора для доступу до керування присутністю, реєстром приладів та сканером.</p>
                         <form id="adminPinForm" class="admin-pin-form">
-                            <input type="password" id="adminPinInput" maxlength="10" placeholder="Введіть PIN..." autocomplete="off" required>
-                            <button type="submit" class="btn-primary" id="btnAdminLogin">
+                            <input type="password" id="adminPinInput" maxlength="10" placeholder="Введіть PIN..." autocomplete="off" aria-label="PIN-код адміністратора" required>
+                            <button type="submit" class="btn-primary" id="btnAdminLogin" aria-label="Увійти в адмін-частину">
                                 <span>Увійти</span>
                                 <span>🔓</span>
                             </button>
@@ -385,16 +389,17 @@
                                 <span class="badge badge-accent">🔐 Авторизовано як Адміністратор</span>
                                 <span class="admin-top-sub">Керування присутністю, гостями та радіоефіром</span>
                             </div>
-                            <button class="btn-secondary btn-sm" id="adminLogoutBtn">
+                            <button class="btn-secondary btn-sm" id="adminLogoutBtn" aria-label="Вийти з адмін-частини">
                                 <span>🔒</span> Вийти з адмінки
                             </button>
                         </div>
+
 
                         <!-- 1. LIVE PRESENCE CARDS -->
                         <div class="admin-section">
                             <div class="admin-section-header">
                                 <h3>👥 Поточна присутність біля гаража</h3>
-                                <button class="btn-sm" id="btnRefreshPresence">🔄 Оновити статус</button>
+                                <button class="btn-sm" id="btnRefreshPresence" aria-label="Оновити статус присутності">🔄 Оновити статус</button>
                             </div>
                             <div class="presence-cards-grid" id="presenceCardsGrid">
                                 <div class="admin-placeholder">Завантаження даних присутності...</div>
@@ -406,12 +411,12 @@
                             <div class="admin-section-header">
                                 <h3>📡 Апаратне сканування ефіру (ESP32)</h3>
                                 <div class="scan-controls-group">
-                                    <select id="scanDurationSelect" class="admin-select">
+                                    <select id="scanDurationSelect" class="admin-select" aria-label="Тривалість сканування ефіру">
                                         <option value="10">10 секунд</option>
                                         <option value="15" selected>15 секунд (рекомендовано)</option>
                                         <option value="25">25 секунд (максимальне)</option>
                                     </select>
-                                    <button class="btn-primary btn-sm" id="btnTriggerEspScan">
+                                    <button class="btn-primary btn-sm" id="btnTriggerEspScan" aria-label="Сканувати ефір через ESP32">
                                         <span>⚡ Сканувати ефір</span>
                                     </button>
                                 </div>
@@ -425,7 +430,7 @@
                                 <table class="admin-table" id="scanResultsTable">
                                     <thead>
                                         <tr>
-                                            <th>MAC / RPA</th>
+                                             <th>MAC / RPA</th>
                                             <th>Назва пристрою</th>
                                             <th>Сигнал (RSSI)</th>
                                             <th>Дія</th>
@@ -452,7 +457,7 @@
                                 </div>
                                 <div class="form-group">
                                     <label>Роль:</label>
-                                    <select id="devRole" class="admin-select">
+                                    <select id="devRole" class="admin-select" aria-label="Роль особи">
                                         <option value="guest" selected>Гість (Guest)</option>
                                         <option value="family">Сім'я (Family)</option>
                                         <option value="owner">Власник (Owner)</option>
@@ -460,7 +465,7 @@
                                 </div>
                                 <div class="form-group">
                                     <label>Тип приладу:</label>
-                                    <select id="devType" class="admin-select">
+                                    <select id="devType" class="admin-select" aria-label="Тип приладу">
                                         <option value="phone" selected>Смартфон (Phone)</option>
                                         <option value="watch">Смарт-годинник (Watch)</option>
                                         <option value="car">Автомобіль (Car)</option>
@@ -480,7 +485,7 @@
                                     <input type="text" id="devBleMac" placeholder="напр., 62:FD:D0:F6:F2:CF">
                                 </div>
                                 <div class="form-group full-width">
-                                    <button type="submit" class="btn-primary" id="btnSaveDevice">
+                                    <button type="submit" class="btn-primary" id="btnSaveDevice" aria-label="Зберегти пристрій у базі присутності">
                                         <span>💾 Зберегти в базі присутності</span>
                                     </button>
                                 </div>
@@ -515,8 +520,9 @@
                         <div class="admin-section">
                             <div class="admin-section-header">
                                 <h3>📜 Журнал відвідувань (Access Log)</h3>
-                                <button class="btn-sm" id="btnRefreshLog">🔄 Оновити журнал</button>
+                                <button class="btn-sm" id="btnRefreshLog" aria-label="Оновити журнал відвідувань">🔄 Оновити журнал</button>
                             </div>
+
                             <div class="admin-table-container">
                                 <table class="admin-table" id="logTable">
                                     <thead>

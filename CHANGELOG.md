@@ -2,6 +2,23 @@
 
 All notable changes to the Smart Garage Infrastructure project will be documented in this file.
 
+## [0.2.8] - 2026-09-17
+
+### UI/UX & Accessibility
+- **Unified Design System Tokens (`theme.css`)**:
+  - Створено єдиний файл дизайн-токенів [`server/static/css/theme.css`](file:///home/yurko/AI/SmartGarage/server/static/css/theme.css) для консолі AI (`index.html`) та сенсорного дашборду 1-го поверху (`dashboard.html`).
+  - Уніфіковано колірну палітру (`--bg-main: #0f172a`, `--bg-surface: #1e293b`, `--text-main: #f8fafc`, `--text-muted: #94a3b8`, `--accent: #38bdf8`), шкалу заокруглень (`--radius-sm/md/lg/full`), семантичні кольори та підсвічування стану (`--glow-danger/success/warning/info`).
+  - Усунено дублювання змінних `:root` у [`server/static/css/style.css`](file:///home/yurko/AI/SmartGarage/server/static/css/style.css) та [`server/static/css/dashboard.css`](file:///home/yurko/AI/SmartGarage/server/static/css/dashboard.css), узгоджено фон та інтенсивність неонового підсвічування.
+- **Accessibility & Screen Reader Compliance (a11y)**:
+  - 100% покриття інтерактивних елементів зрозумілими україномовними атрибутами `aria-label` для кнопок-іконок, повзунків, інпутів та інтерактивних плашок в обох шаблонах (`index.html` та `dashboard.html`).
+  - Додано повну підтримку клавіатурної навігації (Enter / Space, `role="button"`, `tabindex="0"`) для інтерактивних елементів: радіочіпів, плиток поверху та швидких дій.
+  - Виправлено дубльований HTML-атрибут `class="active"` на кнопці голосового асистента `#btnTts`.
+  - Забезпечено семантичну структуру заголовків в [`server/templates/index.html`](file:///home/yurko/AI/SmartGarage/server/templates/index.html) (`<h1 class="brand-title">Smart Garage</h1>`).
+- **Telemetry Usability & Responsive Breakpoints**:
+  - Дозволено виділення та копіювання числових і текстових даних сенсорів/телеметрії в дашборді (`user-select: text` для значень температури, вологості, тиску, годинника, радіостанцій та індикатора воріт).
+  - Додано адаптивні `@media` брейкпоінти (1024px планшет та 640px мобільний) для інтерфейсу AI-консолі, що оптимізують розміри сайдбару, шапки та сітки карток.
+  - Додано легкий SVG data-URI фавікон (гараж / дім) до обох веб-інтерфейсів.
+
 ## [0.2.7] - 2026-09-17
 
 ### Security & Hardening

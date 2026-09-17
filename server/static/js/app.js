@@ -535,9 +535,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     <button class="media-card-btn" data-filename="${file.filename}" style="flex: 1;">
                         <span>▶ На проектор</span>
                     </button>
-                    <button class="btn-ctrl btn-danger-sm btn-delete-media" data-filename="${file.filename}" title="Видалити файл" style="padding: 0 10px;">
+                    <button class="btn-ctrl btn-danger-sm btn-delete-media" data-filename="${file.filename}" title="Видалити файл" aria-label="Видалити файл ${file.filename}" style="padding: 0 10px;">
                         <span>🗑️</span>
                     </button>
+
                 </div>
             `;
             mediaGrid.appendChild(card);
