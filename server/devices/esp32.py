@@ -63,6 +63,8 @@ class ESP32Controller:
                         with self._lock:
                             self.state["online"] = True
                             self.state["transport"] = "serial"
+                        time.sleep(0.5)
+                        self._send_serial_command("CMD:POLL_BLE")
                     else:
                         time.sleep(2)
                         continue
@@ -139,6 +141,12 @@ class ESP32Controller:
                         self.state["light"] = bool(data["light"])
                     if "fan" in data:
                         self.state["fan"] = bool(data["fan"])
+                    if "temperature" in data:
+                        self.state["temperature"] = data["temperature"]
+                    if "humidity" in data:
+                        self.state["humidity"] = data["humidity"]
+                    if "floors" in data:
+                        self.state["floors"] = data["floors"]
                     self.state["last_seen"] = time.time()
                     self.state["online"] = True
             except Exception:
@@ -164,6 +172,10 @@ class ESP32Controller:
             if hasattr(self, "_active_scan_devices") and self._active_scan_devices:
                 return list(self._active_scan_devices.values())
         return []
+
+    def poll_ble(self) -> bool:
+        """Trigger immediate BLE temperature/humidity sensor polling on ESP32."""
+        return self._send_serial_command("CMD:POLL_BLE")
 
     def _send_serial_command(self, cmd: str) -> bool:
         with self._lock:

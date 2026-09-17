@@ -61,6 +61,21 @@ document.addEventListener('DOMContentLoaded', () => {
     const jblResumeBtn = document.getElementById('jblResumeBtn');
     const jblStopBtn = document.getElementById('jblStopBtn');
 
+    // Radio Elements (Full Page)
+    const fullRadioStationsContainer = document.getElementById('fullRadioStationsContainer');
+    const fullRadioSearchInput = document.getElementById('fullRadioSearchInput');
+    const fullBtnRadioSearch = document.getElementById('fullBtnRadioSearch');
+    const fullBtnRadioReset = document.getElementById('fullBtnRadioReset');
+    const fullRadioStatusText = document.getElementById('fullRadioStatusText');
+    let fullActiveRadioUrl = null;
+
+    // Media Filter & Cleanup Elements
+    const filterAllMediaBtn = document.getElementById('filterAllMediaBtn');
+    const filterFilesBtn = document.getElementById('filterFilesBtn');
+    const filterStreamsBtn = document.getElementById('filterStreamsBtn');
+    const cleanupStreamsBtn = document.getElementById('cleanupStreamsBtn');
+    let currentMediaFilter = 'all'; // 'all' | 'files' | 'streams'
+    let rawMediaList = [];
 
     // Tab Navigation
     const tabBtns = document.querySelectorAll('.tab-btn');
@@ -93,6 +108,7 @@ document.addEventListener('DOMContentLoaded', () => {
             } else if (targetTab === 'mediaTab') {
                 loadMediaList();
                 updateProjectorStatus();
+                loadFullRadioStations();
             } else if (targetTab === 'adminTab') {
                 checkAdminState();
             }
@@ -471,36 +487,8 @@ document.addEventListener('DOMContentLoaded', () => {
             .then(res => res.json())
             .then(data => {
                 if (data.success && data.media) {
-                    if (data.media.length === 0) {
-                        mediaGrid.innerHTML = '<div class="media-placeholder">У директорії media/ поки немає відеофайлів</div>';
-                        return;
-                    }
-                    mediaGrid.innerHTML = '';
-                    data.media.forEach(file => {
-                        const card = document.createElement('div');
-                        card.className = 'media-card';
-                        card.innerHTML = `
-                            <div class="media-card-top">
-                                <div class="media-card-icon">🎬</div>
-                                <div class="media-card-info">
-                                    <div class="media-card-title" title="${file.title}">${file.title}</div>
-                                    <div class="media-card-meta">${file.size_mb} MB • ${file.modified}</div>
-                                </div>
-                            </div>
-                            <button class="media-card-btn" data-filename="${file.filename}">
-                                <span>▶ Грати на проекторі</span>
-                            </button>
-                        `;
-                        mediaGrid.appendChild(card);
-                    });
-
-                    // Attach click handlers to play buttons
-                    document.querySelectorAll('.media-card-btn').forEach(btn => {
-                        btn.addEventListener('click', () => {
-                            const fname = btn.getAttribute('data-filename');
-                            playMedia(fname);
-                        });
-                    });
+                    rawMediaList = data.media;
+                    renderMediaGrid();
                 }
             })
             .catch(() => {
@@ -508,6 +496,217 @@ document.addEventListener('DOMContentLoaded', () => {
                     mediaGrid.innerHTML = '<div class="media-placeholder">Помилка завантаження медіафайлів</div>';
                 }
             });
+    }
+
+    function renderMediaGrid() {
+        if (!mediaGrid) return;
+        const filtered = rawMediaList.filter(file => {
+            if (currentMediaFilter === 'files') return !file.is_stream;
+            if (currentMediaFilter === 'streams') return file.is_stream;
+            return true;
+        });
+
+        if (filtered.length === 0) {
+            mediaGrid.innerHTML = '<div class="media-placeholder">У цьому розділі немає відеофайлів</div>';
+            return;
+        }
+
+        mediaGrid.innerHTML = '';
+        filtered.forEach(file => {
+            const card = document.createElement('div');
+            card.className = 'media-card';
+            const badgeHtml = file.is_stream
+                ? '<span class="media-badge media-badge-stream">Стрім</span>'
+                : '<span class="media-badge media-badge-file">Файл</span>';
+            const icon = file.is_stream ? '⚡' : '🎬';
+
+            card.innerHTML = `
+                <div class="media-card-top">
+                    <div class="media-card-icon">${icon}</div>
+                    <div class="media-card-info">
+                        <div style="display: flex; align-items: center; justify-content: space-between; gap: 6px;">
+                            <div class="media-card-title" title="${file.title}">${file.title}</div>
+                            ${badgeHtml}
+                        </div>
+                        <div class="media-card-meta">${file.size_mb} MB • ${file.modified}</div>
+                    </div>
+                </div>
+                <div style="display: flex; gap: 6px; margin-top: 4px;">
+                    <button class="media-card-btn" data-filename="${file.filename}" style="flex: 1;">
+                        <span>▶ На проектор</span>
+                    </button>
+                    <button class="btn-ctrl btn-danger-sm btn-delete-media" data-filename="${file.filename}" title="Видалити файл" style="padding: 0 10px;">
+                        <span>🗑️</span>
+                    </button>
+                </div>
+            `;
+            mediaGrid.appendChild(card);
+        });
+
+        // Attach click handlers to play buttons
+        mediaGrid.querySelectorAll('.media-card-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const fname = btn.getAttribute('data-filename');
+                playMedia(fname);
+            });
+        });
+
+        // Attach click handlers to delete buttons
+        mediaGrid.querySelectorAll('.btn-delete-media').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const fname = btn.getAttribute('data-filename');
+                if (confirm(`Видалити "${fname}"?`)) {
+                    fetch('/api/media/delete', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ filename: fname })
+                    })
+                    .then(res => res.json())
+                    .then(data => {
+                        appendEntry('system', data.response || 'Файл видалено');
+                        loadMediaList();
+                    })
+                    .catch(err => appendEntry('system', `Помилка: ${err.message}`));
+                }
+            });
+        });
+    }
+
+    // Media Filter Tab Buttons
+    if (filterAllMediaBtn) {
+        filterAllMediaBtn.addEventListener('click', () => {
+            currentMediaFilter = 'all';
+            document.querySelectorAll('.media-filter-tabs .btn-sm').forEach(b => b.classList.remove('active'));
+            filterAllMediaBtn.classList.add('active');
+            renderMediaGrid();
+        });
+    }
+
+    if (filterFilesBtn) {
+        filterFilesBtn.addEventListener('click', () => {
+            currentMediaFilter = 'files';
+            document.querySelectorAll('.media-filter-tabs .btn-sm').forEach(b => b.classList.remove('active'));
+            filterFilesBtn.classList.add('active');
+            renderMediaGrid();
+        });
+    }
+
+    if (filterStreamsBtn) {
+        filterStreamsBtn.addEventListener('click', () => {
+            currentMediaFilter = 'streams';
+            document.querySelectorAll('.media-filter-tabs .btn-sm').forEach(b => b.classList.remove('active'));
+            filterStreamsBtn.classList.add('active');
+            renderMediaGrid();
+        });
+    }
+
+    if (cleanupStreamsBtn) {
+        cleanupStreamsBtn.addEventListener('click', () => {
+            if (confirm('Видалити всі тимчасові кешовані стріми YouTube? Постійні медіафайли залишаться.')) {
+                cleanupStreamsBtn.textContent = 'Очищення...';
+                fetch('/api/media/cleanup', { method: 'POST' })
+                    .then(res => res.json())
+                    .then(data => {
+                        appendEntry('system', `🧹 ${data.response || 'Кеш стрімів очищено'}`);
+                        cleanupStreamsBtn.textContent = '🧹 Очистити стріми';
+                        loadMediaList();
+                    })
+                    .catch(err => {
+                        cleanupStreamsBtn.textContent = '🧹 Очистити стріми';
+                        appendEntry('system', `Помилка очищення: ${err.message}`);
+                    });
+            }
+        });
+    }
+
+    // --- INTERNET RADIO (FULL PAGE) ---
+    function loadFullRadioStations(query = '') {
+        if (!fullRadioStationsContainer) return;
+        fullRadioStationsContainer.innerHTML = '<div style="font-size: 12px; color: var(--text-muted); padding: 6px;">⏳ Завантаження станцій...</div>';
+        const url = query ? `/api/radio/search?q=${encodeURIComponent(query)}` : '/api/radio/stations?limit=24';
+
+        fetch(url)
+            .then(res => res.json())
+            .then(data => {
+                if (data.success && data.stations && data.stations.length > 0) {
+                    renderFullRadioStations(data.stations);
+                } else {
+                    fullRadioStationsContainer.innerHTML = '<div style="font-size: 12px; color: var(--text-muted); padding: 6px;">Станцій не знайдено</div>';
+                }
+            })
+            .catch(() => {
+                fullRadioStationsContainer.innerHTML = '<div style="font-size: 12px; color: #ff0055; padding: 6px;">Помилка завантаження станцій</div>';
+            });
+    }
+
+    function renderFullRadioStations(stations) {
+        if (!fullRadioStationsContainer) return;
+        fullRadioStationsContainer.innerHTML = '';
+        stations.forEach(st => {
+            const chip = document.createElement('div');
+            chip.className = 'radio-chip';
+            if (fullActiveRadioUrl === st.url) {
+                chip.classList.add('active');
+            }
+
+            const imgHtml = st.favicon ? `<img src="${st.favicon}" alt="" onerror="this.style.display='none'">` : '<span>📻</span>';
+            const cleanName = st.name.length > 22 ? st.name.substring(0, 20) + '...' : st.name;
+            const primaryTag = st.tags ? st.tags.split(',')[0].trim() : '';
+
+            chip.innerHTML = `
+                ${imgHtml}
+                <span title="${st.name}">${cleanName}</span>
+                ${primaryTag ? `<span class="radio-tag">${primaryTag}</span>` : ''}
+            `;
+
+            chip.addEventListener('click', () => {
+                fullActiveRadioUrl = st.url;
+                document.querySelectorAll('#fullRadioStationsContainer .radio-chip').forEach(c => c.classList.remove('active'));
+                chip.classList.add('active');
+
+                if (fullRadioStatusText) fullRadioStatusText.textContent = `▶ Грає: ${st.name}`;
+                if (jblStatusText) jblStatusText.textContent = `▶ Радіо: ${st.name}`;
+                appendEntry('system', `📻 Запуск трансляції радіо "${st.name}" на колонку JBL...`);
+
+                fetch('/api/radio/play', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url: st.url, name: st.name })
+                })
+                .then(res => res.json())
+                .then(data => {
+                    appendEntry('system', data.response || `Трансляція ${st.name} активна`);
+                    updateSpeakerStatus();
+                })
+                .catch(err => {
+                    appendEntry('system', `Помилка трансляції радіо: ${err.message}`);
+                });
+            });
+
+            fullRadioStationsContainer.appendChild(chip);
+        });
+    }
+
+    if (fullBtnRadioSearch && fullRadioSearchInput) {
+        fullBtnRadioSearch.addEventListener('click', () => {
+            const q = fullRadioSearchInput.value.trim();
+            loadFullRadioStations(q);
+        });
+
+        fullRadioSearchInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                const q = fullRadioSearchInput.value.trim();
+                loadFullRadioStations(q);
+            }
+        });
+    }
+
+    if (fullBtnRadioReset) {
+        fullBtnRadioReset.addEventListener('click', () => {
+            if (fullRadioSearchInput) fullRadioSearchInput.value = '';
+            loadFullRadioStations('');
+        });
     }
 
     function playMedia(filename) {
@@ -587,6 +786,8 @@ document.addEventListener('DOMContentLoaded', () => {
     checkHealth();
     updateTelemetry();
     updateProjectorStatus();
+    loadFullRadioStations();
+    loadMediaList();
     setInterval(checkHealth, 15000);
     setInterval(updateTelemetry, 4000);
     setInterval(updateProjectorStatus, 20000);

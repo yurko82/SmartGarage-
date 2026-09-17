@@ -962,6 +962,94 @@ body {
     grid-column: 1 / -1;
 }
 
+/* Radio Chips for Full Page */
+.radio-chip {
+    background-color: var(--bg-main);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    padding: 6px 12px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-primary);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.2s ease;
+    user-select: none;
+}
+
+.radio-chip:hover {
+    background-color: rgba(0, 240, 255, 0.12);
+    border-color: var(--accent);
+    color: var(--accent);
+    transform: translateY(-1px);
+}
+
+.radio-chip.active {
+    background-color: rgba(255, 0, 85, 0.2);
+    border-color: #ff0055;
+    color: #ff0055;
+    font-weight: 600;
+    box-shadow: 0 0 10px rgba(255, 0, 85, 0.25);
+}
+
+.radio-chip img {
+    width: 16px;
+    height: 16px;
+    border-radius: 3px;
+    object-fit: cover;
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.radio-chip .radio-tag {
+    font-size: 10px;
+    color: var(--text-muted);
+    opacity: 0.8;
+}
+
+.media-filter-tabs .btn-sm {
+    background-color: var(--bg-main);
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    padding: 4px 10px;
+    font-size: 11px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.media-filter-tabs .btn-sm:hover {
+    color: var(--text-primary);
+    border-color: var(--accent);
+}
+
+.media-filter-tabs .btn-sm.active {
+    background-color: var(--accent);
+    color: #0f172a;
+    border-color: var(--accent);
+    font-weight: 600;
+}
+
+.media-badge {
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-weight: 600;
+}
+
+.media-badge-stream {
+    background: rgba(234, 179, 8, 0.15);
+    color: #eab308;
+    border: 1px solid rgba(234, 179, 8, 0.3);
+}
+
+.media-badge-file {
+    background: rgba(0, 240, 255, 0.15);
+    color: var(--accent-cyan, #00f0ff);
+    border: 1px solid rgba(0, 240, 255, 0.3);
+}
+
 /* Responsive */
 @media (max-width: 768px) {
     body {

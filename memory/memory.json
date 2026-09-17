@@ -21,7 +21,7 @@
         "floor2": {
           "mac": "A4:C1:38:EC:EC:6C",
           "name": "2-й поверх",
-          "status": "paired_offline"
+          "status": "active"
         }
       }
     },
@@ -35,9 +35,29 @@
         {
           "name": "JX-BT",
           "mac": "41:42:62:69:51:9B",
-          "status": "active"
+          "status": "active",
+          "location": "1-й поверх",
+          "profile": "A2DP stereo only (HSP/HFP disabled via WirePlumber)",
+          "output_sink": "bluez_output.41_42_62_69_51_9B.1"
         }
-      ]
+      ],
+      "host_bluetooth_adapter": {
+        "model": "Broadcom BCM20702A0 (USB 0a5c:21f4, bcdDevice 1.12)",
+        "firmware_policy": "Factory ROM (build 0000). Do NOT load BCM20702A1-0a5c-21f4.hcd patch as it causes link tx timeout and stalls ACL packets on A0 revision.",
+        "wireplumber_config": "~/.config/wireplumber/bluetooth.lua.d/51-bluez-a2dp-only.lua (forces pure A2DP stereo, disables 8kHz CVSD headset profile)"
+      },
+      "audio_troubleshooting_state": {
+        "status": "paused_to_continue_later",
+        "last_session": "2026-09-17 21:00",
+        "last_known_issue": "Sound pitched/wavered then went silent; ACL transmission stalled due to firmware revision mismatch",
+        "next_steps_checklist": [
+          "1. Run scripts/remove_bt_firmware.sh from user terminal (sudo required) to purge incompatible BCM20702A1 patch and restart bluetoothd cleanly",
+          "2. Power-cycle JX-BT physical receiver and check physical AUX cable / amp volume knob",
+          "3. Test local audio playback using pw-play to verify direct baseline PipeWire -> JX-BT output",
+          "4. Start radio stream via webapp API using native pipewiresink",
+          "5. Compare with JBL Clip 5 (F8:5C:7E:EE:7D:CC) to isolate receiver vs adapter issues"
+        ]
+      }
     },
     "video_projector": {
       "model": "HY350MAX",

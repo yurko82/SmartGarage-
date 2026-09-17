@@ -119,6 +119,9 @@ docker compose restart
    - Підготовлено каталоги `sites/`, `services/`, `databases/`, `monitoring/`, `backups/` з готовими прикладами docker-compose.
 5. **Активовано User Linger:**
    - Перевірено та підтверджено `loginctl enable-linger yurko`, що гарантує автозапуск користувацьких systemd-сервісів (`smartgarage.service`) після рестарту навіть без входу в графічний сеанс.
+6. **Bluetooth Audio & WirePlumber A2DP Locking:**
+   - Створено `~/.config/wireplumber/bluetooth.lua.d/51-bluez-a2dp-only.lua` для блокування низькоякісних телефонних моно-профілів HSP/HFP (8 кГц CVSD) на користь чистого Hi-Fi стерео A2DP.
+   - Детальний статус та план усунення несправностей зафіксовано у [`docs/BLUETOOTH_AUDIO_INVESTIGATION.md`](file:///home/yurko/AI/SmartGarage/docs/BLUETOOTH_AUDIO_INVESTIGATION.md).
 
 ### Що НЕ змінювалося (збережено в оригінальному стані):
 - Жоден існуючий Docker-контейнер, образ чи volume не видалявся.

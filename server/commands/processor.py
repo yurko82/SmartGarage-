@@ -3,11 +3,12 @@ from server.devices.projector import ProjectorController
 from server.devices.esp32 import ESP32Controller
 from server.devices.bluetooth_speaker import BluetoothSpeakerController
 from server.automation.engine import AutomationEngine
+from server.services.radio_service import radio_service
 
 
 class CommandProcessor:
 
-    def __init__(self, logger, memory=None, projector=None, esp32=None, automation=None, bt_sensors=None, speaker=None, presence=None):
+    def __init__(self, logger, memory=None, projector=None, esp32=None, automation=None, bt_sensors=None, speaker=None, presence=None, telemetry_db=None):
         self.logger = logger
         self.memory = memory if memory is not None else Memory()
         self.projector = projector if projector is not None else ProjectorController()
@@ -16,8 +17,43 @@ class CommandProcessor:
         self.bt_sensors = bt_sensors
         self.presence = presence
         self.automation = automation if automation is not None else AutomationEngine(self.esp32, self.projector, self.memory, self.logger)
-        self.last_media_query = "адам сильно сильно"
+        self.telemetry_db = telemetry_db
+    def _get_floors(self) -> dict:
+        floors = {}
+        if self.bt_sensors:
+            t = self.bt_sensors.get_telemetry()
+            floors = dict(t.get("floors", {}))
+        if hasattr(self, "esp32") and self.esp32:
+            st = self.esp32.get_telemetry()
+            esp_floors = st.get("floors", {})
+            if isinstance(esp_floors, dict):
+                for fk, fval in esp_floors.items():
+                    if isinstance(fval, dict) and fval.get("mac"):
+                        is_esp_online = bool(fval.get("online", False))
+                        if is_esp_online and fval.get("temperature") is not None:
+                            if fk not in floors:
+                                floors[fk] = dict(fval)
+                            else:
+                                floors[fk] = dict(floors[fk])
+                                floors[fk]["temperature"] = fval["temperature"]
+                                floors[fk]["humidity"] = fval.get("humidity", floors[fk].get("humidity"))
+                                floors[fk]["battery"] = fval.get("battery", floors[fk].get("battery"))
+                                floors[fk]["online"] = True
+                            floors[fk]["last_updated"] = fval.get("last_updated") or time.time()
+                            floors[fk]["source"] = "esp32"
+                        elif not is_esp_online and fk in floors:
+                            floors[fk]["online"] = False
 
+        if hasattr(self, "telemetry_db") and self.telemetry_db:
+            latest_db = self.telemetry_db.get_latest_by_floor()
+            for fk, db_val in latest_db.items():
+                if fk in floors and floors[fk].get("temperature") is None and db_val.get("temperature") is not None:
+                    floors[fk]["temperature"] = db_val["temperature"]
+                    floors[fk]["humidity"] = db_val.get("humidity")
+                    floors[fk]["battery"] = db_val.get("battery")
+                    floors[fk]["last_updated"] = db_val.get("timestamp")
+                    floors[fk]["source"] = "db"
+        return floors
 
     def execute(self, command):
 
@@ -160,7 +196,7 @@ class CommandProcessor:
                 if prefix.strip() in media_verbs:
                     first_w = candidate_query.lower().split()[0] if candidate_query else ""
                     if first_w in (
-                        "світло", "ворота", "вентиляція", "витяжка", "вентиляцію", "витяжку",
+                        "радіо", "radio", "світло", "ворота", "вентиляція", "витяжка", "вентиляцію", "витяжку",
                         "проектор", "екран", "light", "door", "fan", "датчик", "датчики",
                         "клімат", "температур", "температура", "стан", "всі", "все", "статус",
                         "поверх", "поверхи", "підвал", "цоколь"
@@ -286,15 +322,15 @@ class CommandProcessor:
             ok = self.speaker.disconnect()
             return True, f"🔊 {spk_name} відключено." if ok else "Помилка відключення колонки."
 
-        if cmd in ("зупини музику", "стоп музика", "вимкни музику", "колонка стоп", "speaker stop", "stop music"):
+        if cmd in ("зупини музику", "стоп музика", "вимкни музику", "колонка стоп", "speaker stop", "stop music", "зупини радіо", "вимкни радіо", "стоп радіо", "radio stop"):
             self.speaker.stop()
             return True, "⏹️ Відтворення на колонці зупинено."
 
-        if cmd in ("пауза музика", "колонка пауза", "speaker pause"):
+        if cmd in ("пауза музика", "колонка пауза", "speaker pause", "пауза радіо"):
             self.speaker.pause()
             return True, "⏸️ Музику поставлено на паузу."
 
-        if cmd in ("продовж музику", "колонка продовж", "speaker resume"):
+        if cmd in ("продовж музику", "колонка продовж", "speaker resume", "продовж радіо"):
             self.speaker.resume()
             return True, "▶️ Музику продовжено."
 
@@ -303,6 +339,28 @@ class CommandProcessor:
             if val_str.isdigit():
                 self.speaker.set_volume(int(val_str))
                 return True, f"🔊 Гучність колонки JBL встановлено на {val_str}%"
+
+        # Internet Radio triggers
+        if any(cmd.startswith(prefix) for prefix in ("увімкни радіо", "включи радіо", "запусти радіо", "радіо ")) or cmd in ("радіо", "увімкни радіо", "включи радіо"):
+            station_query = cmd
+            for prefix in ("увімкни радіо", "включи радіо", "запусти радіо", "радіо"):
+                if station_query.startswith(prefix):
+                    station_query = station_query[len(prefix):].strip()
+                    break
+
+            if not station_query:
+                station_query = "Hit FM"
+
+            stations = radio_service.search_stations(station_query, limit=3)
+            if stations:
+                st = stations[0]
+                ok = self.speaker.play_stream(st["url"], track_title=st["name"])
+                spk = self.speaker.name or "колонці"
+                if ok:
+                    return True, f"📻 Транслюю радіо '{st['name']}' на {spk}."
+                else:
+                    return True, f"Не вдалося запустити радіо '{st['name']}' на {spk}."
+            return True, f"Радіостанцію за запитом '{station_query}' не знайдено в каталозі."
 
 
 
@@ -452,8 +510,8 @@ class CommandProcessor:
         # Floor-specific temperature queries
         if any(w in cmd for w in ("підвал", "підвалі", "підвалу", "basement")):
             if any(w in cmd for w in ("температур", "волог", "датчик", "стан", "клімат", "скільки", "що")):
-                bt_data = self.bt_sensors.get_telemetry() if self.bt_sensors else {}
-                f = bt_data.get("floors", {}).get("basement", {})
+                floors = self._get_floors()
+                f = floors.get("basement", {})
                 t = f.get("temperature", "--")
                 h = f.get("humidity", "--")
                 b = f.get("battery")
@@ -462,8 +520,8 @@ class CommandProcessor:
 
         is_floor2 = any(w in cmd for w in ("2 поверх", "2-й поверх", "2-му повер", "2 повер", "другий поверх", "другому повер", "floor2", "2-й", "2-му"))
         if is_floor2 and any(w in cmd for w in ("температур", "волог", "датчик", "стан", "клімат", "скільки", "яка", "що")):
-            bt_data = self.bt_sensors.get_telemetry() if self.bt_sensors else {}
-            f = bt_data.get("floors", {}).get("floor2", {})
+            floors = self._get_floors()
+            f = floors.get("floor2", {})
             t = f.get("temperature", "--")
             h = f.get("humidity", "--")
             b = f.get("battery")
@@ -472,8 +530,8 @@ class CommandProcessor:
 
         is_floor1 = any(w in cmd for w in ("1 поверх", "1-й поверх", "1-му повер", "1 повер", "перший поверх", "першому повер", "floor1", "1-й", "1-му"))
         if is_floor1 and any(w in cmd for w in ("температур", "волог", "датчик", "стан", "клімат", "скільки", "яка", "що")):
-            bt_data = self.bt_sensors.get_telemetry() if self.bt_sensors else {}
-            f = bt_data.get("floors", {}).get("floor1", {})
+            floors = self._get_floors()
+            f = floors.get("floor1", {})
             t = f.get("temperature", "--")
             h = f.get("humidity", "--")
             b = f.get("battery")
@@ -486,8 +544,7 @@ class CommandProcessor:
             "що в гаражі", "клімат", "стан датчиків", "клімат на поверхах", "температура на поверхах"
         )):
             tel = self.esp32.get_telemetry()
-            bt_data = self.bt_sensors.get_telemetry() if self.bt_sensors else {}
-            floors = bt_data.get("floors", {})
+            floors = self._get_floors()
 
             f1 = floors.get("floor1", {})
             f2 = floors.get("floor2", {})
@@ -498,10 +555,22 @@ class CommandProcessor:
             fan_str = "Увімкнено" if tel.get("fan") else "Вимкнено"
             door_ua = "ВІДКРИТО" if tel.get("door") == "open" else "ЗАКРИТО"
 
+            t1 = f1.get("temperature") if f1.get("temperature") is not None else "--"
+            h1 = f1.get("humidity") if f1.get("humidity") is not None else "--"
+            b1 = f1.get("battery") if f1.get("battery") is not None else "--"
+
+            t2 = f2.get("temperature") if f2.get("temperature") is not None else "--"
+            h2 = f2.get("humidity") if f2.get("humidity") is not None else "--"
+            b2 = f2.get("battery") if f2.get("battery") is not None else "--"
+
+            tb = fb.get("temperature") if fb.get("temperature") is not None else "--"
+            hb = fb.get("humidity") if fb.get("humidity") is not None else "--"
+            bb = fb.get("battery") if fb.get("battery") is not None else "--"
+
             return True, (f"""📊 Стан системи та датчиків [{online_str}]:
-  • 🏠 1-й поверх : {f1.get('temperature', '--')}°C, вологість {f1.get('humidity', '--')}% (🔋 {f1.get('battery', '--')}%)
-  • 🏢 2-й поверх : {f2.get('temperature', '--')}°C, вологість {f2.get('humidity', '--')}% (🔋 {f2.get('battery', '--')}%)
-  • ⚓ Підвал     : {fb.get('temperature', '--')}°C, вологість {fb.get('humidity', '--')}% (🔋 {fb.get('battery', '--')}%)
+  • 🏠 1-й поверх : {t1}°C, вологість {h1}% (🔋 {b1}%)
+  • 🏢 2-й поверх : {t2}°C, вологість {h2}% (🔋 {b2}%)
+  • ⚓ Підвал     : {tb}°C, вологість {hb}% (🔋 {bb}%)
   • 💡 Освітлення : {light_str} | 💨 Вентиляція: {fan_str}
   • 🚪 Ворота     : {door_ua} | 🛡️ Газ MQ2: {tel.get('gas_ppm', 0)} ppm""")
 

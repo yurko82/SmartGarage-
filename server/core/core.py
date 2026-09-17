@@ -118,7 +118,7 @@ class SmartGarage:
             self.telegram.start()
 
         self.automation = AutomationEngine(self.esp32, self.projector, self.memory, self.logger)
-        self.commands = CommandProcessor(self.logger, self.memory, self.projector, self.esp32, self.automation, self.bt_sensors, speaker=self.speaker, presence=self.presence)
+        self.commands = CommandProcessor(self.logger, self.memory, self.projector, self.esp32, self.automation, self.bt_sensors, speaker=self.speaker, presence=self.presence, telemetry_db=self.telemetry_db)
         self.tool_dispatcher = ToolDispatcher(self)
         if hasattr(self.ai, "set_tool_dispatcher"):
             self.ai.set_tool_dispatcher(self.tool_dispatcher)
@@ -128,6 +128,46 @@ class SmartGarage:
             self.ai,
             context_provider=self.get_context_snapshot
         )
+
+    def get_floors_telemetry(self) -> dict:
+        """Returns unified floor telemetry merged from BluetoothSensorManager (host) and ESP32."""
+        floors = {}
+        if hasattr(self, "bt_sensors") and self.bt_sensors:
+            t = self.bt_sensors.get_telemetry()
+            floors = dict(t.get("floors", {}))
+
+        if hasattr(self, "esp32") and self.esp32:
+            st = self.esp32.get_telemetry()
+            esp_floors = st.get("floors", {})
+            if isinstance(esp_floors, dict):
+                for fk, fval in esp_floors.items():
+                    if isinstance(fval, dict) and fval.get("mac"):
+                        is_esp_online = bool(fval.get("online", False))
+                        if is_esp_online and fval.get("temperature") is not None:
+                            if fk not in floors:
+                                floors[fk] = dict(fval)
+                            else:
+                                floors[fk] = dict(floors[fk])
+                                floors[fk]["temperature"] = fval["temperature"]
+                                floors[fk]["humidity"] = fval.get("humidity", floors[fk].get("humidity"))
+                                floors[fk]["battery"] = fval.get("battery", floors[fk].get("battery"))
+                                floors[fk]["online"] = True
+                            floors[fk]["last_updated"] = fval.get("last_updated") or time.time()
+                            floors[fk]["source"] = "esp32"
+                        elif not is_esp_online and fk in floors:
+                            floors[fk]["online"] = False
+
+        # Fallback to persistent SQLite latest readings if a floor has no temperature
+        if hasattr(self, "telemetry_db") and self.telemetry_db:
+            latest_db = self.telemetry_db.get_latest_by_floor()
+            for fk, db_val in latest_db.items():
+                if fk in floors and floors[fk].get("temperature") is None and db_val.get("temperature") is not None:
+                    floors[fk]["temperature"] = db_val["temperature"]
+                    floors[fk]["humidity"] = db_val.get("humidity")
+                    floors[fk]["battery"] = db_val.get("battery")
+                    floors[fk]["last_updated"] = db_val.get("timestamp")
+                    floors[fk]["source"] = "db"
+        return floors
 
     def get_context_snapshot(self) -> str:
         """Builds an informative, compact text snapshot of the garage's real-time state for AI."""
@@ -145,20 +185,18 @@ class SmartGarage:
             lines.append(f"- Обладнання ESP32-S3: {esp_status} | Ворота: {door} | Світло: {light} | Вентиляція: {fan}")
 
         # 2. Climate across floors
-        if hasattr(self, "bt_sensors") and self.bt_sensors:
-            t = self.bt_sensors.get_telemetry()
-            floors = t.get("floors", {})
-            fb = floors.get("basement", {})
-            f2 = floors.get("floor2", {})
-            f1 = floors.get("floor1", {})
+        floors = self.get_floors_telemetry()
+        fb = floors.get("basement", {})
+        f2 = floors.get("floor2", {})
+        f1 = floors.get("floor1", {})
 
-            b_desc = f"{fb.get('temperature')}°C, вологість {fb.get('humidity')}%, батарея {fb.get('battery')}% (онлайн)" if fb.get("online") and fb.get("temperature") is not None else "офлайн"
-            f2_desc = f"{f2.get('temperature')}°C, вологість {f2.get('humidity')}% (онлайн)" if f2.get("online") and f2.get("temperature") is not None else "офлайн"
-            f1_desc = f"{f1.get('temperature')}°C" if f1.get("online") and f1.get("temperature") is not None else "очікує встановлення фізичного датчика"
+        b_desc = f"{fb.get('temperature')}°C, вологість {fb.get('humidity')}%, батарея {fb.get('battery')}% (онлайн)" if fb.get("online") and fb.get("temperature") is not None else "офлайн"
+        f2_desc = f"{f2.get('temperature')}°C, вологість {f2.get('humidity')}% (онлайн)" if f2.get("online") and f2.get("temperature") is not None else "офлайн"
+        f1_desc = f"{f1.get('temperature')}°C" if f1.get("online") and f1.get("temperature") is not None else "очікує встановлення фізичного датчика"
 
-            lines.append(f"- Клімат Підвал (LYWSD03MMC): {b_desc}")
-            lines.append(f"- Клімат 2-й поверх (LYWSD03MMC): {f2_desc}")
-            lines.append(f"- Клімат 1-й поверх (Гараж): {f1_desc}")
+        lines.append(f"- Клімат Підвал (LYWSD03MMC): {b_desc}")
+        lines.append(f"- Клімат 2-й поверх (LYWSD03MMC): {f2_desc}")
+        lines.append(f"- Клімат 1-й поверх (Гараж): {f1_desc}")
 
         # 3. Presence
         if hasattr(self, "presence") and self.presence:

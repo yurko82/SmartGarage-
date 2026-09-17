@@ -2,6 +2,18 @@
 
 All notable changes to the Smart Garage Infrastructure project will be documented in this file.
 
+## [0.2.6] - 2026-09-17
+
+### Added & Fixed
+- **Bluetooth Speaker `JX-BT` (1-й поверх) & Internet Radio Streaming**:
+  - Інтегровано підтримку другого Bluetooth-аудіопристрою `JX-BT` (`41:42:62:69:51:9B`) на 1-му поверсі поруч із JBL Clip 5.
+  - Оновлено тач-дашборд: динамічне відображення активної колонки, вибір радіостанцій в один клік, керування гучністю та трансляцією онлайн-потоків (Kiss FM, Hit FM, Radio ROKS тощо).
+  - Виправлено конфлікт маршрутизації команд у `server/commands/processor.py`: запити *«включи радіо...»* тепер спрямовуються на онлайн-радіопотік, а не на завантаження відео з YouTube.
+- **PipeWire Native Audio Output & Bluetooth Optimization**:
+  - Переведено вивід плеєра в [`server/devices/bluetooth_speaker.py`](file:///home/yurko/AI/SmartGarage/server/devices/bluetooth_speaker.py) із застарілого `pulsesink` на рідний `pipewiresink target-object=...` з прямою синхронізацією системного годинника.
+  - Створено конфігурацію WirePlumber `~/.config/wireplumber/bluetooth.lua.d/51-bluez-a2dp-only.lua`, яка вимикає низькоякісний телефонний профіль гарнітури HSP/HFP (8kHz mono CVSD) та блокує аудіо виключно у високоякісному A2DP-стерео.
+  - Виявлено несумісність стороннього патчу `BCM20702A1-0a5c-21f4.hcd` з апаратною ревізією Broadcom BCM20702A0 (`bcdDevice 1.12`), що викликала зависання `link tx timeout`. Чіп надійно функціонує на базовому ROM-коді за наявності A2DP-фіксації.
+
 ## [0.2.5] - 2026-09-09
 
 ### Added

@@ -334,9 +334,9 @@ class BluetoothSensorManager:
                     floors[f_key] = {
                         "name": s.get("alias") or floors[f_key]["name"],
                         "floor": f_key,
-                        "temperature": s.get("temperature") if is_online else None,
-                        "humidity": s.get("humidity") if is_online else None,
-                        "battery": s.get("battery") if is_online else None,
+                        "temperature": s.get("temperature"),
+                        "humidity": s.get("humidity"),
+                        "battery": s.get("battery"),
                         "online": is_online,
                         "mac": s.get("mac"),
                         "last_updated": s.get("last_updated")

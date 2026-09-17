@@ -262,12 +262,13 @@ class BluetoothSpeakerController:
         self.stop()
         file_uri = p.as_uri()
 
+        sink_arg = f"pipewiresink target-object={self.sink_name}" if self.is_connected() else "pipewiresink"
         cmd = [
             "gst-launch-1.0",
             "playbin",
             f"uri={file_uri}",
             "video-sink=fakesink",
-            f"audio-sink=pulsesink device={self.sink_name}"
+            f"audio-sink={sink_arg}"
         ]
 
         try:
@@ -284,6 +285,46 @@ class BluetoothSpeakerController:
             return True
         except Exception as e:
             self.logger.error(f"Error starting playback: {e}")
+            return False
+
+    def play_stream(self, stream_url: str, track_title: Optional[str] = None) -> bool:
+        """Play an internet audio stream (e.g. online radio) on the active Bluetooth speaker."""
+        target_url = stream_url.strip()
+        if not target_url:
+            return False
+
+        title = track_title or "Інтернет-радіо"
+
+        # Ensure speaker is connected if possible
+        if not self.is_connected():
+            self.logger.info(f"Speaker {self.name} not connected, attempting connect...")
+            self.connect()
+
+        self.stop()
+
+        sink_arg = f"pipewiresink target-object={self.sink_name}" if self.is_connected() else "pipewiresink"
+        cmd = [
+            "gst-launch-1.0",
+            "playbin",
+            f"uri={target_url}",
+            "video-sink=fakesink",
+            f"audio-sink={sink_arg}"
+        ]
+
+        try:
+            with self._lock:
+                self._player_proc = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL
+                )
+                self._current_track = f"📻 {title}"
+                self._playback_start_time = time.time()
+                self._is_paused = False
+            self.logger.info(f"Streaming radio '{title}' from {target_url} on {self.name}.")
+            return True
+        except Exception as e:
+            self.logger.error(f"Error starting radio stream '{title}': {e}")
             return False
 
     def play_youtube(self, query: str) -> bool:
@@ -324,6 +365,13 @@ class BluetoothSpeakerController:
         try:
             subprocess.run(cmd_dl, capture_output=True, text=True, timeout=60)
             if cached_file.exists() and cached_file.stat().st_size > 10000:
+                try:
+                    all_streams = sorted([f for f in self.media_dir.glob("stream_*.mp4") if f.is_file()], key=lambda x: x.stat().st_mtime)
+                    if len(all_streams) > 8:
+                        for old_st in all_streams[:-8]:
+                            old_st.unlink(missing_ok=True)
+                except Exception:
+                    pass
                 return self.play_file(str(cached_file), track_title=target)
         except Exception as e:
             self.logger.error(f"Error downloading audio for JBL: {e}")

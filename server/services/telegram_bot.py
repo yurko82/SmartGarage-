@@ -391,22 +391,34 @@ class TelegramBot:
             except Exception as e:
                 self.send_message(chat_id, f"⚠️ Помилка обробки: {e}")
 
+    def _get_floors(self) -> dict:
+        if hasattr(self.garage, "get_floors_telemetry"):
+            return self.garage.get_floors_telemetry()
+        bt = self.garage.bt_sensors.get_telemetry() if hasattr(self.garage, "bt_sensors") and self.garage.bt_sensors else {}
+        return bt.get("floors", {})
+
     def _send_status(self, chat_id: int):
         try:
             state = self.garage.esp32.get_telemetry()
-            bt = self.garage.bt_sensors.get_telemetry() if hasattr(self.garage, "bt_sensors") else {}
-            floors = bt.get("floors", {})
+            floors = self._get_floors()
             fb = floors.get("basement", {})
+            f2 = floors.get("floor2", {})
 
             esp_online = "🟢 Онлайн (USB Serial)" if state.get("online") else "🔴 Офлайн"
             temp_str = f"{fb.get('temperature', '--')}°C" if fb.get("temperature") is not None else "--"
             hum_str = f"{fb.get('humidity', '--')}%" if fb.get("humidity") is not None else "--"
 
+            temp_f2_str = f"{f2.get('temperature', '--')}°C" if f2.get("temperature") is not None else "--"
+            hum_f2_str = f"{f2.get('humidity', '--')}%" if f2.get("humidity") is not None else "--"
+            bat_f2 = f2.get("battery", "--")
+            f2_online_mark = "🟢" if f2.get("online") else "🔴"
+            f2_status_desc = f"{f2_online_mark} `{temp_f2_str}` (Вологість: `{hum_f2_str}`, 🔋 `{bat_f2}%`)" if f2.get("online") and f2.get("temperature") is not None else f"🔴 `{temp_f2_str}` (Офлайн)"
+
             text = (
                 f"📊 *Стан Smart Garage:*\n\n"
                 f"• 📡 *ESP32-S3:* {esp_online}\n"
                 f"• ⚓ *Підвал (LYWSD03MMC):* `{temp_str}` (Вологість: `{hum_str}`, 🔋 `{fb.get('battery', '--')}%`)\n"
-                f"• 🏢 *2-й поверх:* `18.9°C` (Офлайн)\n"
+                f"• 🏢 *2-й поверх (LYWSD03MMC):* {f2_status_desc}\n"
                 f"• 🏠 *1-й поверх:* Очікує датчик\n"
                 f"• 🚪 *Ворота:* Очікує датчик\n"
                 f"• 💡 *Світло:* Очікує реле\n"
@@ -417,8 +429,7 @@ class TelegramBot:
 
     def _send_climate_menu(self, chat_id: int, message_id: Optional[int] = None):
         try:
-            bt = self.garage.bt_sensors.get_telemetry() if hasattr(self.garage, "bt_sensors") else {}
-            floors = bt.get("floors", {})
+            floors = self._get_floors()
             fb = floors.get("basement", {})
             f2 = floors.get("floor2", {})
             f1 = floors.get("floor1", {})
@@ -486,8 +497,8 @@ class TelegramBot:
             self.send_message(chat_id, msg, reply_markup=reply_markup)
 
     def _send_floor2_details(self, chat_id: int, message_id: Optional[int] = None):
-        bt = self.garage.bt_sensors.get_telemetry() if hasattr(self.garage, "bt_sensors") else {}
-        f2 = bt.get("floors", {}).get("floor2", {})
+        floors = self._get_floors()
+        f2 = floors.get("floor2", {})
         t2 = f"{f2.get('temperature')}°C" if f2.get('temperature') is not None else "--"
         h2 = f"{f2.get('humidity')}%" if f2.get('humidity') is not None else "--"
         b2 = f"{f2.get('battery')}%" if f2.get('battery') is not None else "--"
@@ -516,8 +527,8 @@ class TelegramBot:
             self.send_message(chat_id, msg, reply_markup=reply_markup)
 
     def _send_basement_details(self, chat_id: int, message_id: Optional[int] = None):
-        bt = self.garage.bt_sensors.get_telemetry() if hasattr(self.garage, "bt_sensors") else {}
-        fb = bt.get("floors", {}).get("basement", {})
+        floors = self._get_floors()
+        fb = floors.get("basement", {})
         tb = f"{fb.get('temperature')}°C" if fb.get('temperature') is not None else "--"
         hb = f"{fb.get('humidity')}%" if fb.get('humidity') is not None else "--"
         bb = f"{fb.get('battery')}%" if fb.get('battery') is not None else "--"

@@ -88,6 +88,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const mediaChipsContainer = document.getElementById('mediaChipsContainer');
 
     // JBL Speaker Elements
+    const jblCardTitle = document.getElementById('jblCardTitle');
     const jblOnlineDot = document.getElementById('jblOnlineDot');
     const jblStatusBadge = document.getElementById('jblStatusBadge');
     const jblDeviceName = document.getElementById('jblDeviceName');
@@ -103,6 +104,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const jblPlayForm = document.getElementById('jblPlayForm');
     const jblPlayInput = document.getElementById('jblPlayInput');
 
+    // Internet Radio Elements
+    const radioStationsContainer = document.getElementById('radioStationsContainer');
+    const radioSearchInput = document.getElementById('radioSearchInput');
+    const btnRadioSearch = document.getElementById('btnRadioSearch');
+    const btnRadioReset = document.getElementById('btnRadioReset');
+    let currentRadioUrl = null;
 
     // System Stats
     const statCpuLoad = document.getElementById('statCpuLoad');
@@ -681,6 +688,96 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // --- INTERNET RADIO (RADIO BROWSER) ---
+    async function loadRadioStations(query = '') {
+        if (!radioStationsContainer) return;
+        radioStationsContainer.innerHTML = '<div style="font-size: 0.75rem; color: var(--text-muted); padding: 4px;">⏳ Завантаження станцій...</div>';
+        try {
+            const url = query ? `/api/radio/search?q=${encodeURIComponent(query)}` : '/api/radio/stations?limit=24';
+            const res = await fetch(url);
+            const data = await res.json();
+            if (data.success && data.stations && data.stations.length > 0) {
+                renderRadioStations(data.stations);
+            } else {
+                radioStationsContainer.innerHTML = '<div style="font-size: 0.75rem; color: var(--text-muted); padding: 4px;">Станцій не знайдено</div>';
+            }
+        } catch (e) {
+            radioStationsContainer.innerHTML = '<div style="font-size: 0.75rem; color: var(--accent-pink); padding: 4px;">Помилка завантаження станцій</div>';
+        }
+    }
+
+    function renderRadioStations(stations) {
+        if (!radioStationsContainer) return;
+        radioStationsContainer.innerHTML = '';
+        stations.forEach(st => {
+            const chip = document.createElement('div');
+            chip.className = 'radio-chip';
+            if (currentRadioUrl === st.url) {
+                chip.classList.add('active');
+            }
+
+            const imgHtml = st.favicon ? `<img src="${st.favicon}" alt="" onerror="this.style.display='none'">` : '<span>📻</span>';
+            const cleanName = st.name.length > 22 ? st.name.substring(0, 20) + '...' : st.name;
+            const primaryTag = st.tags ? st.tags.split(',')[0].trim() : '';
+
+            chip.innerHTML = `
+                ${imgHtml}
+                <span title="${st.name}">${cleanName}</span>
+                ${primaryTag ? `<span class="radio-tag">${primaryTag}</span>` : ''}
+            `;
+
+            chip.addEventListener('click', async () => {
+                hapticFeedback();
+                currentRadioUrl = st.url;
+                document.querySelectorAll('.radio-chip').forEach(c => c.classList.remove('active'));
+                chip.classList.add('active');
+
+                if (voiceStatusText) voiceStatusText.textContent = `Запуск радіо: ${st.name}...`;
+                if (jblNowPlaying) jblNowPlaying.textContent = `📻 ${st.name}`;
+
+                try {
+                    const res = await fetch('/api/radio/play', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ url: st.url, name: st.name })
+                    });
+                    const data = await res.json();
+                    if (voiceStatusText) voiceStatusText.textContent = data.response || `Грає ${st.name}`;
+                    if (ttsEnabled) speakText(data.response);
+                    fetchTelemetry();
+                } catch (err) {
+                    if (voiceStatusText) voiceStatusText.textContent = `Помилка запуску ${st.name}`;
+                }
+            });
+
+            radioStationsContainer.appendChild(chip);
+        });
+    }
+
+    if (btnRadioSearch && radioSearchInput) {
+        btnRadioSearch.addEventListener('click', () => {
+            hapticFeedback();
+            const q = radioSearchInput.value.trim();
+            loadRadioStations(q);
+        });
+
+        radioSearchInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                hapticFeedback();
+                const q = radioSearchInput.value.trim();
+                loadRadioStations(q);
+            }
+        });
+    }
+
+    if (btnRadioReset) {
+        btnRadioReset.addEventListener('click', () => {
+            hapticFeedback();
+            if (radioSearchInput) radioSearchInput.value = '';
+            loadRadioStations('');
+        });
+    }
 
     async function loadMediaChips() {
         try {
@@ -872,6 +969,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (jblStatusBadge) {
                     jblStatusBadge.textContent = spkConnected ? 'Підключено' : 'Відключено';
                     jblStatusBadge.style.color = spkConnected ? 'var(--accent-cyan)' : 'var(--text-muted)';
+                }
+                if (jblCardTitle && spk.name) {
+                    jblCardTitle.textContent = `Колонка ${spk.name}`;
+                }
+                if (jblDeviceName && spk.name) {
+                    jblDeviceName.textContent = spk.name;
+                }
+                if (jblMac && spk.mac) {
+                    jblMac.textContent = `MAC: ${spk.mac}`;
                 }
                 if (btnJblConnect && btnJblDisconnect) {
                     btnJblConnect.style.display = spkConnected ? 'none' : 'inline-block';
@@ -1295,5 +1401,6 @@ document.addEventListener('DOMContentLoaded', () => {
     // Initial Load & Regular Polling
     fetchTelemetry();
     loadMediaChips();
+    loadRadioStations();
     setInterval(fetchTelemetry, 2500);
 });

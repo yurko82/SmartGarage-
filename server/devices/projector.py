@@ -425,6 +425,14 @@ class ProjectorController:
         try:
             res = subprocess.run(cmd_dl, capture_output=True, text=True, timeout=90)
             if cached_file.exists() and cached_file.stat().st_size > 10000:
+                # Keep only 8 most recent streams to avoid directory clutter
+                try:
+                    all_streams = sorted([f for f in media_dir.glob("stream_*.mp4") if f.is_file()], key=lambda x: x.stat().st_mtime)
+                    if len(all_streams) > 8:
+                        for old_st in all_streams[:-8]:
+                            old_st.unlink(missing_ok=True)
+                except Exception:
+                    pass
                 return self.play_video(local_url), local_url
         except Exception:
             pass

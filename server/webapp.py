@@ -8,6 +8,7 @@ from flask import Flask, request, jsonify, render_template, send_from_directory
 from .core.core import SmartGarage
 from .devices.projector import get_local_ip
 from server.config import config
+from server.services.radio_service import radio_service
 
 
 class TelemetryHistory:
@@ -275,10 +276,14 @@ def garage_state():
 
 @app.route("/api/sensors/floors", methods=["GET"])
 def sensors_floors():
-    bt_telemetry = garage.bt_sensors.get_telemetry() if hasattr(garage, "bt_sensors") else {}
+    if hasattr(garage, "get_floors_telemetry"):
+        floors = garage.get_floors_telemetry()
+    else:
+        bt_telemetry = garage.bt_sensors.get_telemetry() if hasattr(garage, "bt_sensors") else {}
+        floors = bt_telemetry.get("floors", {})
     return jsonify({
         "success": True,
-        "floors": bt_telemetry.get("floors", {})
+        "floors": floors
     })
 
 
@@ -614,27 +619,93 @@ def trigger_scenario(name):
 # --- MEDIA HUB & PROJECTOR API ---
 @app.route("/api/media/list", methods=["GET"])
 def media_list():
-    files = []
+    media_files = []
+    stream_files = []
+    local_ip = get_local_ip()
+
     if MEDIA_DIR.exists():
         for f in MEDIA_DIR.iterdir():
             if f.is_file() and not f.name.endswith(".part") and not f.name.startswith("."):
+                is_stream = f.name.startswith("stream_") and f.name != "stream_test_ok.mp4"
                 raw_name = f.stem
-                clean_name = raw_name.replace("_", " ").replace("-", " ").title()
-                if clean_name.startswith("Stream "):
-                    clean_name = f"Відеопотік ({clean_name[7:]})"
+                if is_stream:
+                    clean_name = f"⚡ Стрім ({raw_name[7:17]})"
+                else:
+                    clean_name = raw_name.replace("_", " ").replace("-", " ").title()
+
                 size_mb = round(f.stat().st_size / (1024 * 1024), 2)
                 mtime = time.strftime("%Y-%m-%d %H:%M", time.localtime(f.stat().st_mtime))
-                local_ip = get_local_ip()
-                files.append({
+                item = {
                     "filename": f.name,
                     "title": clean_name,
                     "size_mb": size_mb,
                     "modified": mtime,
                     "ext": f.suffix.lower(),
+                    "is_stream": is_stream,
                     "url": f"http://{local_ip}:5000/media/{f.name}"
-                })
-    files.sort(key=lambda x: x["modified"], reverse=True)
-    return jsonify({"success": True, "media": files})
+                }
+                if is_stream:
+                    stream_files.append(item)
+                else:
+                    media_files.append(item)
+
+    media_files.sort(key=lambda x: x["modified"], reverse=True)
+    stream_files.sort(key=lambda x: x["modified"], reverse=True)
+
+    all_streams = request.args.get("all_streams", default="0") == "1"
+    visible_streams = stream_files if all_streams else stream_files[:6]
+
+    combined = media_files + visible_streams
+    return jsonify({
+        "success": True,
+        "media": combined,
+        "media_count": len(media_files),
+        "streams_count": len(stream_files),
+        "total_count": len(media_files) + len(stream_files)
+    })
+
+
+@app.route("/api/media/delete", methods=["POST"])
+def media_delete():
+    data = request.get_json(silent=True) or {}
+    filename = data.get("filename", "").strip()
+    if not filename:
+        return jsonify({"success": False, "response": "Не вказано файл"}), 400
+
+    target = (MEDIA_DIR / filename).resolve()
+    if not str(target).startswith(str(MEDIA_DIR.resolve())) or not target.exists():
+        return jsonify({"success": False, "response": "Файл не знайдено"}), 404
+
+    try:
+        target.unlink()
+        return jsonify({"success": True, "response": f"Файл {filename} видалено"})
+    except Exception as e:
+        return jsonify({"success": False, "response": f"Помилка видалення: {e}"}), 500
+
+
+@app.route("/api/media/cleanup", methods=["POST"])
+def media_cleanup():
+    """Purge temporary cached stream files (stream_*.mp4) to free space."""
+    deleted = 0
+    freed_bytes = 0
+    if MEDIA_DIR.exists():
+        for f in MEDIA_DIR.iterdir():
+            if f.is_file() and (f.name.startswith("stream_") or f.name.endswith(".part")) and f.name != "stream_test_ok.mp4":
+                try:
+                    sz = f.stat().st_size
+                    f.unlink()
+                    deleted += 1
+                    freed_bytes += sz
+                except Exception:
+                    pass
+
+    freed_mb = round(freed_bytes / (1024 * 1024), 2)
+    return jsonify({
+        "success": True,
+        "deleted_count": deleted,
+        "freed_mb": freed_mb,
+        "response": f"Видалено {deleted} тимчасових стрімів (звільнено {freed_mb} MB)"
+    })
 
 
 @app.route("/api/media/play", methods=["POST"])
@@ -777,7 +848,7 @@ def speaker_disconnect():
 @app.route("/api/speaker/volume", methods=["POST"])
 def speaker_volume():
     data = request.get_json(silent=True) or {}
-    val = data.get("value", 75)
+    val = data.get("value", data.get("volume", data.get("val", 75)))
     ok = garage.speaker.set_volume(val)
     return jsonify({
         "success": ok,
@@ -816,6 +887,40 @@ def speaker_control():
         garage.speaker.resume()
         return jsonify({"success": True, "response": "Продовжено"})
     return jsonify({"success": False, "response": f"Невідома дія: {action}"}), 400
+
+
+# --- INTERNET RADIO API (Radio Browser) ---
+@app.route("/api/radio/stations", methods=["GET"])
+def radio_stations():
+    limit = request.args.get("limit", default=24, type=int)
+    country = request.args.get("country", default="UA", type=str)
+    stations = radio_service.get_top_stations(limit=limit, country_code=country)
+    return jsonify({"success": True, "stations": stations})
+
+
+@app.route("/api/radio/search", methods=["GET"])
+def radio_search():
+    q = request.args.get("q", default="", type=str).strip()
+    limit = request.args.get("limit", default=20, type=int)
+    stations = radio_service.search_stations(query=q, limit=limit)
+    return jsonify({"success": True, "stations": stations})
+
+
+@app.route("/api/radio/play", methods=["POST"])
+def radio_play():
+    data = request.get_json(silent=True) or {}
+    url = data.get("url", "").strip()
+    name = data.get("name", "Інтернет-радіо").strip()
+    if not url:
+        return jsonify({"success": False, "response": "Не вказано URL потоку"}), 400
+
+    ok = garage.speaker.play_stream(url, track_title=name)
+    spk_name = garage.speaker.name or "колонці"
+    return jsonify({
+        "success": ok,
+        "playing": garage.speaker.is_playing(),
+        "response": f"Трансляція {name} на {spk_name}" if ok else f"Не вдалося запустити {name}"
+    })
 
 
 

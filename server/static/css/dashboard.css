@@ -854,6 +854,53 @@ body {
     border-color: var(--accent-cyan);
 }
 
+.radio-chip {
+    flex-shrink: 0;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--border-card);
+    border-radius: var(--radius-sm);
+    padding: 6px 10px;
+    font-size: 0.78rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.2s;
+    user-select: none;
+    max-width: 100%;
+}
+
+.radio-chip:hover {
+    background: rgba(0, 240, 255, 0.12);
+    color: #fff;
+    border-color: var(--accent-cyan);
+    transform: translateY(-1px);
+}
+
+.radio-chip.active {
+    background: rgba(0, 240, 255, 0.22);
+    border-color: var(--accent-cyan);
+    color: var(--accent-cyan);
+    font-weight: 600;
+    box-shadow: 0 0 10px rgba(0, 240, 255, 0.2);
+}
+
+.radio-chip img {
+    width: 16px;
+    height: 16px;
+    border-radius: 3px;
+    object-fit: cover;
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.radio-chip .radio-tag {
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    opacity: 0.8;
+}
+
 /* =========================================
    SYSTEM HEALTH / HARDWARE DIAGNOSTICS
    ========================================= */
