@@ -44,3 +44,22 @@ telegram:
 presence:
   rpa_continuity_window_sec: 90
   rpa_continuity_rssi_tolerance: 10
+voice:
+  enabled: true
+  wake_word: "hey_jarvis"
+  wake_word_threshold: 0.55
+  whisper_model: "base"
+  whisper_language: "uk"
+  max_record_sec: 8.0
+  silence_timeout_sec: 1.3
+  virtual_source_name: "pipewire-virtual-source"
+  api_endpoint: "http://127.0.0.1:5000/api/voice/command"
+mqtt:
+  enabled: true
+  broker_host: "127.0.0.1"
+  broker_port: 1883
+  username: "smartgarage"
+  password: "smartgarage_secret"
+  discovery_prefix: "homeassistant"
+  topic_prefix: "smartgarage"
+  client_id: "smartgarage_bridge"

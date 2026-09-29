@@ -18,14 +18,28 @@
 #include <BLERemoteService.h>
 #include <BLERemoteCharacteristic.h>
 #include <Update.h>
+#include <PubSubClient.h>
 #include "soc/rtc_cntl_reg.h"
 
 // --- Wi-Fi Credentials (4G Modem Network) ---
 const char* WIFI_SSID = "SmGrg";
 const char* WIFI_PASSWORD = "1234567890";
 
-// --- Smart Garage Backend Server ---
+// --- Smart Garage Backend Server & MQTT Broker ---
 const char* SERVER_TELEMETRY_URL = "http://192.168.100.198:5000/api/esp32/telemetry";
+const char* MQTT_BROKER = "192.168.100.198";
+const int MQTT_PORT = 1883;
+const char* MQTT_CLIENT_ID = "SmartGarage-ESP32-S3";
+const char* MQTT_USER = "smartgarage";
+const char* MQTT_PASSWORD = "smartgarage_secret";
+
+const char* TOPIC_TELEMETRY = "smartgarage/esp32/telemetry";
+const char* TOPIC_COMMAND   = "smartgarage/esp32/command";
+const char* TOPIC_STATUS    = "smartgarage/esp32/status"; // LWT: online/offline
+
+WiFiClient espMqttClient;
+PubSubClient mqttClient(espMqttClient);
+unsigned long lastMqttRetryTime = 0;
 
 // --- Pin Definitions (Compatible with ESP32-S3 and standard ESP32) ---
 #if CONFIG_IDF_TARGET_ESP32S3
@@ -350,6 +364,11 @@ void sendTelemetryToServer() {
     http.POST(jsonBody);
     http.end();
   }
+
+  // Publish over MQTT if connected
+  if (mqttClient.connected()) {
+    mqttClient.publish(TOPIC_TELEMETRY, jsonBody.c_str(), false);
+  }
 }
 
 void handleTelemetry() {
@@ -402,6 +421,81 @@ void handleFanOff() {
   digitalWrite(PIN_RELAY_FAN, LOW);
   Serial.println("FAN_EVENT:0");
   server.send(200, "application/json", "{\"status\":\"ok\",\"fan\":false}");
+}
+
+// --- MQTT Support & Telemetry Publishing ---
+void publishMqttTelemetry() {
+  if (!mqttClient.connected()) return;
+  String jsonBody = buildTelemetryJson();
+  mqttClient.publish(TOPIC_TELEMETRY, jsonBody.c_str(), false);
+}
+
+void mqttCallback(char* topic, byte* payload, unsigned int length) {
+  char message[length + 1];
+  memcpy(message, payload, length);
+  message[length] = '\0';
+  Serial.printf("[MQTT RX] %s: %s\n", topic, message);
+
+  JsonDocument doc;
+  DeserializationError err = deserializeJson(doc, message);
+  if (err) {
+    Serial.printf("[MQTT] JSON parse error: %s\n", err.c_str());
+    return;
+  }
+
+  const char* action = doc["action"] | "";
+  if (strcmp(action, "open_door") == 0 || strcmp(action, "OPEN") == 0) {
+    triggerDoorPulse("open");
+  } else if (strcmp(action, "close_door") == 0 || strcmp(action, "CLOSE") == 0) {
+    triggerDoorPulse("closed");
+  } else if (strcmp(action, "toggle_door") == 0) {
+    triggerDoorPulse(doorState == "closed" ? "open" : "closed");
+  } else if (strcmp(action, "light_on") == 0 || strcmp(action, "LIGHT_ON") == 0) {
+    lightState = true;
+    digitalWrite(PIN_RELAY_LIGHT, HIGH);
+    Serial.println("LIGHT_EVENT:1");
+  } else if (strcmp(action, "light_off") == 0 || strcmp(action, "LIGHT_OFF") == 0) {
+    lightState = false;
+    digitalWrite(PIN_RELAY_LIGHT, LOW);
+    Serial.println("LIGHT_EVENT:0");
+  } else if (strcmp(action, "fan_on") == 0 || strcmp(action, "FAN_ON") == 0) {
+    fanState = true;
+    digitalWrite(PIN_RELAY_FAN, HIGH);
+    Serial.println("FAN_EVENT:1");
+  } else if (strcmp(action, "fan_off") == 0 || strcmp(action, "FAN_OFF") == 0) {
+    fanState = false;
+    digitalWrite(PIN_RELAY_FAN, LOW);
+    Serial.println("FAN_EVENT:0");
+  } else if (strcmp(action, "get_telemetry") == 0) {
+    readSensors();
+  }
+
+  // Publish updated state immediately
+  publishMqttTelemetry();
+}
+
+void reconnectMqtt() {
+  if (mqttClient.connected()) return;
+  if (WiFi.status() != WL_CONNECTED) return;
+
+  unsigned long now = millis();
+  if (now - lastMqttRetryTime < 5000) return; // Non-blocking retry every 5 sec
+  lastMqttRetryTime = now;
+
+  Serial.print("[MQTT] Connecting to broker...");
+  // LWT configuration: topic=smartgarage/esp32/status, qos=1, retain=true, payload="offline"
+  if (mqttClient.connect(MQTT_CLIENT_ID, MQTT_USER, MQTT_PASSWORD, TOPIC_STATUS, 1, true, "offline")) {
+    Serial.println(" connected!");
+    // Publish online status with retain
+    mqttClient.publish(TOPIC_STATUS, "online", true);
+    // Subscribe to command topic
+    mqttClient.subscribe(TOPIC_COMMAND, 1);
+    Serial.printf("[MQTT] Subscribed to %s (LWT configured on %s)\n", TOPIC_COMMAND, TOPIC_STATUS);
+    // Publish initial telemetry
+    publishMqttTelemetry();
+  } else {
+    Serial.printf(" failed, rc=%d. Will retry in 5s\n", mqttClient.state());
+  }
 }
 
 void enterBootloader() {
@@ -543,12 +637,25 @@ void setup() {
     }
   });
 
+  // Initialize MQTT Client
+  mqttClient.setServer(MQTT_BROKER, MQTT_PORT);
+  mqttClient.setCallback(mqttCallback);
+  mqttClient.setBufferSize(1024);
+
   server.begin();
-  Serial.println("[SmartGarage] System Ready.");
+  Serial.println("[SmartGarage] System Ready (HTTP + MQTT + Serial).");
 }
 
 void loop() {
   server.handleClient();
+
+  // Maintain MQTT connection and process incoming packets
+  if (WiFi.status() == WL_CONNECTED) {
+    if (!mqttClient.connected()) {
+      reconnectMqtt();
+    }
+    mqttClient.loop();
+  }
 
   // Handle incoming Serial commands from USB
   while (Serial.available() > 0) {

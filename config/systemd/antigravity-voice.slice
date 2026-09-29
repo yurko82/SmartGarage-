@@ -1,0 +1,18 @@
+[Unit]
+Description=Antigravity Voice Listener Isolation Slice
+Documentation=https://github.com/yurko82/SmartGarage
+Before=slices.target
+
+[Slice]
+# CPU Limits: Strict 15% quota to ensure background voice recognition never impacts main AI or audio streaming
+CPUQuota=15%
+CPUWeight=20
+
+# Memory Limits: 1GB ceiling, soft throttling at 800MB, zero swap allowed
+MemoryMax=1G
+MemoryHigh=800M
+MemorySwapMax=0
+
+# Process & I/O constraints
+TasksMax=64
+IOWeight=20

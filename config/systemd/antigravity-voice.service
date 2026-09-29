@@ -1,0 +1,22 @@
+[Unit]
+Description=Smart Garage Antigravity Voice Listener (WakeWord + Whisper STT)
+Documentation=https://github.com/yurko82/SmartGarage
+After=network.target sound.target pipewire.service smartgarage.service
+Wants=pipewire.service
+
+[Service]
+Type=simple
+User=yurko
+Group=yurko
+WorkingDirectory=/home/yurko/AI/SmartGarage
+Environment="PYTHONPATH=/home/yurko/AI/SmartGarage"
+Environment="PYTHONUNBUFFERED=1"
+Environment="XDG_RUNTIME_DIR=/run/user/1000"
+Environment="PULSE_SERVER=/run/user/1000/pulse/native"
+Slice=antigravity-voice.slice
+ExecStart=/home/yurko/AI/OpenInterpreter/venv/bin/python -m server.services.voice_listener
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

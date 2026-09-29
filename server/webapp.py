@@ -816,6 +816,39 @@ def command():
     })
 
 
+# --- VOICE INTERFACE API ---
+@app.route("/api/voice/command", methods=["POST"])
+def voice_command():
+    """Endpoint for recognized voice commands from voice_listener service."""
+    data = request.get_json(silent=True) or {}
+    command_text = (data.get("command") or data.get("text") or "").strip()
+    source = data.get("source", "voice")
+
+    if not command_text:
+        return jsonify({
+            "success": False,
+            "response": "Відсутній текст голосової команди"
+        }), 400
+
+    response = garage.process_voice_command(command_text, source=source)
+    return jsonify({
+        "success": True,
+        "source": source,
+        "command": command_text,
+        "response": response
+    })
+
+
+@app.route("/api/voice/status", methods=["GET"])
+def voice_status():
+    """Status and metrics of the voice interface queue."""
+    stats = garage.voice_queue.get_stats() if hasattr(garage, "voice_queue") else {}
+    return jsonify({
+        "success": True,
+        "stats": stats
+    })
+
+
 # --- BLUETOOTH SPEAKER API (JBL Clip 5) ---
 @app.route("/api/speaker/status", methods=["GET"])
 def speaker_status():

@@ -61,6 +61,28 @@ services:
       - PYTHONUNBUFFERED=1
       - TMPDIR=/tmp/scratch
 
+  # Eclipse Mosquitto MQTT Broker for ESP32 and Home Assistant Integration
+  mosquitto:
+    image: eclipse-mosquitto:2.0
+    container_name: smartgarage_mosquitto
+    restart: unless-stopped
+    ports:
+      - "1883:1883"
+      - "9001:9001"
+    volumes:
+      - ./config/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mosquitto_data:/mosquitto/data
+      - mosquitto_log:/mosquitto/log
+    mem_limit: 128m
+    cpus: 0.25
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 128M
+
 volumes:
   interpreter_cache:
   redis_data:
+  mosquitto_data:
+  mosquitto_log:

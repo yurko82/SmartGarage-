@@ -17,6 +17,7 @@ from server.services.telegram_bot import TelegramBot
 from server.router.router import CommandRouter
 from server.storage.telemetry_db import TelemetryDB
 from server.ai.tools import ToolDispatcher
+from server.services.voice_queue import voice_command_queue, VoiceCommandQueue
 
 
 class SmartGarage:
@@ -112,10 +113,14 @@ class SmartGarage:
         elif hasattr(self.presence, "_event_cb"):
             self.presence._event_cb = _on_presence_event
 
+        self.voice_queue = voice_command_queue
+        self._voice_worker_thread = None
+
         if start_workers and not os.environ.get("TESTING"):
             self.bt_sensors.start()
             self.presence.start()
             self.telegram.start()
+            self._start_voice_worker()
 
         self.automation = AutomationEngine(self.esp32, self.projector, self.memory, self.logger)
         self.commands = CommandProcessor(self.logger, self.memory, self.projector, self.esp32, self.automation, self.bt_sensors, speaker=self.speaker, presence=self.presence, telemetry_db=self.telemetry_db)
@@ -217,9 +222,66 @@ class SmartGarage:
 
         return "\n".join(lines)
 
+    def process_voice_command(self, text: str, source: str = "voice") -> str:
+        """
+        Processes a voice command with top priority (source: 'voice') through the router / AI pipeline.
+        Notifies Telegram admin and returns the AI response.
+        """
+        text = text.strip()
+        if not text:
+            return ""
 
+        self.logger.info(f"[Voice AI] Received command with high priority (source='{source}'): «{text}»")
+        # Enqueue with metadata marked as executed to maintain audit log and stats
+        self.voice_queue.put_sync(text, source=source, priority=1, metadata={"executed": True})
 
+        reply = self.router.execute(text, session_id="voice")
 
+        # Notify Telegram admin if configured
+        if hasattr(self, "telegram") and self.telegram and getattr(self.telegram, "admin_chat_id", None):
+            try:
+                self.telegram.send_message(
+                    self.telegram.admin_chat_id,
+                    f"🎙️ *Голосова команда:* «{text}»\n🤖 {reply or 'Команду виконано.'}"
+                )
+            except Exception as e:
+                self.logger.debug(f"Failed to send Telegram voice notification: {e}")
+
+        return reply or "Команду виконано."
+
+    def _start_voice_worker(self):
+        """Starts asynchronous background consumer for the voice message queue."""
+        import asyncio
+
+        def _loop_runner():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+
+            async def _consumer():
+                while True:
+                    try:
+                        cmd = await self.voice_queue.get()
+                        if cmd.metadata and cmd.metadata.get("executed"):
+                            continue
+                        self.logger.info(f"[VoiceQueueWorker] Processing async command (source={cmd.source}): «{cmd.text}»")
+                        reply = self.router.execute(cmd.text, session_id="voice")
+                        if hasattr(self, "telegram") and self.telegram and getattr(self.telegram, "admin_chat_id", None):
+                            try:
+                                self.telegram.send_message(
+                                    self.telegram.admin_chat_id,
+                                    f"🎙️ *Голосова команда:* «{cmd.text}»\n🤖 {reply or 'Команду виконано.'}"
+                                )
+                            except Exception:
+                                pass
+                    except Exception as e:
+                        self.logger.error(f"[VoiceQueueWorker] Error in queue consumer: {e}")
+                        await asyncio.sleep(1.0)
+
+            loop.run_until_complete(_consumer())
+
+        self._voice_worker_thread = threading.Thread(target=_loop_runner, daemon=True, name="VoiceQueueWorker")
+        self._voice_worker_thread.start()
+        self.logger.info("VoiceQueueWorker thread initialized.")
 
     def start(self):
 

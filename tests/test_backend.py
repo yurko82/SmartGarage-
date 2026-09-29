@@ -980,6 +980,102 @@ class TestAudioAndRadio(unittest.TestCase):
         self.assertFalse(speaker.play_stream("   "))
 
 
+class TestVoiceInterface(unittest.TestCase):
+
+    def setUp(self):
+        self.client = app.test_client()
+
+    def test_voice_command_queue(self):
+        from server.services.voice_queue import VoiceCommandQueue
+        vq = VoiceCommandQueue(maxsize=10)
+        self.assertTrue(vq.empty())
+        self.assertEqual(vq.qsize(), 0)
+
+        # Synchronous put
+        vq.put_sync("відкрий ворота", source="voice", priority=1)
+        self.assertEqual(vq.qsize(), 1)
+        self.assertFalse(vq.empty())
+
+        stats = vq.get_stats()
+        self.assertEqual(stats["total_received"], 1)
+        self.assertEqual(stats["recent_history"][0]["text"], "відкрий ворота")
+
+    def test_api_voice_command_status(self):
+        res = self.client.post("/api/voice/command", json={"command": "status", "source": "voice"})
+        self.assertEqual(res.status_code, 200)
+        data = res.get_json()
+        self.assertTrue(data["success"])
+        self.assertEqual(data["source"], "voice")
+        self.assertIn("Smart Garage is running", data["response"])
+
+    def test_api_voice_command_empty(self):
+        res = self.client.post("/api/voice/command", json={"command": ""})
+        self.assertEqual(res.status_code, 400)
+        self.assertFalse(res.get_json()["success"])
+
+    def test_api_voice_status(self):
+        res = self.client.get("/api/voice/status")
+        self.assertEqual(res.status_code, 200)
+        data = res.get_json()
+        self.assertTrue(data["success"])
+        self.assertIn("queue_size", data["stats"])
+
+
+class TestMQTTBridge(unittest.TestCase):
+
+    def test_discovery_payloads_generation(self):
+        from server.services.mqtt_bridge import SmartGarageMQTTBridge
+        bridge = SmartGarageMQTTBridge()
+
+        published = {}
+        class MockClient:
+            async def publish(self, topic, payload, retain=False):
+                published[topic] = {"payload": payload, "retain": retain}
+
+        import asyncio
+        asyncio.run(bridge.publish_discovery(MockClient()))
+
+        # Check essential discovery topics
+        self.assertIn("homeassistant/cover/smartgarage/door/config", published)
+        self.assertIn("homeassistant/binary_sensor/smartgarage/door_contact/config", published)
+        self.assertIn("homeassistant/switch/smartgarage/light/config", published)
+        self.assertIn("homeassistant/switch/smartgarage/fan/config", published)
+        self.assertIn("homeassistant/sensor/smartgarage/basement_temperature/config", published)
+        self.assertIn("homeassistant/sensor/smartgarage/ai_status/config", published)
+
+        # Validate cover payload
+        cover_payload = json.loads(published["homeassistant/cover/smartgarage/door/config"]["payload"])
+        self.assertEqual(cover_payload["name"], "Ворота Гаража")
+        self.assertEqual(cover_payload["device_class"], "garage")
+        self.assertEqual(cover_payload["device"]["name"], "Smart Garage Antigravity")
+        self.assertTrue(published["homeassistant/cover/smartgarage/door/config"]["retain"])
+
+    def test_message_handling(self):
+        from server.services.mqtt_bridge import SmartGarageMQTTBridge
+        bridge = SmartGarageMQTTBridge()
+
+        published = {}
+        class MockClient:
+            async def publish(self, topic, payload, retain=False):
+                published[topic] = payload
+
+        import asyncio
+        telemetry_sample = json.dumps({
+            "door_status": "open",
+            "light": True,
+            "fan": False,
+            "temperature": 18.5,
+            "floors": {
+                "basement": {"temperature": 16.2, "humidity": 60}
+            }
+        })
+        asyncio.run(bridge.handle_message(MockClient(), "smartgarage/esp32/telemetry", telemetry_sample))
+        self.assertEqual(published["smartgarage/door/state"], "open")
+        self.assertEqual(published["smartgarage/light/state"], "ON")
+        self.assertEqual(published["smartgarage/fan/state"], "OFF")
+        self.assertIn("16.2", published["smartgarage/telemetry"])
+
+
 if __name__ == "__main__":
     unittest.main()
 
