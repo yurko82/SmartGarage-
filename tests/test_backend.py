@@ -1075,6 +1075,26 @@ class TestMQTTBridge(unittest.TestCase):
         self.assertEqual(published["smartgarage/fan/state"], "OFF")
         self.assertIn("16.2", published["smartgarage/telemetry"])
 
+    def test_russian_language_and_music_taboo(self):
+        from server.commands.processor import CommandProcessor
+        from server.logger.logger import Logger
+        cp = CommandProcessor(Logger())
+
+        # 1. Command containing Russian-specific letters
+        handled, resp = cp.execute("включи свет пожалуйста")
+        self.assertTrue(handled)
+        self.assertIn("табу", resp.lower())
+
+        # 2. Command requesting Russian music explicitly
+        handled, resp = cp.execute("увімкни російську музику")
+        self.assertTrue(handled)
+        self.assertIn("табу", resp.lower())
+
+        # 3. Bluetooth speaker play_youtube with Russian query
+        from server.devices.bluetooth_speaker import BluetoothSpeakerController
+        spk = BluetoothSpeakerController()
+        self.assertFalse(spk.play_youtube("русская песня"))
+
 
 if __name__ == "__main__":
     unittest.main()

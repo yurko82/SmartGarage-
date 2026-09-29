@@ -62,6 +62,22 @@ class CommandProcessor:
         if not command:
             return True, ""
 
+        # ЖОРСТКЕ ТАБУ НА РОСІЙСЬКУ МОВУ ТА КОНТЕНТ
+        import re
+        RUSSIAN_CHARS = set("ёъыэЁЪЫЭ")
+        RUSSIAN_MARKER_WORDS = {
+            "свет", "пожалуйста", "открой", "закрой", "песня", "песню", "песни", "музыка", "музыку",
+            "русский", "русская", "русское", "русские", "русскую", "вруби", "выключи", "привет", "спасибо",
+            "дверь", "окно", "погода", "температуры", "комната"
+        }
+        tokens = set(re.findall(r'\b\w+\b', command.lower()))
+        has_ru_chars = any(ch in RUSSIAN_CHARS for ch in command)
+        has_ru_words = bool(tokens & RUSSIAN_MARKER_WORDS)
+        has_ru_media_request = any(w in command.lower() for w in ("російськ", "русск", "по-русски", "російською", "російські")) and any(m in command.lower() for m in ("музик", "пісн", "трек", "радіо", "відео", "кліп", "пісню", "увімкни", "включи", "запусти"))
+
+        if has_ru_chars or has_ru_words or has_ru_media_request:
+            return True, "🚫 Російська мова та контент під суворим табу в цій системі. Будь ласка, звертайтесь виключно українською мовою."
+
         # Check sub-clauses if command contains comma or semicolon (e.g. conversational preamble + command)
         if "," in command or ";" in command:
             import re

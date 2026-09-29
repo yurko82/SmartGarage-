@@ -412,6 +412,12 @@ class BluetoothSpeakerController:
         if not target:
             return False
 
+        # ЖОРСТКЕ ТАБУ НА РОСІЙСЬКУ МУЗИКУ ТА КОНТЕНТ
+        RUSSIAN_CHARS = set("ёъыэЁЪЫЭ")
+        if any(ch in RUSSIAN_CHARS for ch in target) or any(w in target.lower() for w in ("російськ", "русск", "по-русски", "російською")):
+            self.logger.warning(f"Blocked Russian media playback query: '{target}' (Hard taboo policy)")
+            return False
+
         # Check direct file path match first
         target_path = Path(target)
         if target_path.exists() and target_path.is_file():
