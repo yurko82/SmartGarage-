@@ -357,11 +357,20 @@
                     </div>
                 </div>
 
+                <!-- Speaker Target Selector -->
+                <div style="margin-bottom: 12px; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-color); border-radius: 10px; padding: 8px 12px;">
+                    <div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 5px;">Цільова аудіосистема / поверх:</div>
+                    <select id="speakerSelect" style="width: 100%; background: #121824; color: #fff; border: 1px solid rgba(0, 240, 255, 0.3); border-radius: 6px; padding: 6px 10px; font-size: 0.85rem; outline: none; cursor: pointer;">
+                        <option value="41:42:62:69:51:9B">📻 Музика 1-й поверх (JX-BT) [41:42:62:69:51:9B]</option>
+                        <option value="F8:5C:7E:EE:7D:CC">🔊 Гараж (Юрій: JBL Clip 5) [F8:5C:7E:EE:7D:CC]</option>
+                    </select>
+                </div>
+
                 <!-- Connection & State Header -->
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
                     <div>
-                        <div style="font-size: 0.9rem; font-weight: 600; color: #fff;" id="jblDeviceName">JBL Clip 5 (A2DP Stereo)</div>
-                        <div style="font-size: 0.75rem; color: var(--text-muted);" id="jblMac">MAC: F8:5C:7E:EE:7D:CC</div>
+                        <div style="font-size: 0.9rem; font-weight: 600; color: #fff;" id="jblDeviceName">JX-BT (1-й поверх)</div>
+                        <div style="font-size: 0.75rem; color: var(--text-muted);" id="jblMac">MAC: 41:42:62:69:51:9B</div>
                     </div>
                     <div style="display: flex; gap: 8px;">
                         <button class="btn-pill" id="btnJblConnect" style="background: rgba(0, 240, 255, 0.15); color: var(--accent-cyan); cursor: pointer;" aria-label="Підключити Bluetooth колонку">🔗 З'єднати</button>

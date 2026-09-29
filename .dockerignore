@@ -1,0 +1,14 @@
+.git
+.gitignore
+.env
+media/
+esp32/
+devices/*.db
+devices/*.sqlite
+logs/
+*.log
+*.pid
+BCM20702A1-0a5c-21f4.hcd
+__pycache__
+*.pyc
+.pytest_cache

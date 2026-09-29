@@ -62,13 +62,23 @@ class CommandProcessor:
         if not command:
             return True, ""
 
+        # Check sub-clauses if command contains comma or semicolon (e.g. conversational preamble + command)
+        if "," in command or ";" in command:
+            import re
+            sub_commands = [c.strip() for c in re.split(r"[,;]", command) if c.strip()]
+            if len(sub_commands) > 1:
+                for sub in reversed(sub_commands):
+                    sub_handled, sub_resp = self.execute(sub)
+                    if sub_handled:
+                        return True, sub_resp
+
         cmd = command.lower()
 
         # -----------------------
         # STATUS
         # -----------------------
 
-        if cmd == "status":
+        if cmd in ("status", "стан", "статус"):
             return True, "Smart Garage is running."
 
         # -----------------------
@@ -194,12 +204,21 @@ class CommandProcessor:
                 candidate_query = command[len(prefix):].strip()
                 # If prefix was just a general verb, ensure it's not a device or sensor command
                 if prefix.strip() in media_verbs:
-                    first_w = candidate_query.lower().split()[0] if candidate_query else ""
-                    if first_w in (
-                        "радіо", "radio", "світло", "ворота", "вентиляція", "витяжка", "вентиляцію", "витяжку",
-                        "проектор", "екран", "light", "door", "fan", "датчик", "датчики",
-                        "клімат", "температур", "температура", "стан", "всі", "все", "статус",
-                        "поверх", "поверхи", "підвал", "цоколь"
+                    words = [w.strip(" \"'.,:;-") for w in candidate_query.lower().split()]
+                    first_w = words[0] if words else ""
+                    if (
+                        any(rw in words for rw in ("радіо", "radio", "радио"))
+                        or candidate_query.lower().strip(" \"'.,:;-") in (
+                            "на колонку", "на колонки", "на колонці", "на колонках",
+                            "колонку", "колонки", "jbl", "на jbl", "колонку jbl", "колонки jbl",
+                            "jx-bt", "jxbt", "на jx-bt", "на jxbt", "1 поверх", "перший поверх"
+                        )
+                        or first_w in (
+                            "світло", "ворота", "вентиляція", "витяжка", "вентиляцію", "витяжку",
+                            "проектор", "екран", "light", "door", "fan", "датчик", "датчики",
+                            "клімат", "температур", "температура", "стан", "всі", "все", "статус",
+                            "поверх", "поверхи", "підвал", "цоколь"
+                        )
                     ):
                         break
                 matched_media = True
@@ -219,10 +238,20 @@ class CommandProcessor:
 
         if matched_media and media_query:
             query = media_query
-            is_floor1_target = any(k in cmd for k in ("на 1 поверсі", "на 1 поверх", "на першому поверсі", "1 поверх", "jx-bt", "jxbt"))
-            is_jbl_target = any(k in cmd for k in ("на jbl", "jbl", "на колонку jbl", "колонку jbl", "колонці jbl", "на кліп", "clip 5"))
+            is_floor1_target = any(k in cmd for k in (
+                "на 1 поверсі", "на 1 поверх", "на першому поверсі", "1 поверх", "1-й поверх", "перший поверх",
+                "jx-bt", "jxbt", "xt-bt", "xtbt", "на jx-bt", "на jxbt", "на xt-bt", "на xtbt"
+            ))
+            is_jbl_target = any(k in cmd for k in (
+                "на jbl", "jbl", "оид", "на оид", "на колонку jbl", "на колонки jbl", "колонку jbl", "колонки jbl",
+                "колонці jbl", "колонках jbl", "на кліп", "clip 5"
+            ))
             is_projector_explicit = any(k in cmd for k in ("на проектор", "на проекторі", "на екран", "на екрані", "через проектор", "в проектор"))
-            is_speaker_explicit = any(k in cmd for k in ("на колонку", "на колонці", "через колонку", "в колонку", "колонка")) or is_floor1_target or is_jbl_target
+            is_speaker_explicit = any(k in cmd for k in (
+                "на колонку", "на колонці", "на колонки", "на колонках",
+                "через колонку", "через колонки", "в колонку", "в колонки",
+                "колонка", "колонки"
+            )) or is_floor1_target or is_jbl_target
 
             if is_projector_explicit:
                 is_speaker_target = False
@@ -239,10 +268,13 @@ class CommandProcessor:
 
             for suffix in (
                 " на перший поверх", " на першому поверсі", " на 1 поверх", " на 1 поверсі",
-                " перший поверх", " 1 поверх", " на jx-bt", " на jxbt", " на jbl", " на колонку jbl",
-                " на колонку", " на колонці", " через колонку", " в колонку", " колонку jbl",
+                " перший поверх", " 1 поверх", " на jx-bt", " на jxbt", " на xt-bt", " на xtbt", " jx-bt", " jxbt", " xt-bt", " xtbt",
+                " на jbl", " на колонку jbl", " на колонки jbl", " на оид", " оид",
+                " на колонку", " на колонці", " на колонки", " на колонках",
+                " через колонку", " через колонки", " в колонку", " в колонки",
+                " колонку jbl", " колонки jbl", " колонка", " колонки",
                 " на проектор", " на проекторі", " на екран", " на екрані", " через проектор", " в проектор",
-                " on projector", " on the projector", " on jbl", " on speaker", " on floor 1", " floor 1"
+                " on projector", " on the projector", " on jbl", " on speaker", " on speakers", " on floor 1", " floor 1"
             ):
                 if query.lower().endswith(suffix):
                     query = query[:-len(suffix)].strip()
@@ -263,16 +295,24 @@ class CommandProcessor:
                 elif cleaned_lower.startswith(f"{n} "):
                     cleaned_lower = cleaned_lower[len(n) + 1:].strip()
 
+            # Remove laptop/local qualifiers
+            for local_kw in (
+                "з ноутбука", "з ноута", "з комп'ютера", "з компютера", "з компа",
+                "з диска", "локально", "локальну", "локальний", "локальна", "онлайн", "online"
+            ):
+                if local_kw in cleaned_lower:
+                    cleaned_lower = cleaned_lower.replace(local_kw, "").strip()
+
             if not query or not cleaned_lower or cleaned_lower in (
                 "музику", "музика", "музон", "пісню", "пісня", "трек", "кліп", "відео",
                 "щось", "що-небудь", "шось", "music", "song", "clip", "video"
             ):
-                query = getattr(self, "last_media_query", None) or "Кузьма Скрябін - Мам"
+                query = getattr(self, "last_media_query", None) or "Скрябін - Друг"
             elif cleaned_lower in (
                 "цю пісню", "цей кліп", "цю музику", "цей трек", "ту саму пісню", "цю ж пісню",
                 "це ж саме", "цю", "цей", "це", "ту саму", "той самий", "this song", "this", "this track"
             ):
-                query = getattr(self, "last_media_query", None) or "Кузьма Скрябін - Мам"
+                query = getattr(self, "last_media_query", None) or "Скрябін - Друг"
             elif cleaned_lower:
                 query = cleaned_lower
 
@@ -288,6 +328,8 @@ class CommandProcessor:
                 success = self.speaker.play_youtube(query)
                 if success:
                     return True, f"🔊 Відтворюю на {spk_name}: {query}"
+                if not self.speaker.is_connected():
+                    return True, f"⚠️ Не вдалося запустити відтворення на {spk_name}: колонка не підключена по Bluetooth або вимкнена. Увімкніть живлення/перепідключіть приймач."
                 return True, f"Не вдалося запустити відтворення на {spk_name} для '{query}'."
 
             if not self.projector.is_reachable():
@@ -295,6 +337,8 @@ class CommandProcessor:
                 success = self.speaker.play_youtube(query)
                 if success:
                     return True, f"🔊 Проектор офлайн, перенаправлено на {spk_name}: {query}"
+                if not self.speaker.is_connected():
+                    return True, f"⚠️ Проектор HY350MAX офлайн, а {spk_name} не підключена по Bluetooth або вимкнена."
                 return True, f"Проектор HY350MAX офлайн, а на {spk_name} не вдалося запустити '{query}'."
 
             self.projector.stop_mirroring()
@@ -304,33 +348,73 @@ class CommandProcessor:
             return True, f"Не вдалося запустити трансляцію на проектор для '{query}'."
 
         # Direct Speaker Controls
-        if cmd in ("підключи jx-bt", "підключи jxbt", "підключи 1 поверх", "підключи музику 1 поверх", "підключи колонку 1 поверх"):
+        if cmd in (
+            "підключи jx-bt", "підключи jxbt", "підключи xt-bt", "підключи xtbt",
+            "підключи 1 поверх", "підключи музику 1 поверх",
+            "підключи колонку 1 поверх", "підключи колонки 1 поверх", "колонки 1 поверх",
+            "включи на jx-bt", "включи jx-bt", "включи на xt-bt", "включи xt-bt",
+            "увімкни на jx-bt", "увімкни jx-bt", "увімкни на xt-bt", "увімкни xt-bt",
+            "спробуй включити на xt-bt", "спробуй включити на jx-bt", "спробуй увімкнути на xt-bt", "спробуй увімкнути на jx-bt",
+            "попробуй включити на xt-bt", "попробуй включити на jx-bt"
+        ) or any(k in cmd for k in (
+            "включити на xt-bt", "включити на jx-bt", "увімкнути на xt-bt", "увімкнути на jx-bt",
+            "перемкни на xt-bt", "перемкни на jx-bt", "переключи на xt-bt", "переключи на jx-bt"
+        )):
+            self.speaker.set_active_speaker("41:42:62:69:51:9B", "JX-BT (1-й поверх)")
             ok = self.speaker.connect("41:42:62:69:51:9B")
-            return True, "🔊 Колонку JX-BT (1-й поверх) успішно підключено!" if ok else "Не вдалося підключитися до JX-BT."
+            if not ok:
+                return True, "⚠️ Не вдалося підключитися до JX-BT (1-й поверх). Схоже, приймач вимкнений або не відповідає (br-connection-page-timeout)."
+            if hasattr(self.speaker, "resume_or_replay_last") and self.speaker.resume_or_replay_last():
+                track_info = getattr(self.speaker, "_current_track", None) or "аудіо"
+                return True, f"🔊 Колонку JX-BT (1-й поверх) успішно підключено, транслюю: {track_info}."
+            return True, "🔊 Колонку JX-BT (1-й поверх) успішно підключено та готово до відтворення!"
 
-        if cmd in ("підключи jbl", "з'єднай з jbl", "підключи jbl clip", "підключи колонку jbl"):
+        if cmd in (
+            "підключи jbl", "з'єднай з jbl", "підключи jbl clip", "підключи колонку jbl", "підключи колонки jbl",
+            "включи jbl", "увімкни jbl", "включи колонку jbl", "включи колонки jbl"
+        ):
             ok = self.speaker.connect("F8:5C:7E:EE:7D:CC")
             return True, "🔊 Колонку JBL Clip 5 успішно підключено!" if ok else "Не вдалося підключитися до JBL Clip 5."
 
-        if cmd in ("підключи колонку", "колонка підключи", "connect speaker", "speaker connect"):
+        if cmd in (
+            "підключи колонку", "колонка підключи", "connect speaker", "speaker connect",
+            "підключи колонки", "колонки підключи", "підключися до колонки", "підключися до колонок",
+            "включи колонку", "включи колонки", "увімкни колонку", "увімкни колонки",
+            "включи на колонку", "включи на колонки", "увімкни на колонку", "увімкни на колонки",
+            "звук на колонку", "звук на колонки", "музику на колонку", "музику на колонки",
+            "радіо на колонку", "радіо на колонки"
+        ):
             ok = self.speaker.connect()
             spk_name = self.speaker.name or "колонки"
-            return True, f"🔊 {spk_name} успішно підключено!" if ok else f"Не вдалося підключитися до {spk_name}."
+            if not ok:
+                return True, f"Не вдалося підключитися до {spk_name}."
+            if hasattr(self.speaker, "resume_or_replay_last") and self.speaker.resume_or_replay_last():
+                track_info = getattr(self.speaker, "_current_track", None) or "аудіо"
+                return True, f"🔊 {spk_name} підключено, транслюю: {track_info}."
+            return True, f"🔊 {spk_name} успішно підключено та готово до відтворення!"
 
         if cmd in ("відключи колонку", "колонка відключи", "disconnect speaker", "speaker disconnect", "відключи jbl", "відключи jx-bt"):
             spk_name = self.speaker.name or "Колонку"
             ok = self.speaker.disconnect()
             return True, f"🔊 {spk_name} відключено." if ok else "Помилка відключення колонки."
 
-        if cmd in ("зупини музику", "стоп музика", "вимкни музику", "колонка стоп", "speaker stop", "stop music", "зупини радіо", "вимкни радіо", "стоп радіо", "radio stop"):
+        if any(cmd.startswith(k) or cmd == k for k in (
+            "зупини музику", "стоп музика", "вимкни музику", "виключи музику",
+            "колонка стоп", "speaker stop", "stop music",
+            "зупини радіо", "вимкни радіо", "виключи радіо", "стоп радіо", "radio stop", "stop radio"
+        )):
             self.speaker.stop()
             return True, "⏹️ Відтворення на колонці зупинено."
 
-        if cmd in ("пауза музика", "колонка пауза", "speaker pause", "пауза радіо"):
+        if any(cmd.startswith(k) or cmd == k for k in (
+            "пауза музика", "пауза музику", "колонка пауза", "speaker pause", "пауза радіо", "радіо пауза"
+        )):
             self.speaker.pause()
             return True, "⏸️ Музику поставлено на паузу."
 
-        if cmd in ("продовж музику", "колонка продовж", "speaker resume", "продовж радіо"):
+        if any(cmd.startswith(k) or cmd == k for k in (
+            "продовж музику", "віднови музику", "колонка продовж", "speaker resume", "продовж радіо", "віднови радіо"
+        )):
             self.speaker.resume()
             return True, "▶️ Музику продовжено."
 
@@ -341,14 +425,83 @@ class CommandProcessor:
                 return True, f"🔊 Гучність колонки JBL встановлено на {val_str}%"
 
         # Internet Radio triggers
-        if any(cmd.startswith(prefix) for prefix in ("увімкни радіо", "включи радіо", "запусти радіо", "радіо ")) or cmd in ("радіо", "увімкни радіо", "включи радіо"):
+        is_radio_cmd = any(cmd.startswith(prefix) for prefix in (
+            "увімкни радіо", "увімкнути радіо",
+            "включи радіо", "включити радіо",
+            "запусти радіо", "запустити радіо",
+            "відтвори радіо", "відтворити радіо",
+            "постав радіо", "поставити радіо",
+            "грай радіо", "пусти радіо", "вруби радіо",
+            "play radio", "stream radio", "радіо ", "радио "
+        )) or cmd in ("радіо", "радио", "увімкни радіо", "включи радіо", "radio", "play radio") or (
+            any(w in cmd for w in ("радіо", "radio", "радио")) and any(v in cmd for v in ("включи", "увімкни", "запусти", "грай", "постав", "відтвори", "пусти", "play"))
+        )
+
+        if is_radio_cmd:
+            is_floor1_target = any(k in cmd for k in (
+                "на 1 поверсі", "на 1 поверх", "на першому поверсі", "1 поверх", "1-й поверх", "перший поверх",
+                "jx-bt", "jxbt", "xt-bt", "xtbt", "на jx-bt", "на jxbt", "на xt-bt", "на xtbt"
+            ))
+            is_jbl_target = any(k in cmd for k in (
+                "на jbl", "jbl", "оид", "на оид", "на колонку jbl", "на колонки jbl", "колонку jbl", "колонки jbl",
+                "колонці jbl", "колонках jbl", "на кліп", "clip 5"
+            ))
+
+            if is_floor1_target:
+                self.speaker.set_active_speaker("41:42:62:69:51:9B", "JX-BT (1-й поверх)")
+            elif is_jbl_target:
+                self.speaker.set_active_speaker("F8:5C:7E:EE:7D:CC", "Юрій: JBL Clip 5")
+
             station_query = cmd
-            for prefix in ("увімкни радіо", "включи радіо", "запусти радіо", "радіо"):
+            for prefix in sorted((
+                "увімкни радіо", "увімкнути радіо",
+                "включи радіо", "включити радіо",
+                "запусти радіо", "запустити радіо",
+                "відтвори радіо", "відтворити радіо",
+                "постав радіо", "поставити радіо",
+                "грай радіо", "пусти радіо", "вруби радіо",
+                "play radio", "stream radio",
+                "увімкни", "увімкнути", "включи", "включити", "запусти", "запустити", "відтвори", "відтворити", "постав", "поставити", "грай", "пусти", "вруби", "play"
+            ), key=len, reverse=True):
                 if station_query.startswith(prefix):
                     station_query = station_query[len(prefix):].strip()
                     break
 
-            if not station_query:
+            # Strip target phrases
+            import re
+            target_phrases = (
+                r"\bна перший поверх\b", r"\bна першому поверсі\b", r"\bна 1 поверх\b", r"\bна 1 поверсі\b",
+                r"\bперший поверх\b", r"\b1 поверх\b",
+                r"\bна jx-bt\b", r"\bна jxbt\b", r"\bна xt-bt\b", r"\bна xtbt\b",
+                r"\bjx-bt\b", r"\bjxbt\b", r"\bxt-bt\b", r"\bxtbt\b",
+                r"\bна колонку jbl\b", r"\bна колонки jbl\b", r"\bна колонці jbl\b", r"\bна колонках jbl\b",
+                r"\bколонку jbl\b", r"\bколонки jbl\b", r"\bколонці jbl\b",
+                r"\bна jbl\b", r"\bна оид\b", r"\bjbl clip 5\b", r"\bclip 5\b", r"\bjbl\b", r"\bоид\b",
+                r"\bна колонку\b", r"\bна колонки\b", r"\bна колонці\b", r"\bна колонках\b",
+                r"\bчерез колонку\b", r"\bчерез колонки\b", r"\bв колонку\b", r"\bв колонки\b",
+                r"\bколонка\b", r"\bколонки\b",
+                r"\bon jbl\b", r"\bon speaker\b", r"\bon speakers\b", r"\bon floor 1\b", r"\bfloor 1\b"
+            )
+            for tp in target_phrases:
+                station_query = re.sub(tp, "", station_query, flags=re.IGNORECASE).strip()
+
+            # Remove boundary radio words
+            for r_word in ("радіо", "радио", "radio"):
+                if station_query.lower().startswith(r_word):
+                    station_query = station_query[len(r_word):].strip()
+                if station_query.lower().endswith(r_word):
+                    station_query = station_query[:-len(r_word)].strip()
+
+            station_query = station_query.strip(" \"'.,:;-")
+            for polite in ("будь ласка", "будь-ласка", "please"):
+                if station_query.lower().startswith(polite):
+                    station_query = station_query[len(polite):].strip(" \"'.,:;-")
+                if station_query.lower().endswith(polite):
+                    station_query = station_query[:-len(polite)].strip(" \"'.,:;-")
+
+            if not station_query or station_query.lower() in (
+                "радіо", "radio", "радио", "музику", "музика", "музон", "трек", "щось", "що-небудь", "шось", "онлайн", "online"
+            ):
                 station_query = "Hit FM"
 
             stations = radio_service.search_stations(station_query, limit=3)
@@ -359,6 +512,8 @@ class CommandProcessor:
                 if ok:
                     return True, f"📻 Транслюю радіо '{st['name']}' на {spk}."
                 else:
+                    if not self.speaker.is_connected():
+                        return True, f"⚠️ Не вдалося запустити радіо '{st['name']}' на {spk}: колонка не підключена по Bluetooth або вимкнена. Увімкніть живлення/перепідключіть приймач."
                     return True, f"Не вдалося запустити радіо '{st['name']}' на {spk}."
             return True, f"Радіостанцію за запитом '{station_query}' не знайдено в каталозі."
 

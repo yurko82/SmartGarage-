@@ -1,0 +1,23 @@
+FROM qwen2.5-coder:7b
+
+# Context window size for large codebase analysis
+PARAMETER num_ctx 8192
+
+# Low temperature to minimize hallucinations and ensure deterministic code generation
+PARAMETER temperature 0.1
+
+# Nucleus sampling parameter
+PARAMETER top_p 0.9
+
+# Penalize repetition
+PARAMETER repeat_penalty 1.1
+
+# System prompt for Qwen 2.5 Coder
+SYSTEM """
+You are a senior software engineering assistant for the Smart Garage project.
+You adhere strictly to safe coding practices:
+1. Execute only one command at a time.
+2. Await and inspect stdout/stderr before proceeding.
+3. Never chain commands blindly.
+4. Always prioritize security, correctness, and system stability over speed.
+"""

@@ -1,0 +1,140 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "SmartGarageToolDefinitions",
+  "description": "JSON Schema declarations of all available tools for Antigravity Core and Open Interpreter",
+  "tools": [
+    {
+      "name": "garage_door_control",
+      "description": "Control garage physical door mechanisms or query their real-time state via ESP32-S3 bridge.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": ["open", "close", "status"],
+            "description": "Action to perform on the door: 'open' to raise door, 'close' to lower door, 'status' to check current state."
+          },
+          "target_door": {
+            "type": "string",
+            "enum": ["main_gate"],
+            "default": "main_gate",
+            "description": "The target garage door identifier."
+          }
+        },
+        "required": ["action"]
+      }
+    },
+    {
+      "name": "climate_sensor_read",
+      "description": "Read temperature, relative humidity, or battery levels from BLE climate sensors and telemetry database.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "sensor_type": {
+            "type": "string",
+            "enum": ["temperature", "humidity", "all"],
+            "default": "all",
+            "description": "The metric to read: temperature (°C), relative humidity (%), or all metrics."
+          },
+          "location": {
+            "type": "string",
+            "enum": ["basement", "floor_1", "floor_2", "all"],
+            "default": "all",
+            "description": "Specific sensor location: basement (active Xiaomi LYWSD03MMC), floor_1 (garage), floor_2 (living area), or all."
+          },
+          "history_hours": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 168,
+            "description": "Optional telemetry history timeframe in hours (e.g. 24 for 24h average/trend)."
+          }
+        },
+        "required": ["sensor_type", "location"]
+      }
+    },
+    {
+      "name": "audio_control",
+      "description": "Manage Smart Garage audio playback, Bluetooth speakers (JX-BT, JBL Clip 5), projector audio, and volume levels.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": ["play", "pause", "resume", "stop", "volume"],
+            "description": "Playback action to perform."
+          },
+          "target_device": {
+            "type": "string",
+            "enum": ["jx_bt", "jbl_clip5", "projector", "all"],
+            "description": "Audio output target: 'jx_bt' (1st floor speaker), 'jbl_clip5' (garage speaker), 'projector' (HY350MAX), or 'all'."
+          },
+          "query": {
+            "type": "string",
+            "description": "Search query for internet radio station (e.g., 'kiss_fm', 'hit_fm') or track name when action is 'play'."
+          },
+          "volume_percent": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100,
+            "description": "Target volume percentage (0-100). Recommended baseline is 80% to bypass hardware noise gates."
+          }
+        },
+        "required": ["action"]
+      }
+    },
+    {
+      "name": "docker_container_manage",
+      "description": "Inspect, start, stop, restart, or retrieve logs from local Docker containers in the smart garage environment.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": ["start", "stop", "restart", "status", "logs"],
+            "description": "Container management operation to execute."
+          },
+          "container_name": {
+            "type": "string",
+            "description": "Target container name or ID (e.g. 'smartgarage_interpreter_sandbox', 'n8n', 'portainer', 'ollama')."
+          },
+          "tail_lines": {
+            "type": "integer",
+            "default": 50,
+            "minimum": 1,
+            "maximum": 500,
+            "description": "Number of recent log lines to retrieve when action is 'logs'."
+          }
+        },
+        "required": ["action", "container_name"]
+      }
+    },
+    {
+      "name": "file_operations",
+      "description": "Safe, non-destructive file operations strictly within the /home/user/smartgarage/ directory tree.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "type": "string",
+            "enum": ["read", "write", "list", "exists"],
+            "description": "File operation: 'read' content, 'write' text, 'list' directory contents, or check if file 'exists'."
+          },
+          "path": {
+            "type": "string",
+            "description": "Absolute filesystem path. Must reside inside /home/user/smartgarage/ (or workspace root)."
+          },
+          "content": {
+            "type": "string",
+            "description": "String content to write when operation is 'write'."
+          },
+          "max_lines": {
+            "type": "integer",
+            "default": 100,
+            "description": "Maximum number of lines to read when operation is 'read'."
+          }
+        },
+        "required": ["operation", "path"]
+      }
+    }
+  ]
+}

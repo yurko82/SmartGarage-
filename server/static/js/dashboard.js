@@ -87,7 +87,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const mediaStreamInput = document.getElementById('mediaStreamInput');
     const mediaChipsContainer = document.getElementById('mediaChipsContainer');
 
-    // JBL Speaker Elements
+    // Speaker Elements
+    const speakerSelect = document.getElementById('speakerSelect');
     const jblCardTitle = document.getElementById('jblCardTitle');
     const jblOnlineDot = document.getElementById('jblOnlineDot');
     const jblStatusBadge = document.getElementById('jblStatusBadge');
@@ -596,18 +597,36 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- JBL SPEAKER CONTROLS ---
     let isVolumeDragging = false;
 
+    if (speakerSelect) {
+        speakerSelect.addEventListener('change', () => {
+            const mac = speakerSelect.value;
+            if (mac === "41:42:62:69:51:9B") {
+                if (jblDeviceName) jblDeviceName.textContent = "JX-BT (1-й поверх)";
+                if (jblMac) jblMac.textContent = "MAC: 41:42:62:69:51:9B";
+            } else {
+                if (jblDeviceName) jblDeviceName.textContent = "Юрій: JBL Clip 5";
+                if (jblMac) jblMac.textContent = "MAC: F8:5C:7E:EE:7D:CC";
+            }
+        });
+    }
+
     if (btnJblConnect) {
         btnJblConnect.addEventListener('click', async () => {
             hapticFeedback();
+            const targetMac = speakerSelect ? speakerSelect.value : undefined;
             btnJblConnect.textContent = 'З\'єднання...';
             try {
-                const res = await fetch('/api/speaker/connect', { method: 'POST' });
+                const res = await fetch('/api/speaker/connect', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(targetMac ? { mac: targetMac } : {})
+                });
                 const data = await res.json();
                 if (voiceStatusText) voiceStatusText.textContent = data.response;
                 if (ttsEnabled) speakText(data.response);
                 fetchTelemetry();
             } catch (e) {
-                if (voiceStatusText) voiceStatusText.textContent = 'Помилка підключення до JBL';
+                if (voiceStatusText) voiceStatusText.textContent = 'Помилка підключення до аудіосистеми';
             } finally {
                 btnJblConnect.textContent = '🔗 З\'єднати';
             }
@@ -693,12 +712,25 @@ document.addEventListener('DOMContentLoaded', () => {
                     body: JSON.stringify({ query: query })
                 });
                 const data = await res.json();
-                if (voiceStatusText) voiceStatusText.textContent = data.response || 'Відтворення запущено';
-                if (ttsEnabled) speakText(data.response);
+                if (data.success) {
+                    if (voiceStatusText) {
+                        voiceStatusText.textContent = data.response || 'Відтворення запущено';
+                        voiceStatusText.style.color = 'var(--accent-cyan)';
+                    }
+                } else {
+                    if (voiceStatusText) {
+                        voiceStatusText.textContent = `⚠️ ${data.response || 'Помилка відтворення'}`;
+                        voiceStatusText.style.color = '#ef4444';
+                    }
+                }
+                if (ttsEnabled && data.response) speakText(data.response);
                 jblPlayInput.value = '';
                 fetchTelemetry();
             } catch (err) {
-                if (voiceStatusText) voiceStatusText.textContent = 'Помилка відтворення на колонці';
+                if (voiceStatusText) {
+                    voiceStatusText.textContent = 'Помилка відтворення на колонці';
+                    voiceStatusText.style.color = '#ef4444';
+                }
             }
         });
     }
@@ -754,12 +786,10 @@ document.addEventListener('DOMContentLoaded', () => {
             chip.addEventListener('click', async () => {
 
                 hapticFeedback();
-                currentRadioUrl = st.url;
-                document.querySelectorAll('.radio-chip').forEach(c => c.classList.remove('active'));
-                chip.classList.add('active');
-
-                if (voiceStatusText) voiceStatusText.textContent = `Запуск радіо: ${st.name}...`;
-                if (jblNowPlaying) jblNowPlaying.textContent = `📻 ${st.name}`;
+                if (voiceStatusText) {
+                    voiceStatusText.textContent = `Запуск радіо: ${st.name}...`;
+                    voiceStatusText.style.color = 'var(--accent-cyan)';
+                }
 
                 try {
                     const res = await fetch('/api/radio/play', {
@@ -768,11 +798,30 @@ document.addEventListener('DOMContentLoaded', () => {
                         body: JSON.stringify({ url: st.url, name: st.name })
                     });
                     const data = await res.json();
-                    if (voiceStatusText) voiceStatusText.textContent = data.response || `Грає ${st.name}`;
-                    if (ttsEnabled) speakText(data.response);
+                    if (data.success) {
+                        currentRadioUrl = st.url;
+                        document.querySelectorAll('.radio-chip').forEach(c => c.classList.remove('active'));
+                        chip.classList.add('active');
+                        if (jblNowPlaying) jblNowPlaying.textContent = `📻 ${st.name}`;
+                        if (voiceStatusText) {
+                            voiceStatusText.textContent = data.response || `Грає ${st.name}`;
+                            voiceStatusText.style.color = 'var(--accent-cyan)';
+                        }
+                    } else {
+                        chip.classList.remove('active');
+                        if (voiceStatusText) {
+                            voiceStatusText.textContent = `⚠️ ${data.response || 'Помилка запуску'}`;
+                            voiceStatusText.style.color = '#ef4444';
+                        }
+                    }
+                    if (ttsEnabled && data.response) speakText(data.response);
                     fetchTelemetry();
                 } catch (err) {
-                    if (voiceStatusText) voiceStatusText.textContent = `Помилка запуску ${st.name}`;
+                    chip.classList.remove('active');
+                    if (voiceStatusText) {
+                        voiceStatusText.textContent = `Помилка запуску ${st.name}`;
+                        voiceStatusText.style.color = '#ef4444';
+                    }
                 }
             });
 
@@ -995,6 +1044,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (jblStatusBadge) {
                     jblStatusBadge.textContent = spkConnected ? 'Підключено' : 'Відключено';
                     jblStatusBadge.style.color = spkConnected ? 'var(--accent-cyan)' : 'var(--text-muted)';
+                }
+                if (speakerSelect && spk.mac && document.activeElement !== speakerSelect) {
+                    speakerSelect.value = spk.mac;
                 }
                 if (jblCardTitle && spk.name) {
                     jblCardTitle.textContent = `Колонка ${spk.name}`;

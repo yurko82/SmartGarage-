@@ -862,16 +862,20 @@ def speaker_volume():
 @app.route("/api/speaker/play", methods=["POST"])
 def speaker_play():
     data = request.get_json(silent=True) or {}
+    mac = data.get("mac")
+    if mac:
+        garage.speaker.set_active_speaker(mac)
     query = data.get("query") or data.get("filename") or ""
     query = query.strip()
     if not query:
         return jsonify({"success": False, "response": "Вкажіть назву треку або файл"}), 400
 
     ok = garage.speaker.play_youtube(query)
+    spk_name = garage.speaker.name or "колонці"
     return jsonify({
         "success": ok,
         "playing": garage.speaker.is_playing(),
-        "response": f"Грає на JBL: {query}" if ok else f"Не вдалося запустити: {query}"
+        "response": f"Грає на {spk_name}: {query}" if ok else f"Не вдалося запустити на {spk_name}: {query}"
     })
 
 
@@ -911,6 +915,9 @@ def radio_search():
 @app.route("/api/radio/play", methods=["POST"])
 def radio_play():
     data = request.get_json(silent=True) or {}
+    mac = data.get("mac")
+    if mac:
+        garage.speaker.set_active_speaker(mac)
     url = data.get("url", "").strip()
     name = data.get("name", "Інтернет-радіо").strip()
     if not url:
@@ -925,7 +932,7 @@ def radio_play():
     return jsonify({
         "success": ok,
         "playing": garage.speaker.is_playing(),
-        "response": f"Трансляція {name} на {spk_name}" if ok else f"Не вдалося запустити {name}"
+        "response": f"Трансляція {name} на {spk_name}" if ok else f"Не вдалося підключити {spk_name} (пристрій не відповідає)"
     })
 
 

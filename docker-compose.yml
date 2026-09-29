@@ -1,0 +1,66 @@
+version: '3.8'
+
+services:
+  # In-memory Redis cache for Telemetry API and fast state lookup
+  redis:
+    image: redis:7-alpine
+    container_name: smartgarage_redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "128mb", "--maxmemory-policy", "allkeys-lru"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    mem_limit: 256m
+    cpus: 0.5
+    deploy:
+      resources:
+        limits:
+          cpus: '0.50'
+          memory: 256M
+
+  # Isolated Open Interpreter sandbox environment
+  interpreter:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: smartgarage_interpreter_sandbox
+    image: smartgarage/interpreter-sandbox:latest
+    network_mode: "host"
+    stdin_open: true
+    tty: true
+    restart: "no"
+
+    # Resource Constraints: 2 CPU cores, 2GB Memory
+    mem_limit: 2048m
+    cpus: 2.0
+    deploy:
+      resources:
+        limits:
+          cpus: '2.00'
+          memory: 2G
+        reservations:
+          cpus: '0.50'
+          memory: 512M
+
+    # Volume Mounts: Project directory mounted as READ-ONLY
+    volumes:
+      # Host project directory mounted read-only into container workspace
+      - .:/workspace:ro
+      # Writable storage for interpreter conversation history and runtime state
+      - interpreter_cache:/root/.config/open-interpreter
+      # Writable isolated temporary scratchpad for test files
+      - /tmp/smartgarage_sandbox_scratch:/tmp/scratch:rw
+
+    working_dir: /workspace
+
+    environment:
+      - OLLAMA_HOST=http://localhost:11434
+      - REDIS_HOST=127.0.0.1
+      - REDIS_PORT=6379
+      - PYTHONUNBUFFERED=1
+      - TMPDIR=/tmp/scratch
+
+volumes:
+  interpreter_cache:
+  redis_data:

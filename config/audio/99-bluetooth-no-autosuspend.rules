@@ -1,0 +1,8 @@
+# /etc/udev/rules.d/99-bluetooth-no-autosuspend.rules
+# Disable USB autosuspend for Broadcom BCM20702A0 / BCM20702A1 Bluetooth adapter
+
+# Target device VID:PID 0a5c:21f4 (ThinkPad Edge E530c internal Broadcom BCM20702A0)
+ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="0a5c", ATTR{idProduct}=="21f4", TEST=="power/control", ATTR{power/control}="on"
+
+# Generic Broadcom BCM20702A0 VID:PID 0a5c:21e8
+ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="0a5c", ATTR{idProduct}=="21e8", TEST=="power/control", ATTR{power/control}="on"

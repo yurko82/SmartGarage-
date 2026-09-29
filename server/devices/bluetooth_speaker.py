@@ -33,6 +33,8 @@ class BluetoothSpeakerController:
         self._playback_start_time: Optional[float] = None
         self._is_paused = False
         self._cached_volume = 75
+        self._last_stream_url: Optional[str] = None
+        self._last_stream_title: Optional[str] = None
 
         self._auto_detect_active_speaker()
 
@@ -86,23 +88,64 @@ class BluetoothSpeakerController:
         self.sink_name = f"bluez_output.{self.mac.replace(':', '_')}.1"
 
     def is_connected(self, mac: Optional[str] = None) -> bool:
-        """Check if the Bluetooth speaker is currently connected."""
+        """Check if the Bluetooth speaker is currently connected via PipeWire, HCI, or BlueZ."""
         target_mac = (mac or self.mac).upper().strip()
+        sink_mac_str = target_mac.replace(":", "_")
+
+        # 1. Direct check: PipeWire has an active registered sink for this Bluetooth device
+        try:
+            res_pw = subprocess.run(
+                ["pactl", "list", "sinks", "short"],
+                capture_output=True,
+                text=True,
+                timeout=1.5
+            )
+            if res_pw.returncode == 0 and sink_mac_str in res_pw.stdout:
+                return True
+        except Exception:
+            pass
+
+        # 2. Check active Bluetooth ACL baseband connections (instant kernel check)
+        try:
+            res_hci = subprocess.run(
+                ["hcitool", "con"],
+                capture_output=True,
+                text=True,
+                timeout=1.0
+            )
+            if res_hci.returncode == 0 and target_mac in res_hci.stdout:
+                return True
+        except Exception:
+            pass
+
+        # 3. Fallback: BlueZ management status via bluetoothctl
         try:
             res = subprocess.run(
                 ["bluetoothctl", "info", target_mac],
                 capture_output=True,
                 text=True,
-                timeout=4.0
+                timeout=2.0
             )
             return "Connected: yes" in res.stdout
-        except Exception as e:
+        except Exception:
             return False
 
     def connect(self, mac: Optional[str] = None) -> bool:
         """Connect to the Bluetooth speaker and set as default audio sink."""
         if mac:
             self.set_active_speaker(mac)
+
+        if self.is_connected():
+            subprocess.run(
+                ["pactl", "set-default-sink", self.sink_name],
+                capture_output=True,
+                timeout=3.0
+            )
+            vol = self.get_volume()
+            if vol == 0:
+                self.set_volume(self._cached_volume or 75)
+            self.logger.info(f"{self.name} is already connected.")
+            return True
 
         self.logger.info(f"Connecting to Bluetooth speaker {self.name} ({self.mac})...")
         try:
@@ -193,8 +236,34 @@ class BluetoothSpeakerController:
         """Check if audio is actively playing."""
         with self._lock:
             if self._player_proc and self._player_proc.poll() is None:
+                if not self.is_connected():
+                    return False
                 return True
+            # Also check if an external or inherited audio stream is active in PipeWire
+            if self.is_connected():
+                try:
+                    res = subprocess.run(
+                        ["pactl", "list", "sink-inputs", "short"],
+                        capture_output=True,
+                        text=True,
+                        timeout=1.0
+                    )
+                    if res.returncode == 0 and res.stdout.strip():
+                        return True
+                except Exception:
+                    pass
             return False
+
+    def resume_or_replay_last(self) -> bool:
+        """Resume paused playback or replay the last active stream on the active speaker."""
+        if not self.is_connected():
+            if not self.connect():
+                return False
+        if self._is_paused:
+            return self.resume()
+        if hasattr(self, "_last_stream_url") and self._last_stream_url:
+            return self.play_stream(self._last_stream_url, track_title=getattr(self, "_last_stream_title", None))
+        return False
 
     def stop(self) -> bool:
         """Stop current audio playback."""
@@ -301,14 +370,16 @@ class BluetoothSpeakerController:
 
         title = track_title or "Інтернет-радіо"
 
-        # Ensure speaker is connected if possible
+        # Ensure speaker is connected
         if not self.is_connected():
             self.logger.info(f"Speaker {self.name} not connected, attempting connect...")
-            self.connect()
+            if not self.connect():
+                self.logger.error(f"Cannot stream '{title}': Bluetooth speaker {self.name} is not connected.")
+                return False
 
         self.stop()
 
-        sink_arg = f"pipewiresink target-object={self.sink_name}" if self.is_connected() else "pipewiresink"
+        sink_arg = f"pipewiresink target-object={self.sink_name}"
         cmd = [
             "gst-launch-1.0",
             "playbin",
@@ -325,6 +396,8 @@ class BluetoothSpeakerController:
                     stderr=subprocess.DEVNULL
                 )
                 self._current_track = f"📻 {title}"
+                self._last_stream_url = target_url
+                self._last_stream_title = title
                 self._playback_start_time = time.time()
                 self._is_paused = False
             self.logger.info(f"Streaming radio '{title}' from {target_url} on {self.name}.")
@@ -339,14 +412,51 @@ class BluetoothSpeakerController:
         if not target:
             return False
 
-        # Check local media matches first
-        query_lower = target.lower()
+        # Check direct file path match first
+        target_path = Path(target)
+        if target_path.exists() and target_path.is_file():
+            return self.play_file(str(target_path))
+        if (self.media_dir / target).exists():
+            return self.play_file(str(self.media_dir / target))
+
+        # Check local media matches by name
+        UA_LAT_TABLE = {
+            'а': 'a', 'б': 'b', 'в': 'v', 'г': 'h', 'ґ': 'g', 'д': 'd', 'е': 'e', 'є': 'ye', 'ж': 'zh', 'з': 'z',
+            'и': 'y', 'і': 'i', 'ї': 'yi', 'й': 'y', 'к': 'k', 'л': 'l', 'м': 'm', 'н': 'n', 'о': 'o', 'п': 'p',
+            'р': 'r', 'с': 's', 'т': 't', 'у': 'u', 'ф': 'f', 'х': 'kh', 'ц': 'ts', 'ч': 'ch', 'ш': 'sh', 'щ': 'shch',
+            'ь': '', 'ю': 'yu', 'я': 'ya'
+        }
+        clean_target = target_path.stem.replace("_", " ").lower()
+        translit_target = "".join(UA_LAT_TABLE.get(ch, ch) for ch in clean_target)
+
+        is_laptop_local_query = any(k in clean_target for k in (
+            "ноутбук", "ноута", "ноут", "диск", "локальн", "комп"
+        ))
+
         if self.media_dir.exists():
-            for f in self.media_dir.iterdir():
-                if f.is_file() and not f.name.endswith(".part"):
-                    clean_name = f.stem.replace("_", " ").lower()
-                    if all(word in clean_name for word in query_lower.split() if len(word) > 2):
-                        return self.play_file(str(f), track_title=f.stem.replace("_", " ").title())
+            local_candidates = [
+                f for f in sorted(self.media_dir.iterdir())
+                if f.is_file() and not f.name.endswith(".part") and not f.name.startswith("stream_") and not f.name.startswith("test_")
+            ]
+            for f in local_candidates:
+                clean_name = f.stem.replace("_", " ").lower()
+                words = [w for w in clean_target.split() if len(w) > 2]
+                t_words = [w for w in translit_target.split() if len(w) > 2]
+                if (
+                    clean_target in clean_name
+                    or clean_name in clean_target
+                    or translit_target in clean_name
+                    or clean_name in translit_target
+                    or (words and all(word in clean_name for word in words))
+                    or (t_words and all(word in clean_name for word in t_words))
+                    or any(w in clean_name for w in t_words if len(w) > 3)
+                    or any(w in clean_name for w in words if len(w) > 3)
+                ):
+                    return self.play_file(str(f), track_title=f.stem.replace("_", " ").title())
+
+            # If user explicitly asked for local song from laptop without specific name
+            if is_laptop_local_query and local_candidates:
+                return self.play_file(str(local_candidates[0]), track_title=local_candidates[0].stem.replace("_", " ").title())
 
         # If not found locally, download/stream via yt-dlp
         import hashlib
@@ -395,6 +505,11 @@ class BluetoothSpeakerController:
         if playing and self._playback_start_time:
             elapsed = int(time.time() - self._playback_start_time)
 
+        track_title = self._current_track
+        if not track_title and playing:
+            last_t = getattr(self, "_last_stream_title", None)
+            track_title = f"📻 {last_t}" if last_t else "Аудіопотік"
+
         return {
             "mac": self.mac,
             "name": self.name,
@@ -402,7 +517,7 @@ class BluetoothSpeakerController:
             "volume": volume,
             "playing": playing,
             "paused": self._is_paused,
-            "current_track": self._current_track if playing else None,
+            "current_track": track_title if playing else None,
             "elapsed_seconds": elapsed,
             "sink_name": self.sink_name,
             "speakers": self.get_configured_speakers()

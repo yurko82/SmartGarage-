@@ -173,6 +173,34 @@ class TestCommandProcessor(unittest.TestCase):
         self.assertFalse(handled)
         self.assertIsNone(response)
 
+    def test_radio_commands_routing(self):
+        from unittest.mock import MagicMock
+        mock_speaker = MagicMock()
+        mock_speaker.name = "Юрій: JBL Clip 5"
+        mock_speaker.play_stream.return_value = True
+        self.processor.speaker = mock_speaker
+
+        handled, resp = self.processor.execute("включи радіо на jbl")
+        self.assertTrue(handled)
+        mock_speaker.set_active_speaker.assert_called_with("F8:5C:7E:EE:7D:CC", "Юрій: JBL Clip 5")
+        self.assertIn("Hit FM", resp)
+        self.assertIn("JBL Clip 5", resp)
+
+        handled, resp = self.processor.execute("увімкни радіо kiss fm на jbl")
+        self.assertTrue(handled)
+        self.assertIn("Kiss FM", resp)
+
+        handled, resp = self.processor.execute("зупини радіо на jbl")
+        self.assertTrue(handled)
+        mock_speaker.stop.assert_called()
+
+        mock_speaker.connect.return_value = True
+        mock_speaker.name = "JX-BT (1-й поверх)"
+        handled, resp = self.processor.execute("на оид грає норм, спробуй включити на xt-bt")
+        self.assertTrue(handled)
+        mock_speaker.set_active_speaker.assert_called_with("41:42:62:69:51:9B", "JX-BT (1-й поверх)")
+        self.assertIn("JX-BT", resp)
+
 
 
 class TestProjectorController(unittest.TestCase):
@@ -230,6 +258,12 @@ class TestCommandRouter(unittest.TestCase):
         self.assertEqual(self.router.execute(""), "")
         self.assertEqual(self.router.execute(None), "")
         self.assertEqual(self.router.execute("   "), "")
+
+    def test_routes_layout_typo_prompt(self):
+        # 'cnfy' in English layout corresponds to 'стан' in Ukrainian
+        res = self.router.execute("cnfy")
+        self.assertIn("Smart Garage", res)
+        self.assertIsNone(self.ai.called_with)
 
 
 class TestWebApp(unittest.TestCase):

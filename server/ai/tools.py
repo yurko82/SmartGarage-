@@ -79,7 +79,7 @@ GARAGE_TOOLS = [
         "type": "function",
         "function": {
             "name": "speaker_control",
-            "description": "Керування Bluetooth-колонкою JBL Clip 5 (підключення / відключення / стан).",
+            "description": "Керування Bluetooth-колонками (JBL Clip 5 у гаражі або JX-BT на 1-му поверсі).",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -87,6 +87,11 @@ GARAGE_TOOLS = [
                         "type": "string",
                         "enum": ["connect", "disconnect", "status"],
                         "description": "Дія: connect (підключити), disconnect (відключити), status (перевірити стан)."
+                    },
+                    "speaker": {
+                        "type": "string",
+                        "enum": ["jbl", "jx-bt"],
+                        "description": "Цільова колонка: jbl (JBL Clip 5 у гаражі) або jx-bt (JX-BT на 1-му поверсі)."
                     }
                 },
                 "required": ["action"]
@@ -184,14 +189,22 @@ class ToolDispatcher:
 
             elif tool_name == "speaker_control":
                 action = arguments.get("action", "status")
+                target = str(arguments.get("speaker") or "jbl").lower()
                 if not hasattr(self.garage, "speaker") or not self.garage.speaker:
                     return {"success": False, "error": "Контролер колонки недоступний"}
+
+                if target in ("jx-bt", "jxbt", "xt-bt", "xtbt", "floor1", "1 поверх"):
+                    self.garage.speaker.set_active_speaker("41:42:62:69:51:9B", "JX-BT (1-й поверх)")
+                elif target in ("jbl", "garage", "гараж"):
+                    self.garage.speaker.set_active_speaker("F8:5C:7E:EE:7D:CC", "Юрій: JBL Clip 5")
+
+                spk_name = self.garage.speaker.name or "Колонку"
                 if action == "connect":
                     ok = self.garage.speaker.connect()
-                    return {"success": ok, "message": "Колонку JBL Clip 5 підключено" if ok else "Не вдалося підключити колонку JBL Clip 5"}
+                    return {"success": ok, "message": f"{spk_name} підключено" if ok else f"Не вдалося підключити {spk_name}"}
                 elif action == "disconnect":
                     ok = self.garage.speaker.disconnect()
-                    return {"success": ok, "message": "Колонку JBL Clip 5 відключено"}
+                    return {"success": ok, "message": f"{spk_name} відключено"}
                 else:
                     st = self.garage.speaker.get_status()
                     return {"success": True, "status": st}

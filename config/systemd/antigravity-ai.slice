@@ -1,0 +1,18 @@
+[Unit]
+Description=Antigravity AI Process Isolation Slice
+Documentation=https://github.com/yurko82/SmartGarage
+Before=slices.target
+
+[Slice]
+# CPU Limits: Maximum 80% total CPU usage across slice, leaving at least 20% for host system
+CPUQuota=80%
+CPUWeight=50
+
+# Memory Limits: 4GB hard ceiling, soft throttling starting at 3GB, zero swap allowed
+MemoryMax=4G
+MemoryHigh=3G
+MemorySwapMax=0
+
+# I/O & Process Constraints
+IOWeight=50
+TasksMax=512

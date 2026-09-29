@@ -1,0 +1,28 @@
+#!/bin/bash
+# ==============================================================================
+# Weekly Maintenance: Clean old Antigravity AI resource monitor logs
+# Path: /etc/cron.weekly/clean-antigravity-ai-logs
+# ==============================================================================
+set -euo pipefail
+
+LOG_FILE="/var/log/antigravity-ai-resources.log"
+MAX_SIZE_MB=50
+
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] Starting weekly log maintenance for Antigravity AI logs..."
+
+# 1. Truncate current log if it exceeds 50MB
+if [ -f "$LOG_FILE" ]; then
+    FILE_SIZE_MB=$(du -m "$LOG_FILE" | cut -f1)
+    if [ "$FILE_SIZE_MB" -gt "$MAX_SIZE_MB" ]; then
+        echo "Log size (${FILE_SIZE_MB}MB) exceeds ${MAX_SIZE_MB}MB. Keeping last 100,000 lines..."
+        tail -n 100000 "$LOG_FILE" > "${LOG_FILE}.tmp"
+        mv "${LOG_FILE}.tmp" "$LOG_FILE"
+        chmod 644 "$LOG_FILE"
+    fi
+fi
+
+# 2. Delete archived rotated logs older than 14 days
+find /var/log/ -name "antigravity-ai-resources.log.*" -type f -mtime +14 -delete 2>/dev/null || true
+find /tmp/ -name "antigravity-ai-resources.log*" -type f -mtime +7 -delete 2>/dev/null || true
+
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] Weekly log cleanup completed."
