@@ -1,30 +1,29 @@
-# SERVER_STATUS: Домашній сервер Lenovo ThinkPad E530c
+# SERVER_STATUS: Домашній сервер ASUS VivoBook 14 X413E
 
-> Документ створено автоматично після завершення налаштування системи для режиму 24/7.
+> Документ оновлено автоматично після успішної міграції сервера SmartGarage зі старого ThinkPad E530c на новий ASUS X413E.
 
 ---
 
 ## 1. Апаратні характеристики та ОС
 
-- **Модель ноутбука:** Lenovo ThinkPad Edge E530c (Type 33664LG)
-- **Процесор (CPU):** Intel Celeron 1000M @ 1.80GHz (2 ядра / 2 потоки, x86_64)
-- **Оперативна пам'ять (RAM):** 7.6 GiB (доступно ~4.7 GiB, Swap: 7.6 GiB)
-- **Накопичувач (SSD/HDD):** 223.6 GB
-  - `/` (корінь): 73 GB (використано 16 GB, вільно 54 GB)
-  - `/home`: 138 GB (використано 6.0 GB, вільно 125 GB)
+- **Модель ноутбука:** ASUS VivoBook 14 X413E (X421EAY-X413EA)
+- **Процесор (CPU):** 11th Gen Intel(R) Core(TM) i5-1135G7 @ 2.40GHz (4 ядра / 8 потоків, Tiger Lake 10 нм SuperFin)
+- **Інструкції ШІ:** AVX2, AVX-512, Intel DL Boost (VNNI)
+- **Оперативна пам'ять (RAM):** 7.6 GiB DDR4
+- **Накопичувач (SSD):** 1 ТБ NVMe M.2 SSD (`nvme0n1p2`, 931 GB)
 - **Операційна система:** Linux Mint 22.3 (Zena) / база Ubuntu 24.04 LTS (noble)
-- **Ядро (Kernel):** Linux 7.0.0-30-generic
-- **Температурний режим:** ~55°C – 63°C (критичний ліміт 105°C)
+- **Ядро (Kernel):** Linux 6.14.0-37-generic
+- **Bluetooth:** Вбудований Intel AX201 / MT7921 (BT 5.x, нативна підтримка ядром Linux)
+- **Температурний режим:** ~45°C – 54°C (активне охолодження)
 
 ---
 
 ## 2. Мережева конфігурація
 
-- **Локальна мережа (Wi-Fi `wlp3s0b1`):** `10.112.49.31/24` (шлюз: `10.112.49.97`)
-- **Ethernet (`enp12s0`):** Gigabit LAN (резервний, готовий до кабельного підключення)
-- **Tailscale Mesh IP (IPv4):** `100.122.57.39`
-- **Tailscale Mesh IP (IPv6):** `fd7a:115c:a1e0::7a01:39ca`
-- **Tailscale Hostname:** `yurko-thinkpad-edge-e530c`
+- **Локальна мережа (Wi-Fi `wlo1`):** `192.168.0.117/24`
+- **Tailscale Mesh IP (IPv4):** `100.85.119.95`
+- **Tailscale Mesh IP (IPv6):** `fd7a:115c:a1e0::8b32:7760`
+- **Tailscale Hostname:** `yurko-vivobook-asuslaptop-x421eay-x413ea`
 - **Docker Networks:** `172.17.0.1/16` (bridge), `172.18.0.1/16` (`n8n_default`)
 
 ---
@@ -32,13 +31,12 @@
 ## 3. Встановлені компоненти та версії
 
 - **OpenSSH Server:** OpenSSH 9.6p1 (активний, systemd `ssh.service` enabled)
-- **Tailscale:** 1.102.3 (активний, systemd `tailscaled.service` enabled, з підтримкою `--ssh`)
-- **Docker:** 29.1.3 (активний, systemd `docker.service` enabled)
-- **Docker Compose:** 1.29.2
-- **Python:** 3.12.3 (pip 24.0)
-- **Node.js:** v18.19.1 (npm 9.2.0)
-- **Git:** 2.43.0
-- **Antigravity CLI (`agy`):** 1.1.19 (розташовано у `/home/yurko/.local/bin/agy`, додано у PATH)
+- **Tailscale:** 1.102.4 (активний, systemd `tailscaled.service` enabled, з підтримкою `--ssh`)
+- **Docker Engine:** 29.8.2 (активний, systemd `docker.service` enabled)
+- **Docker Compose:** v5.6.0 (офіційний docker-compose-plugin)
+- **Python:** 3.12.3 у `/home/yurko/AI/OpenInterpreter/venv`
+- **Mosquitto MQTT:** 2.0.18 (активний, systemd `mosquitto.service`, порти 1883 та 9001 WebSockets)
+- **WirePlumber & PipeWire:** нативна аудіопідсистема, профіль `51-bluez-a2dp-only.lua`
 
 ---
 
@@ -47,26 +45,27 @@
 | Порт | Протокол | Сервіс | Тип запуску | Призначення |
 | :--- | :--- | :--- | :--- | :--- |
 | **22** | TCP | OpenSSH Server | systemd (`ssh.service`) | Віддалене керування терміналом |
-| **1883** | TCP | Mosquitto MQTT | systemd (`mosquitto.service`) | Брокер повідомлень IoT/SmartGarage |
+| **1883** | TCP | Mosquitto MQTT | systemd (`mosquitto.service`) | Брокер повідомлень IoT/ESP32/HA |
 | **5000** | TCP | SmartGarage WebApp | systemd user (`smartgarage.service`) | Веб-інтерфейс та API гаража |
 | **5678** | TCP | n8n Automation | Docker container (`n8n`) | Автоматизація робочих процесів |
 | **9000** | TCP | Portainer CE | Docker container (`portainer`) | Веб-панель керування Docker |
+| **9001** | TCP | Mosquitto WebSockets | systemd (`mosquitto.service`) | WebSockets для веб-панелей |
 | **631** | TCP | CUPS | systemd (`cups.service`) | Сервер друку |
 
 ---
 
 ## 5. Розташування проєктів та структура файлової системи
 
-- **`/home/yurko/AI/SmartGarage`** — проект Smart Garage (Flask/FastAPI сервіс, веб-інтерфейс, ESP32 код, тести).
-- **`/home/yurko/AI/OpenInterpreter`** — віртуальне середовище Python `venv` та конфіги.
-- **`/home/yurko/Docker/n8n`** — робочі процеси та база даних n8n (`docker-compose.yml`, `./data`).
-- **`/home/yurko/Docker/portainer`** — конфігурації Portainer.
-- **`/home/yurko/server/`** — нова ізольована структура для майбутніх сервісів:
-  - `sites/` — веб-сайти (HTML, PHP, Node.js, Python тощо).
-  - `services/` — зворотні проксі (Nginx Proxy шаблон у `services/proxy/`), API, боти.
-  - `databases/` — бази даних (PostgreSQL, MySQL, Redis шаблони).
-  - `monitoring/` — моніторинг (Uptime Kuma, Netdata).
-  - `backups/` — резервні копії.
+- **`/home/yurko/AI/SmartGarage`** — проєкт Smart Garage (Flask/FastAPI, веб-інтерфейс, ESP32, тести).
+- **`/home/yurko/AI/OpenInterpreter`** — віртуальне середовище Python 3.12 (`venv`) та конфігурації.
+- **`/home/yurko/Docker/n8n`** — мігровані робочі процеси та база даних n8n (`docker-compose.yml`, `./data`).
+- **`/home/yurko/Docker/portainer`** — дані та volume Portainer CE (`portainer_data`).
+- **`/home/yurko/server/`** — модульна серверна інфраструктура:
+  - `sites/` — веб-сайти.
+  - `services/` — зворотні проксі (Nginx/Traefik).
+  - `databases/` — шаблони баз даних.
+  - `monitoring/` — моніторинг.
+  - `backups/` — бекапи.
 
 ---
 
@@ -74,9 +73,9 @@
 
 ### Підключення через SSH (з будь-якої точки світу через Tailscale):
 ```bash
-ssh yurko@100.122.57.39
+ssh yurko@100.85.119.95
 # або за Tailscale ім'ям:
-ssh yurko@yurko-thinkpad-edge-e530c
+ssh yurko@yurko-vivobook-asuslaptop-x421eay-x413ea
 ```
 
 ### Перевірка стану ключових сервісів:
@@ -84,18 +83,14 @@ ssh yurko@yurko-thinkpad-edge-e530c
 # Статус Tailscale
 tailscale status
 
-# Статус SSH
-systemctl status ssh
-
 # Статус Docker-контейнерів
 docker ps
 
 # Статус SmartGarage
 systemctl --user status smartgarage.service
 
-# Моніторинг температури та навантаження
-sensors
-uptime
+# Логи SmartGarage
+journalctl --user -u smartgarage.service -f -n 50
 ```
 
 ### Керування n8n (Docker):
@@ -106,25 +101,10 @@ docker compose restart
 
 ---
 
-## 7. Журнал змін (Що було змінено і що НЕ змінювалося)
+## 7. Журнал міграції
 
-### Що БУЛО змінено/налаштовано:
-1. **Кришка ноутбука (Lid Action):**
-   - Створено конфігурацію `/etc/systemd/logind.conf.d/00-laptop-server.conf` (`HandleLidSwitch=ignore`, `HandleLidSwitchExternalPower=ignore`). Ноутбук працює безперервно 24/7 при закритій кришці.
-2. **Встановлено OpenSSH Server:**
-   - Встановлено пакунок `openssh-server`, активовано та увімкнено автозапуск.
-3. **Встановлено та підключено Tailscale:**
-   - Встановлено офіційний Tailscale 1.102.3, пристрій авторизовано в мережі користувача з IP `100.122.57.39`.
-4. **Створено модульну структуру `~/server`:**
-   - Підготовлено каталоги `sites/`, `services/`, `databases/`, `monitoring/`, `backups/` з готовими прикладами docker-compose.
-5. **Активовано User Linger:**
-   - Перевірено та підтверджено `loginctl enable-linger yurko`, що гарантує автозапуск користувацьких systemd-сервісів (`smartgarage.service`) після рестарту навіть без входу в графічний сеанс.
-6. **Bluetooth Audio & WirePlumber A2DP Locking:**
-   - Створено `~/.config/wireplumber/bluetooth.lua.d/51-bluez-a2dp-only.lua` для блокування низькоякісних телефонних моно-профілів HSP/HFP (8 кГц CVSD) на користь чистого Hi-Fi стерео A2DP.
-   - Детальний статус та план усунення несправностей зафіксовано у [`docs/BLUETOOTH_AUDIO_INVESTIGATION.md`](file:///home/yurko/AI/SmartGarage/docs/BLUETOOTH_AUDIO_INVESTIGATION.md).
-
-### Що НЕ змінювалося (збережено в оригінальному стані):
-- Жоден існуючий Docker-контейнер, образ чи volume не видалявся.
-- Конфігурація та база даних n8n у `/home/yurko/Docker/n8n/data` не модифікувалися.
-- Проекти SmartGarage та віртуальне середовище OpenInterpreter залишилися без змін.
-- Мережеві налаштування роутера не змінювалися (порти назовні не відкривалися, доступ захищено через Tailscale).
+1. **Залізо та BIOS:** ASUS VivoBook 14 X413E з процесором i5-1135G7 та NVMe SSD 1 ТБ підготовлено.
+2. **ОС 24/7:** Linux Mint 22.3 налаштовано із закритою кришкою (`HandleLidSwitch=ignore`), sleep targets замасковано, `user linger` увімкнено.
+3. **Пакетне середовище:** Встановлено Docker CE, Tailscale, Mosquitto MQTT, WirePlumber, SSH.
+4. **Міграція даних:** Базу SQLite та налаштування n8n перенесено з ThinkPad E530c через захищений Tailscale тунель без втрати даних.
+5. **Сервіси:** n8n та Portainer успішно запущені в Docker, SmartGarage WebApp працює під systemd user.
