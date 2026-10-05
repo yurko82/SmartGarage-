@@ -7,7 +7,7 @@ Type=simple
 WorkingDirectory=/home/yurko/AI/SmartGarage
 Environment="PYTHONPATH=/home/yurko/AI/SmartGarage"
 Environment="PYTHONUNBUFFERED=1"
-ExecStart=/home/yurko/AI/OpenInterpreter/venv/bin/python -m server.webapp
+ExecStart=/usr/bin/sg dialout -c "/home/yurko/AI/OpenInterpreter/venv/bin/python -m server.webapp"
 Restart=always
 RestartSec=3
 

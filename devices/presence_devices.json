@@ -10,8 +10,8 @@
         "recent_ble_rpa": [
             "B8:7E:39:88:22:9B"
         ],
-        "status": "away",
-        "last_seen": 1791184755.3813405,
+        "status": "present",
+        "last_seen": 1791206588.22576,
         "last_rssi": -50,
         "proximity": "immediate",
         "auto_welcome": true
@@ -25,8 +25,8 @@
         "classic_mac": "",
         "ble_services": [],
         "recent_ble_rpa": [],
-        "status": "away",
-        "last_seen": 1791184755.3821204,
+        "status": "present",
+        "last_seen": 1791206588.226304,
         "last_rssi": null,
         "proximity": "near",
         "auto_welcome": false
