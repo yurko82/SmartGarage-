@@ -277,13 +277,17 @@ class BluetoothSpeakerController:
         with self._lock:
             if self._player_proc:
                 try:
-                    self._player_proc.terminate()
-                    self._player_proc.wait(timeout=2.0)
+                    import signal
+                    os.killpg(os.getpgid(self._player_proc.pid), signal.SIGTERM)
                 except Exception:
                     try:
-                        self._player_proc.kill()
+                        self._player_proc.terminate()
+                        self._player_proc.wait(timeout=1.0)
                     except Exception:
-                        pass
+                        try:
+                            self._player_proc.kill()
+                        except Exception:
+                            pass
                 self._player_proc = None
             self._current_track = None
             self._playback_start_time = None
@@ -386,21 +390,24 @@ class BluetoothSpeakerController:
 
         self.stop()
 
-        sink_arg = f"pipewiresink target-object={self.sink_name}"
-        cmd = [
-            "gst-launch-1.0",
-            "playbin",
-            f"uri={target_url}",
-            "video-sink=fakesink",
-            f"audio-sink={sink_arg}"
-        ]
+        sink_target = self.sink_name if self.is_connected() else "@DEFAULT_AUDIO_SINK@"
+        loop_cmd = (
+            f"while true; do "
+            f"gst-launch-1.0 souphttpsrc location=\"{target_url}\" retries=-1 keep-alive=true "
+            f"! queue max-size-time=10000000000 ! decodebin ! audioconvert ! audioresample "
+            f"! queue max-size-time=3000000000 ! pipewiresink target-object=\"{sink_target}\"; "
+            f"sleep 1; "
+            f"done"
+        )
+        cmd = ["/bin/bash", "-c", loop_cmd]
 
         try:
             with self._lock:
                 self._player_proc = subprocess.Popen(
                     cmd,
                     stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL
+                    stderr=subprocess.DEVNULL,
+                    preexec_fn=os.setsid
                 )
                 self._current_track = f"📻 {title}"
                 self._last_stream_url = target_url
