@@ -198,37 +198,42 @@ document.addEventListener('DOMContentLoaded', () => {
 
                     // Floor 2 (Xiaomi LYWSD03MMC)
                     const isOnlineF2 = f2 && !!f2.online;
-                    const hasF2 = isOnlineF2 && f2.temperature !== undefined && f2.temperature !== null;
+                    const hasF2 = f2 && f2.temperature !== undefined && f2.temperature !== null;
                     const t2 = hasF2 ? `${Number(f2.temperature).toFixed(1)} °C` : '-- °C';
                     const tip2 = formatTime(f2, '2-й поверх');
                     if (telTempFloor2) {
                         telTempFloor2.textContent = t2;
                         telTempFloor2.title = tip2;
-                        telTempFloor2.className = isOnlineF2 ? 'val-badge active hoverable' : 'val-badge hoverable';
+                        telTempFloor2.className = hasF2 ? 'val-badge active hoverable' : 'val-badge hoverable';
                     }
                     if (chartCardTempF2) {
                         chartCardTempF2.textContent = t2;
                         chartCardTempF2.title = tip2;
                     }
                     if (chartCardSubF2) {
-                        chartCardSubF2.textContent = isOnlineF2 ? `Онлайн • ${f2.last_updated_time || '--:--'} • 🔋 ${f2.battery || 99}%` : 'Офлайн (немає зв\'язку)';
+                        const timeStr2 = f2.last_updated_time || '--:--';
+                        const batStr2 = f2.battery !== undefined && f2.battery !== null ? ` • 🔋 ${f2.battery}%` : '';
+                        chartCardSubF2.textContent = isOnlineF2 ? `Онлайн • ${timeStr2}${batStr2}` : (hasF2 ? `Офлайн • ${timeStr2}${batStr2}` : 'Офлайн (немає зв\'язку)');
                     }
 
-                    // Basement (Xiaomi LYWSD03MMC - Online)
+                    // Basement (Xiaomi LYWSD03MMC)
+                    const isOnlineFB = fb && !!fb.online;
                     const hasFB = fb && fb.temperature !== undefined && fb.temperature !== null;
                     const tb = hasFB ? `${Number(fb.temperature).toFixed(1)} °C` : '-- °C';
                     const tipB = formatTime(fb, 'Підвал');
                     if (telTempBasement) {
                         telTempBasement.textContent = tb;
                         telTempBasement.title = tipB;
-                        telTempBasement.className = (fb && fb.online) ? 'val-badge active hoverable' : 'val-badge hoverable';
+                        telTempBasement.className = hasFB ? 'val-badge active hoverable' : 'val-badge hoverable';
                     }
                     if (chartCardTempFB) {
                         chartCardTempFB.textContent = tb;
                         chartCardTempFB.title = tipB;
                     }
                     if (chartCardSubFB) {
-                        chartCardSubFB.textContent = hasFB ? `Оновлено: ${fb.last_updated_time || '--:--'} • 🔋 ${fb.battery || 99}%` : 'Очікує даних';
+                        const timeStrB = fb.last_updated_time || '--:--';
+                        const batStrB = fb.battery !== undefined && fb.battery !== null ? ` • 🔋 ${fb.battery}%` : '';
+                        chartCardSubFB.textContent = isOnlineFB ? `Онлайн • ${timeStrB}${batStrB}` : (hasFB ? `Офлайн • ${timeStrB}${batStrB}` : 'Очікує даних');
                     }
 
                     // Humidity (prefer real basement reading or floor1)
@@ -392,19 +397,27 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (data.success && data.speaker) {
                     const s = data.speaker;
                     const isConnected = !!s.connected;
+                    const spkName = s.name || 'Bluetooth Колонка';
                     if (sidebarJblBadge) {
-                        sidebarJblBadge.textContent = isConnected ? 'Підключено' : 'Відключено';
+                        sidebarJblBadge.textContent = isConnected ? spkName : 'Відключено';
                         sidebarJblBadge.className = isConnected ? 'badge badge-accent' : 'badge';
                     }
                     if (jblOnlineBadge) {
-                        jblOnlineBadge.textContent = isConnected ? '● JBL Clip 5 Підключено' : '○ JBL Clip 5 Відключено';
+                        jblOnlineBadge.textContent = isConnected ? `● ${spkName} Підключено` : `○ ${spkName} Відключено`;
                         jblOnlineBadge.style.color = isConnected ? 'var(--accent-cyan, #00f0ff)' : 'var(--text-muted, #94a3b8)';
                     }
                     if (jblStatusText) {
                         if (s.playing && s.current_track) {
-                            jblStatusText.textContent = `▶ Грає: ${s.current_track} (${s.volume}%)`;
+                            jblStatusText.textContent = `▶ Грає на ${spkName}: ${s.current_track} (${s.volume}%)`;
                         } else {
-                            jblStatusText.textContent = isConnected ? `Готово до відтворення (Гучність: ${s.volume}%)` : 'Відключено';
+                            jblStatusText.textContent = isConnected ? `${spkName}: Готово до відтворення (${s.volume}%)` : 'Відключено';
+                        }
+                    }
+                    if (fullRadioStatusText) {
+                        if (s.playing && s.current_track) {
+                            fullRadioStatusText.textContent = `Трансляція на ${spkName}: ▶ ${s.current_track}`;
+                        } else {
+                            fullRadioStatusText.textContent = `Трансляція інтернет-радіо на ${spkName}`;
                         }
                     }
                     if (jblConnectBtn) {

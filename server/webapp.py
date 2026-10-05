@@ -202,6 +202,19 @@ def garage_state():
         floors["floor1"]["installed"] = False
         floors["floor1"]["status_text"] = "Очікує датчик"
 
+    # If any floor has no active temperature, fallback to last known reading from telemetry_db
+    if hasattr(garage, "telemetry_db") and garage.telemetry_db:
+        try:
+            latest_db = garage.telemetry_db.get_latest_by_floor()
+            for fk, db_val in latest_db.items():
+                if fk in floors and floors[fk].get("temperature") is None and db_val.get("temperature") is not None:
+                    floors[fk]["temperature"] = db_val.get("temperature")
+                    floors[fk]["humidity"] = db_val.get("humidity")
+                    floors[fk]["battery"] = db_val.get("battery")
+                    floors[fk]["last_updated"] = db_val.get("timestamp")
+        except Exception:
+            pass
+
     # Format human-readable update times for all floors
     for fk, f in floors.items():
         lu = f.get("last_updated")
@@ -212,7 +225,7 @@ def garage_state():
             f["last_updated_formatted"] = "Очікує встановлення" if not f.get("mac") else "Очікується оновлення"
             f["last_updated_time"] = "--:--"
 
-    # Primary climate resolution: pick real active sensor
+    # Primary climate resolution: prefer online sensor with temperature, fallback to any with temperature
     primary_temp = None
     primary_hum = None
     primary_name = "Підвал"
@@ -224,6 +237,14 @@ def garage_state():
             primary_name = floors[pref_floor]["name"]
             primary_lu = floors[pref_floor].get("last_updated")
             break
+    if primary_temp is None:
+        for pref_floor in ("basement", "floor2", "floor1"):
+            if pref_floor in floors and floors[pref_floor].get("temperature") is not None:
+                primary_temp = floors[pref_floor]["temperature"]
+                primary_hum = floors[pref_floor]["humidity"]
+                primary_name = floors[pref_floor]["name"]
+                primary_lu = floors[pref_floor].get("last_updated")
+                break
 
     state["temperature"] = primary_temp
     state["humidity"] = primary_hum
@@ -282,6 +303,19 @@ def sensors_floors():
     else:
         bt_telemetry = garage.bt_sensors.get_telemetry() if hasattr(garage, "bt_sensors") else {}
         floors = bt_telemetry.get("floors", {})
+
+    if hasattr(garage, "telemetry_db") and garage.telemetry_db:
+        try:
+            latest_db = garage.telemetry_db.get_latest_by_floor()
+            for fk, db_val in latest_db.items():
+                if fk in floors and floors[fk].get("temperature") is None and db_val.get("temperature") is not None:
+                    floors[fk]["temperature"] = db_val.get("temperature")
+                    floors[fk]["humidity"] = db_val.get("humidity")
+                    floors[fk]["battery"] = db_val.get("battery")
+                    floors[fk]["last_updated"] = db_val.get("timestamp")
+        except Exception:
+            pass
+
     return jsonify({
         "success": True,
         "floors": floors
@@ -858,12 +892,36 @@ def speaker_status():
 def speaker_connect():
     data = request.get_json(silent=True) or {}
     mac = data.get("mac")
-    ok = garage.speaker.connect(mac)
-    spk_name = garage.speaker.name or "Колонку"
+    if mac and mac.upper() != garage.speaker.mac.upper():
+        ok = garage.speaker.switch_speaker(mac)
+    else:
+        ok = garage.speaker.connect(mac)
+    spk_name = garage.speaker.name or "Колонка"
     return jsonify({
         "success": ok,
         "connected": garage.speaker.is_connected(),
+        "mac": garage.speaker.mac,
+        "name": spk_name,
+        "playing": garage.speaker.is_playing(),
         "response": f"{spk_name} підключено" if ok else f"Не вдалося підключити {spk_name}"
+    })
+
+
+@app.route("/api/speaker/switch", methods=["POST"])
+def speaker_switch():
+    data = request.get_json(silent=True) or {}
+    mac = data.get("mac")
+    if not mac:
+        return jsonify({"success": False, "response": "Не вказано MAC-адресу колонки"}), 400
+    ok = garage.speaker.switch_speaker(mac)
+    spk_name = garage.speaker.name or "Колонка"
+    return jsonify({
+        "success": ok,
+        "connected": garage.speaker.is_connected(),
+        "mac": garage.speaker.mac,
+        "name": spk_name,
+        "playing": garage.speaker.is_playing(),
+        "response": f"Аудіо перемкнуто на {spk_name}" if ok else f"Не вдалося підключити {spk_name}"
     })
 
 

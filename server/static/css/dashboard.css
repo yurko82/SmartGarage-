@@ -1206,3 +1206,127 @@ body {
         padding: 12px;
     }
 }
+
+/* =========================================
+   BLUETOOTH SPEAKER SWITCHER COMPONENT
+   ========================================= */
+.speaker-toggle-bar {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-bottom: 14px;
+}
+
+.speaker-choice-btn {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--border-color, rgba(255, 255, 255, 0.1));
+    border-radius: 12px;
+    padding: 10px 14px;
+    text-align: left;
+    cursor: pointer;
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+    outline: none;
+    color: inherit;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.speaker-choice-btn:hover {
+    background: rgba(255, 255, 255, 0.07);
+    border-color: rgba(0, 240, 255, 0.4);
+    transform: translateY(-1px);
+}
+
+.speaker-choice-btn.active {
+    background: linear-gradient(135deg, rgba(0, 240, 255, 0.15) 0%, rgba(15, 23, 42, 0.8) 100%);
+    border-color: var(--accent-cyan, #00f0ff);
+    box-shadow: 0 0 16px rgba(0, 240, 255, 0.25), inset 0 0 12px rgba(0, 240, 255, 0.1);
+}
+
+.speaker-btn-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+}
+
+.speaker-btn-icon {
+    font-size: 1.25rem;
+}
+
+.speaker-btn-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+}
+
+.speaker-btn-dot.online {
+    background: #10b981;
+    box-shadow: 0 0 8px #10b981;
+}
+
+.speaker-btn-dot.offline {
+    background: #64748b;
+}
+
+.speaker-btn-title {
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: #fff;
+    margin-top: 2px;
+}
+
+.speaker-choice-btn.active .speaker-btn-title {
+    color: var(--accent-cyan, #00f0ff);
+    text-shadow: 0 0 10px rgba(0, 240, 255, 0.3);
+}
+
+.speaker-btn-sub {
+    font-size: 0.72rem;
+    color: var(--text-muted, #94a3b8);
+}
+
+.speaker-choice-btn.active .speaker-btn-sub {
+    color: #cbd5e1;
+}
+
+/* Quick Radio Quick-Pick Bar */
+.radio-quick-picks {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 10px;
+}
+
+.radio-quick-btn {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: #f1f5f9;
+    border-radius: 8px;
+    padding: 6px 10px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    transition: all 0.2s ease;
+}
+
+.radio-quick-btn:hover {
+    background: rgba(0, 240, 255, 0.15);
+    border-color: var(--accent-cyan, #00f0ff);
+    color: #fff;
+    transform: translateY(-1px);
+}
+
+.radio-quick-btn.active {
+    background: rgba(0, 240, 255, 0.22);
+    border-color: var(--accent-cyan, #00f0ff);
+    color: var(--accent-cyan, #00f0ff);
+    box-shadow: 0 0 10px rgba(0, 240, 255, 0.25);
+}
+

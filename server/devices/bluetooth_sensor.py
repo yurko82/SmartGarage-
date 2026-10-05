@@ -114,17 +114,29 @@ class BluetoothSensorManager:
                         last = vals.get("last_updated")
                         is_fresh = bool(last and (time.time() - last < 900) and vals.get("online"))
                         self.sensors[mac_u]["online"] = is_fresh
-                        if is_fresh:
-                            for k, v in vals.items():
-                                if v is not None:
-                                    self.sensors[mac_u][k] = v
-                        else:
-                            self.sensors[mac_u]["temperature"] = None
-                            self.sensors[mac_u]["humidity"] = None
-                            self.sensors[mac_u]["battery"] = vals.get("battery")
-                            self.sensors[mac_u]["last_updated"] = last
+                        # Always preserve last known physical measurements from cache
+                        for k in ("temperature", "humidity", "battery", "last_updated"):
+                            v = vals.get(k)
+                            if v is not None:
+                                self.sensors[mac_u][k] = v
         except Exception as e:
             logger.error(f"Error loading sensor cache: {e}")
+
+        # Fallback to SQLite TelemetryDB if any sensor is missing temperature
+        if hasattr(self, "telemetry_db") and self.telemetry_db:
+            try:
+                latest_floors = self.telemetry_db.get_latest_by_floor()
+                with self._lock:
+                    for s in self.sensors.values():
+                        f_key = s.get("floor")
+                        if f_key in latest_floors and s.get("temperature") is None:
+                            db_rec = latest_floors[f_key]
+                            s["temperature"] = db_rec.get("temperature")
+                            s["humidity"] = db_rec.get("humidity")
+                            s["battery"] = db_rec.get("battery")
+                            s["last_updated"] = db_rec.get("timestamp")
+            except Exception as e:
+                logger.error(f"Error falling back to telemetry DB in sensor manager: {e}")
 
     def _save_cache(self):
         """Save latest persistent sensor readings to cache file."""
@@ -318,10 +330,8 @@ class BluetoothSensorManager:
                     logger.info(f"Updated BLE sensor {mac}: Temp={s['temperature']}°C, Hum={s['humidity']}%, Bat={s['battery']}%")
                 else:
                     last = s.get("last_updated")
-                    if not last or (time.time() - last > 600):
+                    if not last or (time.time() - last > 900):
                         s["online"] = False
-                        s["temperature"] = None
-                        s["humidity"] = None
 
         if updated:
             self._save_cache()
@@ -374,9 +384,9 @@ class BluetoothSensorManager:
                     floors[f_key] = {
                         "name": s.get("alias") or floors[f_key]["name"],
                         "floor": f_key,
-                        "temperature": s.get("temperature") if is_online else None,
-                        "humidity": s.get("humidity") if is_online else None,
-                        "battery": s.get("battery") if is_online else None,
+                        "temperature": s.get("temperature"),
+                        "humidity": s.get("humidity"),
+                        "battery": s.get("battery"),
                         "online": is_online,
                         "mac": s.get("mac"),
                         "last_updated": last_u

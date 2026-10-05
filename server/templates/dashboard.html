@@ -9,8 +9,8 @@
     <title>Smart Garage — Панель 1-го поверху</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🏠</text></svg>">
     <link rel="manifest" href="/manifest.json">
-    <link rel="stylesheet" href="/static/css/theme.css?v=0.3.1">
-    <link rel="stylesheet" href="/static/css/dashboard.css?v=0.3.1">
+    <link rel="stylesheet" href="/static/css/theme.css?v=0.4.0">
+    <link rel="stylesheet" href="/static/css/dashboard.css?v=0.4.0">
 </head>
 <body>
     <div class="dashboard-container">
@@ -357,14 +357,29 @@
                     </div>
                 </div>
 
-                <!-- Speaker Target Selector -->
-                <div style="margin-bottom: 12px; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-color); border-radius: 10px; padding: 8px 12px;">
-                    <div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 5px;">Цільова аудіосистема / поверх:</div>
-                    <select id="speakerSelect" style="width: 100%; background: #121824; color: #fff; border: 1px solid rgba(0, 240, 255, 0.3); border-radius: 6px; padding: 6px 10px; font-size: 0.85rem; outline: none; cursor: pointer;">
-                        <option value="41:42:62:69:51:9B">📻 Музика 1-й поверх (JX-BT) [41:42:62:69:51:9B]</option>
-                        <option value="F8:5C:7E:EE:7D:CC">🔊 Гараж (Юрій: JBL Clip 5) [F8:5C:7E:EE:7D:CC]</option>
-                    </select>
+                <!-- Speaker Mode Segmented Switcher (JX-BT vs JBL Clip 5) -->
+                <div class="speaker-toggle-bar">
+                    <button type="button" class="speaker-choice-btn" id="btnSpeakerJxbt" data-mac="41:42:62:69:51:9B" aria-label="Перемкнути на аудіо 1-й поверх JX-BT">
+                        <div class="speaker-btn-header">
+                            <span class="speaker-btn-icon">📻</span>
+                            <span class="speaker-btn-dot offline" id="dotJxbt"></span>
+                        </div>
+                        <div class="speaker-btn-title">JX-BT</div>
+                        <div class="speaker-btn-sub" id="subJxbt">1-й поверх (Музика)</div>
+                    </button>
+                    <button type="button" class="speaker-choice-btn" id="btnSpeakerJbl" data-mac="F8:5C:7E:EE:7D:CC" aria-label="Перемкнути на аудіо Гараж JBL Clip 5">
+                        <div class="speaker-btn-header">
+                            <span class="speaker-btn-icon">🔊</span>
+                            <span class="speaker-btn-dot offline" id="dotJbl"></span>
+                        </div>
+                        <div class="speaker-btn-title">JBL Clip 5</div>
+                        <div class="speaker-btn-sub" id="subJbl">Гараж (Юрій)</div>
+                    </button>
                 </div>
+                <select id="speakerSelect" style="display: none;">
+                    <option value="41:42:62:69:51:9B">📻 Музика 1-й поверх (JX-BT) [41:42:62:69:51:9B]</option>
+                    <option value="F8:5C:7E:EE:7D:CC">🔊 Гараж (Юрій: JBL Clip 5) [F8:5C:7E:EE:7D:CC]</option>
+                </select>
 
                 <!-- Connection & State Header -->
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
@@ -414,7 +429,35 @@
                         <div style="font-size: 0.85rem; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 6px;">
                             <span>📻</span> Інтернет-радіо
                         </div>
-                        <span style="font-size: 0.7rem; color: var(--accent-cyan); background: rgba(0, 240, 255, 0.1); padding: 2px 8px; border-radius: 6px;">Radio Browser API</span>
+                        <span style="font-size: 0.7rem; color: var(--accent-cyan); background: rgba(0, 240, 255, 0.1); padding: 2px 8px; border-radius: 6px;">Миттєве перемикання</span>
+                    </div>
+
+                    <!-- Quick-Picks Top Ukrainian Stations -->
+                    <div class="radio-quick-picks" id="radioQuickPicks">
+                        <button type="button" class="radio-quick-btn" data-url="https://online.kissfm.ua/KissFM" data-name="Kiss FM">
+                            <span>⚡</span> Kiss FM
+                        </button>
+                        <button type="button" class="radio-quick-btn" data-url="https://online.hitfm.ua/HitFM" data-name="Hit FM">
+                            <span>🔥</span> Hit FM
+                        </button>
+                        <button type="button" class="radio-quick-btn" data-url="https://online.radioroks.ua/RadioROKS" data-name="Radio ROKS">
+                            <span>🎸</span> Radio ROKS
+                        </button>
+                        <button type="button" class="radio-quick-btn" data-url="https://online.loungefm.ua/LoungeFM" data-name="Lounge FM">
+                            <span>☕</span> Lounge FM
+                        </button>
+                        <button type="button" class="radio-quick-btn" data-url="https://online.radiobayraktar.com.ua/RadioBayraktar" data-name="Радіо Байрактар">
+                            <span>🇺🇦</span> Байрактар
+                        </button>
+                        <button type="button" class="radio-quick-btn" data-url="http://lux.radio.tvstitch.com/kyiv/lux_audio_128k" data-name="Люкс FM">
+                            <span>✨</span> Люкс FM
+                        </button>
+                        <button type="button" class="radio-quick-btn" data-url="https://online.radiorelax.ua/RadioRelax" data-name="Радіо Relax">
+                            <span>🍃</span> Relax
+                        </button>
+                        <button type="button" class="radio-quick-btn" data-url="https://online.radiojazz.ua/RadioJazz" data-name="Radio Jazz">
+                            <span>🎷</span> Jazz
+                        </button>
                     </div>
 
                     <!-- Search Input -->
@@ -528,6 +571,6 @@
     </div>
 
     <script src="/static/js/chart.min.js"></script>
-    <script src="/static/js/dashboard.js?v=0.2.1"></script>
+    <script src="/static/js/dashboard.js?v=0.4.0"></script>
 </body>
 </html>

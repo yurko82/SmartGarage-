@@ -171,8 +171,8 @@ class BluetoothSpeakerController:
                     timeout=3.0
                 )
                 vol = self.get_volume()
-                if vol == 0:
-                    self.set_volume(self._cached_volume or 75)
+                if vol < 30:
+                    self.set_volume(30)
                 self.logger.info(f"Connected to {self.name} successfully.")
                 return True
             return False
@@ -273,26 +273,65 @@ class BluetoothSpeakerController:
         return False
 
     def stop(self) -> bool:
-        """Stop current audio playback."""
+        """Stop current audio playback reliably."""
         with self._lock:
             if self._player_proc:
                 try:
                     import signal
-                    os.killpg(os.getpgid(self._player_proc.pid), signal.SIGTERM)
+                    os.killpg(os.getpgid(self._player_proc.pid), signal.SIGKILL)
                 except Exception:
                     try:
-                        self._player_proc.terminate()
-                        self._player_proc.wait(timeout=1.0)
+                        self._player_proc.kill()
                     except Exception:
-                        try:
-                            self._player_proc.kill()
-                        except Exception:
-                            pass
+                        pass
                 self._player_proc = None
+            try:
+                subprocess.run(["pkill", "-9", "-f", "gst-launch-1.0"], capture_output=True, timeout=2.0)
+            except Exception:
+                pass
             self._current_track = None
             self._playback_start_time = None
             self._is_paused = False
+            time.sleep(0.2)
         return True
+
+    def switch_speaker(self, target_mac: str) -> bool:
+        """Seamlessly switch active output to target Bluetooth speaker, transferring stream if active."""
+        target_mac = target_mac.upper().strip()
+        if not target_mac:
+            return False
+
+        if target_mac == self.mac and self.is_connected():
+            return True
+
+        old_mac = self.mac
+        was_playing = self.is_playing()
+        last_url = getattr(self, "_last_stream_url", None)
+        last_title = getattr(self, "_last_stream_title", None)
+
+        self.logger.info(f"Switching speaker from {old_mac} to {target_mac} (was_playing={was_playing})...")
+
+        # 1. Stop playback on old speaker
+        self.stop()
+
+        # 2. Disconnect old speaker if different
+        if old_mac and old_mac != target_mac:
+            try:
+                subprocess.run(["bluetoothctl", "disconnect", old_mac], capture_output=True, timeout=5.0)
+                time.sleep(0.5)
+            except Exception as e:
+                self.logger.warning(f"Error disconnecting old speaker {old_mac}: {e}")
+
+        # 3. Set active speaker and connect
+        self.set_active_speaker(target_mac)
+        connected = self.connect(target_mac)
+
+        # 4. If playback was active, resume streaming on the new speaker seamlessly
+        if connected and was_playing and last_url:
+            time.sleep(0.5)
+            self.play_stream(last_url, track_title=last_title)
+
+        return connected
 
     def pause(self) -> bool:
         """Pause playback (SIGSTOP)."""
@@ -389,13 +428,17 @@ class BluetoothSpeakerController:
                 return False
 
         self.stop()
+        time.sleep(0.2)
+
+        # Ensure volume is audible (at least 30%)
+        vol = self.get_volume()
+        if vol < 30:
+            self.set_volume(30)
 
         sink_target = self.sink_name if self.is_connected() else "@DEFAULT_AUDIO_SINK@"
         loop_cmd = (
             f"while true; do "
-            f"gst-launch-1.0 souphttpsrc location=\"{target_url}\" retries=-1 keep-alive=true "
-            f"! queue max-size-time=10000000000 ! decodebin ! audioconvert ! audioresample "
-            f"! queue max-size-time=3000000000 ! pipewiresink target-object=\"{sink_target}\"; "
+            f"gst-launch-1.0 playbin uri=\"{target_url}\" video-sink=fakesink audio-sink=\"pipewiresink target-object={sink_target}\"; "
             f"sleep 1; "
             f"done"
         )
@@ -530,6 +573,17 @@ class BluetoothSpeakerController:
             last_t = getattr(self, "_last_stream_title", None)
             track_title = f"📻 {last_t}" if last_t else "Аудіопотік"
 
+        speaker_items = []
+        for s in self.get_configured_speakers():
+            smac = s["mac"]
+            speaker_items.append({
+                "mac": smac,
+                "name": s["name"],
+                "floor": s.get("floor", "garage"),
+                "active": (smac == self.mac),
+                "connected": self.is_connected(smac)
+            })
+
         return {
             "mac": self.mac,
             "name": self.name,
@@ -540,5 +594,5 @@ class BluetoothSpeakerController:
             "current_track": track_title if playing else None,
             "elapsed_seconds": elapsed,
             "sink_name": self.sink_name,
-            "speakers": self.get_configured_speakers()
+            "speakers": speaker_items
         }

@@ -88,6 +88,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const mediaChipsContainer = document.getElementById('mediaChipsContainer');
 
     // Speaker Elements
+    const btnSpeakerJxbt = document.getElementById('btnSpeakerJxbt');
+    const btnSpeakerJbl = document.getElementById('btnSpeakerJbl');
+    const dotJxbt = document.getElementById('dotJxbt');
+    const dotJbl = document.getElementById('dotJbl');
+    const subJxbt = document.getElementById('subJxbt');
+    const subJbl = document.getElementById('subJbl');
     const speakerSelect = document.getElementById('speakerSelect');
     const jblCardTitle = document.getElementById('jblCardTitle');
     const jblOnlineDot = document.getElementById('jblOnlineDot');
@@ -106,6 +112,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const jblPlayInput = document.getElementById('jblPlayInput');
 
     // Internet Radio Elements
+    const radioQuickPicks = document.getElementById('radioQuickPicks');
     const radioStationsContainer = document.getElementById('radioStationsContainer');
     const radioSearchInput = document.getElementById('radioSearchInput');
     const btnRadioSearch = document.getElementById('btnRadioSearch');
@@ -597,16 +604,60 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- JBL SPEAKER CONTROLS ---
     let isVolumeDragging = false;
 
+    // Speaker switching logic between JX-BT and JBL Clip 5
+    async function switchSpeaker(targetMac) {
+        hapticFeedback();
+        const isJbl = targetMac === 'F8:5C:7E:EE:7D:CC';
+        const targetBtn = isJbl ? btnSpeakerJbl : btnSpeakerJxbt;
+        const otherBtn = isJbl ? btnSpeakerJxbt : btnSpeakerJbl;
+        const name = isJbl ? 'JBL Clip 5 (Гараж)' : 'JX-BT (1-й поверх)';
+
+        if (targetBtn) targetBtn.classList.add('active');
+        if (otherBtn) otherBtn.classList.remove('active');
+
+        if (voiceStatusText) {
+            voiceStatusText.textContent = `Перемикання аудіо на ${name}...`;
+            voiceStatusText.style.color = 'var(--accent-cyan)';
+        }
+
+        try {
+            const res = await fetch('/api/speaker/switch', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ mac: targetMac })
+            });
+            const data = await res.json();
+            if (data.success) {
+                if (voiceStatusText) {
+                    voiceStatusText.textContent = data.response || `Підключено: ${name}`;
+                }
+            } else {
+                if (voiceStatusText) {
+                    voiceStatusText.textContent = `⚠️ ${data.response || 'Помилка перемикання'}`;
+                    voiceStatusText.style.color = '#ef4444';
+                }
+            }
+            if (ttsEnabled && data.response) speakText(data.response);
+            fetchTelemetry();
+        } catch (e) {
+            if (voiceStatusText) {
+                voiceStatusText.textContent = `Помилка зв'язку з ${name}`;
+                voiceStatusText.style.color = '#ef4444';
+            }
+        }
+    }
+
+    if (btnSpeakerJxbt) {
+        btnSpeakerJxbt.addEventListener('click', () => switchSpeaker('41:42:62:69:51:9B'));
+    }
+    if (btnSpeakerJbl) {
+        btnSpeakerJbl.addEventListener('click', () => switchSpeaker('F8:5C:7E:EE:7D:CC'));
+    }
+
     if (speakerSelect) {
         speakerSelect.addEventListener('change', () => {
             const mac = speakerSelect.value;
-            if (mac === "41:42:62:69:51:9B") {
-                if (jblDeviceName) jblDeviceName.textContent = "JX-BT (1-й поверх)";
-                if (jblMac) jblMac.textContent = "MAC: 41:42:62:69:51:9B";
-            } else {
-                if (jblDeviceName) jblDeviceName.textContent = "Юрій: JBL Clip 5";
-                if (jblMac) jblMac.textContent = "MAC: F8:5C:7E:EE:7D:CC";
-            }
+            switchSpeaker(mac);
         });
     }
 
@@ -735,7 +786,79 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // --- INTERNET RADIO (RADIO BROWSER) ---
+    // --- INTERNET RADIO (RADIO BROWSER & QUICK PICKS) ---
+    async function playRadioStation(streamUrl, stationName) {
+        hapticFeedback();
+        currentRadioUrl = streamUrl;
+
+        // Highlight matching quick pick button
+        if (radioQuickPicks) {
+            radioQuickPicks.querySelectorAll('.radio-quick-btn').forEach(btn => {
+                const btnUrl = btn.getAttribute('data-url');
+                const btnName = btn.getAttribute('data-name');
+                if (btnUrl === streamUrl || btnName === stationName) {
+                    btn.classList.add('active');
+                } else {
+                    btn.classList.remove('active');
+                }
+            });
+        }
+        // Highlight matching radio chip
+        if (radioStationsContainer) {
+            radioStationsContainer.querySelectorAll('.radio-chip').forEach(c => {
+                const chipName = c.querySelector('span[title]') ? c.querySelector('span[title]').getAttribute('title') : '';
+                if (chipName === stationName) {
+                    c.classList.add('active');
+                } else {
+                    c.classList.remove('active');
+                }
+            });
+        }
+
+        if (voiceStatusText) {
+            voiceStatusText.textContent = `Запуск радіо: ${stationName}...`;
+            voiceStatusText.style.color = 'var(--accent-cyan)';
+        }
+
+        try {
+            const res = await fetch('/api/radio/play', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url: streamUrl, name: stationName })
+            });
+            const data = await res.json();
+            if (data.success) {
+                if (jblNowPlaying) jblNowPlaying.textContent = `📻 ${stationName}`;
+                if (voiceStatusText) {
+                    voiceStatusText.textContent = data.response || `Грає ${stationName}`;
+                    voiceStatusText.style.color = 'var(--accent-cyan)';
+                }
+            } else {
+                if (voiceStatusText) {
+                    voiceStatusText.textContent = `⚠️ ${data.response || 'Помилка запуску'}`;
+                    voiceStatusText.style.color = '#ef4444';
+                }
+            }
+            if (ttsEnabled && data.response) speakText(data.response);
+            fetchTelemetry();
+        } catch (err) {
+            if (voiceStatusText) {
+                voiceStatusText.textContent = `Помилка запуску ${stationName}`;
+                voiceStatusText.style.color = '#ef4444';
+            }
+        }
+    }
+
+    if (radioQuickPicks) {
+        radioQuickPicks.querySelectorAll('.radio-quick-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const url = btn.getAttribute('data-url');
+                const name = btn.getAttribute('data-name');
+                if (url) playRadioStation(url, name);
+            });
+        });
+    }
+
     async function loadRadioStations(query = '') {
         if (!radioStationsContainer) return;
         radioStationsContainer.innerHTML = '<div style="font-size: 0.75rem; color: var(--text-muted); padding: 4px;">⏳ Завантаження станцій...</div>';
@@ -783,46 +906,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             });
 
-            chip.addEventListener('click', async () => {
-
-                hapticFeedback();
-                if (voiceStatusText) {
-                    voiceStatusText.textContent = `Запуск радіо: ${st.name}...`;
-                    voiceStatusText.style.color = 'var(--accent-cyan)';
-                }
-
-                try {
-                    const res = await fetch('/api/radio/play', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ url: st.url, name: st.name })
-                    });
-                    const data = await res.json();
-                    if (data.success) {
-                        currentRadioUrl = st.url;
-                        document.querySelectorAll('.radio-chip').forEach(c => c.classList.remove('active'));
-                        chip.classList.add('active');
-                        if (jblNowPlaying) jblNowPlaying.textContent = `📻 ${st.name}`;
-                        if (voiceStatusText) {
-                            voiceStatusText.textContent = data.response || `Грає ${st.name}`;
-                            voiceStatusText.style.color = 'var(--accent-cyan)';
-                        }
-                    } else {
-                        chip.classList.remove('active');
-                        if (voiceStatusText) {
-                            voiceStatusText.textContent = `⚠️ ${data.response || 'Помилка запуску'}`;
-                            voiceStatusText.style.color = '#ef4444';
-                        }
-                    }
-                    if (ttsEnabled && data.response) speakText(data.response);
-                    fetchTelemetry();
-                } catch (err) {
-                    chip.classList.remove('active');
-                    if (voiceStatusText) {
-                        voiceStatusText.textContent = `Помилка запуску ${st.name}`;
-                        voiceStatusText.style.color = '#ef4444';
-                    }
-                }
+            chip.addEventListener('click', () => {
+                playRadioStation(st.url, st.name);
             });
 
             radioStationsContainer.appendChild(chip);
@@ -951,7 +1036,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 // Floor 2 (LYWSD03MMC BLE)
                 const isOnlineF2 = !!f2.online;
-                const hasF2 = isOnlineF2 && f2.temperature !== null && f2.temperature !== undefined;
+                const hasF2 = f2.temperature !== null && f2.temperature !== undefined;
                 const t2 = hasF2 ? Number(f2.temperature).toFixed(1) : '--';
                 const h2 = (hasF2 && f2.humidity !== null && f2.humidity !== undefined) ? Number(f2.humidity).toFixed(0) : '--';
                 const b2 = hasF2 && f2.battery !== null && f2.battery !== undefined ? `🔋 ${f2.battery}%` : '--';
@@ -966,12 +1051,12 @@ document.addEventListener('DOMContentLoaded', () => {
                     valHumFloor2.textContent = h2;
                     valHumFloor2.title = tip2;
                 }
-                if (subFloor2) subFloor2.textContent = isOnlineF2 ? `Онлайн • ${f2.last_updated_time || '--:--'}` : 'Офлайн (немає зв\'язку)';
+                if (subFloor2) subFloor2.textContent = isOnlineF2 ? `Онлайн • ${f2.last_updated_time || '--:--'}` : (hasF2 ? `Офлайн • ${f2.last_updated_time || '--:--'}` : 'Офлайн (немає зв\'язку)');
                 if (batFloor2) batFloor2.textContent = b2;
 
                 // Basement (LYWSD03MMC BLE)
                 const isOnlineFB = !!fb.online;
-                const hasFB = isOnlineFB && fb.temperature !== null && fb.temperature !== undefined;
+                const hasFB = fb.temperature !== null && fb.temperature !== undefined;
                 const tb = hasFB ? Number(fb.temperature).toFixed(1) : '--';
                 const hb = (hasFB && fb.humidity !== null && fb.humidity !== undefined) ? Number(fb.humidity).toFixed(0) : '--';
                 const bb = (hasFB && fb.battery !== null && fb.battery !== undefined) ? `🔋 ${fb.battery}%` : '--';
@@ -986,7 +1071,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     valHumBasement.textContent = hb;
                     valHumBasement.title = tipB;
                 }
-                if (subBasement) subBasement.textContent = hasFB ? `${getComfort(Number(tb), Number(hb))} • ${fb.last_updated_time || '--:--'}` : 'Очікує даних';
+                if (subBasement) subBasement.textContent = isOnlineFB ? `${getComfort(Number(tb), Number(hb))} • ${fb.last_updated_time || '--:--'}` : (hasFB ? `Офлайн • ${fb.last_updated_time || '--:--'}` : 'Очікує даних');
                 if (batBasement) batBasement.textContent = bb;
 
                 // BLE sensors summary (Count configured BLE climate sensors)
@@ -1035,9 +1120,44 @@ document.addEventListener('DOMContentLoaded', () => {
                     pillEspStatus.textContent = `ESP32: ${online ? 'Онлайн (' + transport + ')' : 'Очікування'}`;
                 }
 
-                // 4. Bluetooth JBL Speaker
+                // 4. Bluetooth Speakers Switcher & State
                 const spk = st.speaker || {};
                 const spkConnected = !!spk.connected;
+                const activeMac = (spk.mac || '').toUpperCase();
+
+                // Update segmented switcher buttons
+                if (btnSpeakerJxbt && btnSpeakerJbl) {
+                    const isJxbtActive = activeMac === '41:42:62:69:51:9B';
+                    const isJblActive = activeMac === 'F8:5C:7E:EE:7D:CC';
+
+                    btnSpeakerJxbt.classList.toggle('active', isJxbtActive);
+                    btnSpeakerJbl.classList.toggle('active', isJblActive);
+
+                    let jxbtOnline = isJxbtActive && spkConnected;
+                    let jblOnline = isJblActive && spkConnected;
+
+                    if (Array.isArray(spk.speakers)) {
+                        const sJxbt = spk.speakers.find(s => (s.mac || '').toUpperCase() === '41:42:62:69:51:9B');
+                        const sJbl = spk.speakers.find(s => (s.mac || '').toUpperCase() === 'F8:5C:7E:EE:7D:CC');
+                        if (sJxbt && sJxbt.connected !== undefined) jxbtOnline = sJxbt.connected;
+                        if (sJbl && sJbl.connected !== undefined) jblOnline = sJbl.connected;
+                    }
+
+                    if (dotJxbt) dotJxbt.className = `speaker-btn-dot ${jxbtOnline ? 'online' : 'offline'}`;
+                    if (dotJbl) dotJbl.className = `speaker-btn-dot ${jblOnline ? 'online' : 'offline'}`;
+
+                    if (subJxbt) {
+                        subJxbt.textContent = isJxbtActive 
+                            ? (spk.playing ? '▶ Грає зараз' : (jxbtOnline ? 'Підключено' : '1-й поверх (Музика)'))
+                            : (jxbtOnline ? 'Підключено' : '1-й поверх');
+                    }
+                    if (subJbl) {
+                        subJbl.textContent = isJblActive 
+                            ? (spk.playing ? '▶ Грає зараз' : (jblOnline ? 'Підключено' : 'Гараж (Юрій)'))
+                            : (jblOnline ? 'Підключено' : 'Гараж (Юрій)');
+                    }
+                }
+
                 if (jblOnlineDot) {
                     jblOnlineDot.className = `status-dot ${spkConnected ? 'online pulse' : 'offline'}`;
                 }
@@ -1049,7 +1169,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     speakerSelect.value = spk.mac;
                 }
                 if (jblCardTitle && spk.name) {
-                    jblCardTitle.textContent = `Колонка ${spk.name}`;
+                    jblCardTitle.textContent = `Аудіо: ${spk.name}`;
                 }
                 if (jblDeviceName && spk.name) {
                     jblDeviceName.textContent = spk.name;
@@ -1070,6 +1190,15 @@ document.addEventListener('DOMContentLoaded', () => {
                         jblNowPlaying.textContent = 'Немає активного відтворення';
                         jblNowPlaying.style.color = '#fff';
                     }
+                }
+                // Highlight active quick radio station button if current_track contains station name
+                if (radioQuickPicks) {
+                    const trackLower = (spk.playing && spk.current_track) ? spk.current_track.toLowerCase() : '';
+                    radioQuickPicks.querySelectorAll('.radio-quick-btn').forEach(btn => {
+                        const btnName = (btn.getAttribute('data-name') || '').toLowerCase();
+                        const isThisActive = !!(btnName && trackLower && trackLower.includes(btnName));
+                        btn.classList.toggle('active', isThisActive);
+                    });
                 }
                 if (jblVolumeSlider && !isVolumeDragging && spk.volume !== undefined && spk.volume !== null) {
                     jblVolumeSlider.value = spk.volume;
