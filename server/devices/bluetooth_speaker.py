@@ -156,6 +156,13 @@ class BluetoothSpeakerController:
                 timeout=8.0
             )
             time.sleep(1.0)
+            if not self.is_connected():
+                # Attempt pairing if not yet paired
+                subprocess.run(["bluetoothctl", "pair", self.mac], capture_output=True, text=True, timeout=8.0)
+                time.sleep(0.5)
+                subprocess.run(["bluetoothctl", "connect", self.mac], capture_output=True, text=True, timeout=8.0)
+                time.sleep(1.0)
+
             if self.is_connected():
                 # Set as default audio sink
                 subprocess.run(

@@ -1,3 +1,4 @@
+import time
 from server.memory.memory import Memory
 from server.devices.projector import ProjectorController
 from server.devices.esp32 import ESP32Controller
@@ -43,16 +44,6 @@ class CommandProcessor:
                             floors[fk]["source"] = "esp32"
                         elif not is_esp_online and fk in floors:
                             floors[fk]["online"] = False
-
-        if hasattr(self, "telemetry_db") and self.telemetry_db:
-            latest_db = self.telemetry_db.get_latest_by_floor()
-            for fk, db_val in latest_db.items():
-                if fk in floors and floors[fk].get("temperature") is None and db_val.get("temperature") is not None:
-                    floors[fk]["temperature"] = db_val["temperature"]
-                    floors[fk]["humidity"] = db_val.get("humidity")
-                    floors[fk]["battery"] = db_val.get("battery")
-                    floors[fk]["last_updated"] = db_val.get("timestamp")
-                    floors[fk]["source"] = "db"
         return floors
 
     def execute(self, command):
@@ -683,7 +674,9 @@ class CommandProcessor:
             if any(w in cmd for w in ("температур", "волог", "датчик", "стан", "клімат", "скільки", "що")):
                 floors = self._get_floors()
                 f = floors.get("basement", {})
-                t = f.get("temperature", "--")
+                if not f.get("online") or f.get("temperature") is None:
+                    return True, "⚓ Клімат у підвалі: датчик наразі офлайн (немає актуальних даних)."
+                t = f.get("temperature")
                 h = f.get("humidity", "--")
                 b = f.get("battery")
                 b_str = f", 🔋 батарея: {b}%" if b is not None else ""
@@ -693,7 +686,9 @@ class CommandProcessor:
         if is_floor2 and any(w in cmd for w in ("температур", "волог", "датчик", "стан", "клімат", "скільки", "яка", "що")):
             floors = self._get_floors()
             f = floors.get("floor2", {})
-            t = f.get("temperature", "--")
+            if not f.get("online") or f.get("temperature") is None:
+                return True, "🏢 Клімат на 2-му поверсі: датчик наразі офлайн (немає актуальних даних)."
+            t = f.get("temperature")
             h = f.get("humidity", "--")
             b = f.get("battery")
             b_str = f", 🔋 батарея: {b}%" if b is not None else ""
@@ -703,7 +698,10 @@ class CommandProcessor:
         if is_floor1 and any(w in cmd for w in ("температур", "волог", "датчик", "стан", "клімат", "скільки", "яка", "що")):
             floors = self._get_floors()
             f = floors.get("floor1", {})
-            t = f.get("temperature", "--")
+            if not f.get("online") or f.get("temperature") is None:
+                status_txt = "очікує встановлення датчика" if not f.get("mac") else "датчик наразі офлайн"
+                return True, f"🏠 Клімат на 1-му поверсі: {status_txt}."
+            t = f.get("temperature")
             h = f.get("humidity", "--")
             b = f.get("battery")
             b_str = f", 🔋 батарея: {b}%" if b is not None else ""
@@ -726,24 +724,24 @@ class CommandProcessor:
             fan_str = "Увімкнено" if tel.get("fan") else "Вимкнено"
             door_ua = "ВІДКРИТО" if tel.get("door") == "open" else "ЗАКРИТО"
 
-            t1 = f1.get("temperature") if f1.get("temperature") is not None else "--"
-            h1 = f1.get("humidity") if f1.get("humidity") is not None else "--"
-            b1 = f1.get("battery") if f1.get("battery") is not None else "--"
+            def _fmt_floor(fl, default_offline="Офлайн"):
+                if fl.get("online") and fl.get("temperature") is not None:
+                    h_val = f", вологість {fl.get('humidity')}%" if fl.get("humidity") is not None else ""
+                    b_val = f" (🔋 {fl.get('battery')}%)" if fl.get("battery") is not None else ""
+                    return f"{fl.get('temperature')}°C{h_val}{b_val}"
+                if not fl.get("mac"):
+                    return "очікує встановлення датчика"
+                return default_offline
 
-            t2 = f2.get("temperature") if f2.get("temperature") is not None else "--"
-            h2 = f2.get("humidity") if f2.get("humidity") is not None else "--"
-            b2 = f2.get("battery") if f2.get("battery") is not None else "--"
-
-            tb = fb.get("temperature") if fb.get("temperature") is not None else "--"
-            hb = fb.get("humidity") if fb.get("humidity") is not None else "--"
-            bb = fb.get("battery") if fb.get("battery") is not None else "--"
+            t1_str = _fmt_floor(f1, "очікує встановлення датчика")
+            t2_str = _fmt_floor(f2, "офлайн")
+            tb_str = _fmt_floor(fb, "офлайн")
 
             return True, (f"""📊 Стан системи та датчиків [{online_str}]:
-  • 🏠 1-й поверх : {t1}°C, вологість {h1}% (🔋 {b1}%)
-  • 🏢 2-й поверх : {t2}°C, вологість {h2}% (🔋 {b2}%)
-  • ⚓ Підвал     : {tb}°C, вологість {hb}% (🔋 {bb}%)
-  • 💡 Освітлення : {light_str} | 💨 Вентиляція: {fan_str}
-  • 🚪 Ворота     : {door_ua} | 🛡️ Газ MQ2: {tel.get('gas_ppm', 0)} ppm""")
+  • 🏠 1-й поверх : {t1_str}
+  • 🏢 2-й поверх : {t2_str}
+  • ⚓ Підвал     : {tb_str}
+  • 💡 Освітлення : {light_str} | 💨 Вентиляція: {fan_str}""")
 
 
         # -----------------------

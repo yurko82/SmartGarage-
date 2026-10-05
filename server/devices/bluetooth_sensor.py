@@ -111,9 +111,18 @@ class BluetoothSensorManager:
                 for mac, vals in cached.items():
                     mac_u = mac.upper().strip()
                     if mac_u in self.sensors:
-                        for k, v in vals.items():
-                            if v is not None:
-                                self.sensors[mac_u][k] = v
+                        last = vals.get("last_updated")
+                        is_fresh = bool(last and (time.time() - last < 900) and vals.get("online"))
+                        self.sensors[mac_u]["online"] = is_fresh
+                        if is_fresh:
+                            for k, v in vals.items():
+                                if v is not None:
+                                    self.sensors[mac_u][k] = v
+                        else:
+                            self.sensors[mac_u]["temperature"] = None
+                            self.sensors[mac_u]["humidity"] = None
+                            self.sensors[mac_u]["battery"] = vals.get("battery")
+                            self.sensors[mac_u]["last_updated"] = last
         except Exception as e:
             logger.error(f"Error loading sensor cache: {e}")
 
@@ -212,17 +221,7 @@ class BluetoothSensorManager:
 
     async def _read_sensor_data(self, mac: str):
         """Connect to sensor and retrieve temperature, humidity, and battery."""
-        logger.debug(f"Scanning for BLE sensor {mac}...")
-        device = await BleakScanner.find_device_by_address(mac, timeout=25.0)
-        if not device:
-            logger.debug(f"Sensor {mac} not found in 25s discovery window.")
-            with self._lock:
-                if mac in self.sensors:
-                    last = self.sensors[mac].get("last_updated")
-                    if last and (time.time() - last > 300):
-                        self.sensors[mac]["online"] = False
-            return
-
+        logger.debug(f"Attempting to read BLE sensor {mac}...")
         temp_found = None
         hum_found = None
         battery_found = None
@@ -234,10 +233,14 @@ class BluetoothSensorManager:
                 temp_found = round(temp_raw / 100.0, 1)
                 hum_found = int(data[2])
 
+        client_target = mac
+        connected = False
+
+        # Attempt 1: Direct connection by MAC address (fastest and avoids BlueZ scanner conflicts)
         try:
-            async with BleakClient(device, timeout=20.0) as client:
+            async with BleakClient(client_target, timeout=12.0) as client:
                 if client.is_connected:
-                    # 1. Battery
+                    connected = True
                     try:
                         bat_raw = await client.read_gatt_char(CHAR_BATTERY)
                         if bat_raw:
@@ -245,7 +248,6 @@ class BluetoothSensorManager:
                     except Exception:
                         pass
 
-                    # 2. Temperature & Humidity (Direct Read)
                     try:
                         raw_data = await client.read_gatt_char(CHAR_DATA_NOTIFY)
                         if raw_data and len(raw_data) >= 3:
@@ -255,53 +257,88 @@ class BluetoothSensorManager:
                     except Exception as e:
                         logger.debug(f"Direct read on {CHAR_DATA_NOTIFY} failed: {e}")
 
-                    # Fallback to notifications if direct read failed
                     if temp_found is None or hum_found is None:
                         try:
                             await client.start_notify(CHAR_DATA_NOTIFY, handle_notification)
-                            await asyncio.sleep(3.0)
+                            await asyncio.sleep(2.5)
                             await client.stop_notify(CHAR_DATA_NOTIFY)
                         except Exception as e:
                             logger.debug(f"Error subscribing to notify on {mac}: {e}")
-
-            # Update cache if valid values obtained
-            updated = False
-            with self._lock:
-                if mac in self.sensors:
-                    s = self.sensors[mac]
-                    if temp_found is not None:
-                        s["temperature"] = temp_found
-                        updated = True
-                    if hum_found is not None:
-                        s["humidity"] = hum_found
-                        updated = True
-                    if battery_found is not None:
-                        s["battery"] = battery_found
-                        updated = True
-                    if temp_found is not None or battery_found is not None:
-                        s["online"] = True
-                        s["last_updated"] = time.time()
-                        logger.info(f"Updated BLE sensor {mac}: Temp={s['temperature']}°C, Hum={s['humidity']}%, Bat={s['battery']}%")
-
-            if updated:
-                self._save_cache()
-                if hasattr(self, "telemetry_db") and self.telemetry_db:
-                    try:
-                        f_k = self.sensors.get(mac, {}).get("floor") or "garage"
-                        name_s = self.sensors.get(mac, {}).get("alias") or self.sensors.get(mac, {}).get("name")
-                        self.telemetry_db.record(
-                            floor=f_k,
-                            temperature=temp_found,
-                            humidity=hum_found,
-                            battery=battery_found,
-                            mac=mac,
-                            sensor_name=name_s
-                        )
-                    except Exception as edb:
-                        logger.debug(f"TelemetryDB recording error for {mac}: {edb}")
-
         except Exception as e:
-            logger.debug(f"Exception connecting to sensor {mac}: {e}")
+            logger.debug(f"Direct connection to {mac} failed ({e}), trying discovery scan...")
+
+        # Attempt 2: Fallback to discovery scanner if direct connection was not successful
+        if not connected or temp_found is None:
+            try:
+                device = await BleakScanner.find_device_by_address(mac, timeout=10.0)
+                if device:
+                    async with BleakClient(device, timeout=12.0) as client:
+                        if client.is_connected:
+                            try:
+                                bat_raw = await client.read_gatt_char(CHAR_BATTERY)
+                                if bat_raw:
+                                    battery_found = int(bat_raw[0])
+                            except Exception:
+                                pass
+                            try:
+                                raw_data = await client.read_gatt_char(CHAR_DATA_NOTIFY)
+                                if raw_data and len(raw_data) >= 3:
+                                    temp_raw = int.from_bytes(raw_data[0:2], byteorder="little", signed=True)
+                                    temp_found = round(temp_raw / 100.0, 1)
+                                    hum_found = int(raw_data[2])
+                            except Exception:
+                                pass
+                            if temp_found is None or hum_found is None:
+                                try:
+                                    await client.start_notify(CHAR_DATA_NOTIFY, handle_notification)
+                                    await asyncio.sleep(2.5)
+                                    await client.stop_notify(CHAR_DATA_NOTIFY)
+                                except Exception:
+                                    pass
+            except Exception as e:
+                logger.debug(f"Discovery fallback failed for {mac}: {e}")
+
+        # Update cache if valid values obtained, otherwise mark offline after grace period
+        updated = False
+        with self._lock:
+            if mac in self.sensors:
+                s = self.sensors[mac]
+                if temp_found is not None:
+                    s["temperature"] = temp_found
+                    updated = True
+                if hum_found is not None:
+                    s["humidity"] = hum_found
+                    updated = True
+                if battery_found is not None:
+                    s["battery"] = battery_found
+                    updated = True
+                if temp_found is not None or battery_found is not None:
+                    s["online"] = True
+                    s["last_updated"] = time.time()
+                    logger.info(f"Updated BLE sensor {mac}: Temp={s['temperature']}°C, Hum={s['humidity']}%, Bat={s['battery']}%")
+                else:
+                    last = s.get("last_updated")
+                    if not last or (time.time() - last > 600):
+                        s["online"] = False
+                        s["temperature"] = None
+                        s["humidity"] = None
+
+        if updated:
+            self._save_cache()
+            if hasattr(self, "telemetry_db") and self.telemetry_db:
+                try:
+                    f_k = self.sensors.get(mac, {}).get("floor") or "garage"
+                    name_s = self.sensors.get(mac, {}).get("alias") or self.sensors.get(mac, {}).get("name")
+                    self.telemetry_db.record(
+                        floor=f_k,
+                        temperature=temp_found,
+                        humidity=hum_found,
+                        battery=battery_found,
+                        mac=mac,
+                        sensor_name=name_s
+                    )
+                except Exception as edb:
+                    logger.debug(f"TelemetryDB recording error for {mac}: {edb}")
 
     def get_telemetry(self) -> Dict[str, Any]:
         """Return thread-safe snapshot of all sensor data, primary values, and floor climate."""
@@ -331,15 +368,18 @@ class BluetoothSensorManager:
 
                 if f_key in floors:
                     is_online = bool(s.get("online", False))
+                    last_u = s.get("last_updated")
+                    if last_u and (time.time() - last_u > 900):
+                        is_online = False
                     floors[f_key] = {
                         "name": s.get("alias") or floors[f_key]["name"],
                         "floor": f_key,
-                        "temperature": s.get("temperature"),
-                        "humidity": s.get("humidity"),
-                        "battery": s.get("battery"),
+                        "temperature": s.get("temperature") if is_online else None,
+                        "humidity": s.get("humidity") if is_online else None,
+                        "battery": s.get("battery") if is_online else None,
                         "online": is_online,
                         "mac": s.get("mac"),
-                        "last_updated": s.get("last_updated")
+                        "last_updated": last_u
                     }
 
             # Primary sensor resolution

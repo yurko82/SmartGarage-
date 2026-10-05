@@ -4,6 +4,9 @@ set -e
 echo "🗑️ Видалення стороннього патчу BCM20702A1..."
 sudo rm -f /lib/firmware/brcm/BCM20702A1-0a5c-21f4.hcd
 
+echo "🔄 Апаратний USB-скид контролера Broadcom BCM20702..."
+sudo usbreset 0a5c:21f4 || true
+sleep 1
 echo "🔄 Перезапуск драйвера та служби Bluetooth..."
 sudo modprobe -r btusb || true
 sleep 1

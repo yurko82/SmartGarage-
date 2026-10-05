@@ -41,25 +41,15 @@ WiFiClient espMqttClient;
 PubSubClient mqttClient(espMqttClient);
 unsigned long lastMqttRetryTime = 0;
 
-// --- Pin Definitions (Compatible with ESP32-S3 and standard ESP32) ---
+// --- Pin Definitions (Relays only, physical sensors uninstalled) ---
 #if CONFIG_IDF_TARGET_ESP32S3
 #define PIN_RELAY_DOOR   4   // Garage Door Relay (Pulse/Trigger)
 #define PIN_RELAY_LIGHT  5   // Garage Lighting Relay
 #define PIN_RELAY_FAN    6   // Exhaust Fan Relay
-#define PIN_PIR_MOTION   7   // PIR Motion Sensor Input
-#define PIN_DOOR_SWITCH  8   // Reed magnetic switch (Door Closed sensor)
-#define PIN_TRIG         9   // Ultrasonic HC-SR04 Trig
-#define PIN_ECHO         10  // Ultrasonic HC-SR04 Echo
-#define PIN_GAS_ANALOG   1   // MQ Gas/Smoke Sensor Analog Input (ADC1)
 #else
 #define PIN_RELAY_DOOR   25  // Garage Door Relay (Pulse/Trigger)
 #define PIN_RELAY_LIGHT  26  // Garage Lighting Relay
 #define PIN_RELAY_FAN    27  // Exhaust Fan Relay
-#define PIN_PIR_MOTION   14  // PIR Motion Sensor Input
-#define PIN_DOOR_SWITCH  33  // Reed magnetic switch (Door Closed sensor)
-#define PIN_TRIG         12  // Ultrasonic HC-SR04 Trig
-#define PIN_ECHO         13  // Ultrasonic HC-SR04 Echo
-#define PIN_GAS_ANALOG   34  // MQ Gas/Smoke Sensor Analog Input
 #endif
 
 WebServer server(80);
@@ -70,16 +60,12 @@ bool fanState = false;
 String doorState = "closed";
 float temperature = 0.0;
 float humidity = 0.0;
-int distanceCm = 240;
-bool carPresent = false;
-bool motionDetected = false;
-int gasLevel = 35;
 
 unsigned long lastTelemetryTime = 0;
-const unsigned long TELEMETRY_INTERVAL = 5000; // Telemetry push every 5 sec
+const unsigned long TELEMETRY_INTERVAL = 10000; // Telemetry push every 10 sec
 unsigned long lastWifiCheckTime = 0;
 unsigned long lastBlePollTime = 0;
-const unsigned long BLE_POLL_INTERVAL = 15UL * 60UL * 1000UL; // 15 min
+const unsigned long BLE_POLL_INTERVAL = 2UL * 60UL * 1000UL; // 2 min polling
 
 // --- BLE Sensor Definitions ---
 static BLEUUID envServiceUUID("ebe0ccb0-7a0a-4b0c-8a1a-6ff2997da3a6");
@@ -169,33 +155,41 @@ void runBleScan(int scanDuration = 15) {
   pBLEScan->setAdvertisedDeviceCallbacks(nullptr, false);
 }
 
+void sendTelemetryToServer();
+
+static BLEClient* pBleClient = nullptr;
+
 bool readBleSensor(int idx) {
   if (idx < 0 || idx >= NUM_BLE_SENSORS) return false;
   BleFloorSensor &s = bleSensors[idx];
-  
   initBLE();
-  Serial.print("[BLE] Connecting to ");
-  Serial.print(s.name);
-  Serial.print(" (");
-  Serial.print(s.mac);
-  Serial.println(")...");
 
+  Serial.printf("[BLE] Connecting to %s (%s)...\n", s.name, s.mac);
   BLEAddress pAddress(s.mac);
-  BLEClient* pClient = BLEDevice::createClient();
-  if (pClient == nullptr) return false;
+  if (pBleClient == nullptr) {
+    pBleClient = BLEDevice::createClient();
+  }
+  if (pBleClient == nullptr) return false;
 
-  // timeout
-  bool connected = pClient->connect(pAddress);
+  if (pBleClient->isConnected()) {
+    pBleClient->disconnect();
+    delay(100);
+  }
+
+  // Try PUBLIC address type first, then RANDOM
+  bool connected = pBleClient->connect(pAddress, BLE_ADDR_TYPE_PUBLIC);
+  if (!connected) {
+    connected = pBleClient->connect(pAddress, BLE_ADDR_TYPE_RANDOM);
+  }
   if (!connected) {
     Serial.println("[BLE] Connect failed.");
     s.online = false;
-    delete pClient;
     return false;
   }
 
   bool gotData = false;
   // 1. Temperature & Humidity
-  BLERemoteService* pRemoteService = pClient->getService(envServiceUUID);
+  BLERemoteService* pRemoteService = pBleClient->getService(envServiceUUID);
   if (pRemoteService != nullptr) {
     BLERemoteCharacteristic* pRemoteChar = pRemoteService->getCharacteristic(envCharUUID);
     if (pRemoteChar != nullptr) {
@@ -208,7 +202,7 @@ bool readBleSensor(int idx) {
           s.online = true;
           s.lastUpdated = millis();
           gotData = true;
-          Serial.printf("[BLE] Read %s: %.1f C, %.0f %%%\n", s.name, s.temp, s.hum);
+          Serial.printf("[BLE] Read %s: %.1f C, %.0f %%\n", s.name, s.temp, s.hum);
         }
       }
       if (!gotData && pRemoteChar->canNotify()) {
@@ -225,7 +219,7 @@ bool readBleSensor(int idx) {
           }
         });
         unsigned long tStart = millis();
-        while (!nReceived && (millis() - tStart < 3000)) {
+        while (!nReceived && (millis() - tStart < 2500)) {
           delay(50);
         }
         if (nReceived) {
@@ -234,14 +228,14 @@ bool readBleSensor(int idx) {
           s.online = true;
           s.lastUpdated = millis();
           gotData = true;
-          Serial.printf("[BLE] Notify %s: %.1f C, %.0f %%%\n", s.name, s.temp, s.hum);
+          Serial.printf("[BLE] Notify %s: %.1f C, %.0f %%\n", s.name, s.temp, s.hum);
         }
       }
     }
   }
 
   // 2. Battery
-  BLERemoteService* pBatService = pClient->getService(batServiceUUID);
+  BLERemoteService* pBatService = pBleClient->getService(batServiceUUID);
   if (pBatService != nullptr) {
     BLERemoteCharacteristic* pBatChar = pBatService->getCharacteristic(batCharUUID);
     if (pBatChar != nullptr && pBatChar->canRead()) {
@@ -253,68 +247,47 @@ bool readBleSensor(int idx) {
     }
   }
 
-  pClient->disconnect();
-  delete pClient;
+  pBleClient->disconnect();
 
   if (!gotData) {
     s.online = false;
-  }
-
-  if (idx == 0 && s.online) {
-    temperature = s.temp;
-    humidity = s.hum;
   }
 
   return gotData;
 }
 
 void pollAllBleSensors() {
-  Serial.println("[BLE] Starting 15-min scheduled BLE sensor poll...");
+  Serial.println("[BLE] Starting BLE climate poll...");
   for (int i = 0; i < NUM_BLE_SENSORS; i++) {
     readBleSensor(i);
-    delay(300);
+    delay(200);
   }
-}
-
-// Measure distance via Ultrasonic HC-SR04
-int readDistance() {
-  digitalWrite(PIN_TRIG, LOW);
-  delayMicroseconds(2);
-  digitalWrite(PIN_TRIG, HIGH);
-  delayMicroseconds(10);
-  digitalWrite(PIN_TRIG, LOW);
-  long duration = pulseIn(PIN_ECHO, HIGH, 30000);
-  if (duration == 0) return 250;
-  return duration * 0.034 / 2;
+  sendTelemetryToServer();
 }
 
 void readSensors() {
-  distanceCm = readDistance();
-  carPresent = (distanceCm > 10 && distanceCm < 180);
-  motionDetected = (digitalRead(PIN_PIR_MOTION) == HIGH);
-  int doorSwitch = digitalRead(PIN_DOOR_SWITCH);
-  doorState = (doorSwitch == LOW) ? "closed" : "open";
-  gasLevel = analogRead(PIN_GAS_ANALOG);
+  // Physical gate/gas sensors uninstalled; ESP32 focuses on BLE climate gateway
 }
 
 String buildTelemetryJson() {
   JsonDocument doc;
   doc["door"] = doorState;
+  doc["door_installed"] = false;
   doc["light"] = lightState;
   doc["fan"] = fanState;
-  if (temperature > 0.0) {
-    doc["temperature"] = temperature;
-    doc["humidity"] = humidity;
-  } else {
-    doc["temperature"] = nullptr;
-    doc["humidity"] = nullptr;
-  }
-  doc["distance_cm"] = distanceCm;
-  doc["car_present"] = carPresent;
-  doc["motion_detected"] = motionDetected;
-  doc["gas_ppm"] = gasLevel;
+  doc["distance_cm"] = nullptr;
+  doc["car_present"] = nullptr;
+  doc["car_sensor_installed"] = false;
+  doc["motion_detected"] = nullptr;
+  doc["motion_installed"] = false;
+  doc["gas_ppm"] = nullptr;
+  doc["gas_installed"] = false;
   doc["online"] = true;
   doc["wifi_ip"] = (WiFi.status() == WL_CONNECTED) ? WiFi.localIP().toString() : "offline";
+
+  float primTemp = 0.0;
+  float primHum = 0.0;
+  bool hasPrim = false;
 
   JsonObject fl = doc["floors"].to<JsonObject>();
   JsonObject f1 = fl["floor1"].to<JsonObject>();
@@ -330,17 +303,30 @@ String buildTelemetryJson() {
     item["name"] = bleSensors[i].name;
     item["floor"] = bleSensors[i].floor;
     item["mac"] = bleSensors[i].mac;
-    bool is_online = bleSensors[i].online && (bleSensors[i].lastUpdated > 0) && (millis() - bleSensors[i].lastUpdated < 30UL * 60UL * 1000UL);
+    bool is_online = bleSensors[i].online && (bleSensors[i].lastUpdated > 0) && (millis() - bleSensors[i].lastUpdated < 15UL * 60UL * 1000UL);
     item["online"] = is_online;
     if (is_online) {
       item["temperature"] = bleSensors[i].temp;
       item["humidity"] = bleSensors[i].hum;
       item["battery"] = bleSensors[i].battery;
+      if (!hasPrim) {
+        primTemp = bleSensors[i].temp;
+        primHum = bleSensors[i].hum;
+        hasPrim = true;
+      }
     } else {
       item["temperature"] = nullptr;
       item["humidity"] = nullptr;
       item["battery"] = nullptr;
     }
+  }
+
+  if (hasPrim) {
+    doc["temperature"] = primTemp;
+    doc["humidity"] = primHum;
+  } else {
+    doc["temperature"] = nullptr;
+    doc["humidity"] = nullptr;
   }
 
   String jsonBody;
@@ -360,8 +346,11 @@ void sendTelemetryToServer() {
     HTTPClient http;
     http.begin(SERVER_TELEMETRY_URL);
     http.addHeader("Content-Type", "application/json");
-    http.setTimeout(1500);
-    http.POST(jsonBody);
+    http.setTimeout(2000);
+    int httpCode = http.POST(jsonBody);
+    if (httpCode > 0) {
+      Serial.printf("[HTTP] Telemetry POST status: %d\n", httpCode);
+    }
     http.end();
   }
 
@@ -550,6 +539,7 @@ void processSerialCommand(String cmd) {
 
 void checkWifiConnection() {
   if (WiFi.status() != WL_CONNECTED) {
+    Serial.printf("[WiFi] Disconnected (status=%d). Reconnecting to %s...\n", WiFi.status(), WIFI_SSID);
     WiFi.disconnect();
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   }
@@ -558,22 +548,31 @@ void checkWifiConnection() {
 void setup() {
   Serial.begin(115200);
   delay(1000);
-  Serial.println("\n[SmartGarage] ESP32-S3 Initializing with 15-min BLE reader...");
+  Serial.println("\n[SmartGarage] ESP32-S3 Initializing as Primary Wireless Climate Gateway...");
 
   pinMode(PIN_RELAY_DOOR, OUTPUT);
   pinMode(PIN_RELAY_LIGHT, OUTPUT);
   pinMode(PIN_RELAY_FAN, OUTPUT);
-  pinMode(PIN_PIR_MOTION, INPUT);
-  pinMode(PIN_DOOR_SWITCH, INPUT_PULLUP);
-  pinMode(PIN_TRIG, OUTPUT);
-  pinMode(PIN_ECHO, INPUT);
 
   digitalWrite(PIN_RELAY_DOOR, LOW);
   digitalWrite(PIN_RELAY_LIGHT, LOW);
   digitalWrite(PIN_RELAY_FAN, LOW);
 
   WiFi.mode(WIFI_STA);
+  WiFi.setAutoReconnect(true);
+  Serial.printf("[WiFi] Connecting to SSID: %s...\n", WIFI_SSID);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+
+  unsigned long startWifi = millis();
+  while (WiFi.status() != WL_CONNECTED && (millis() - startWifi < 15000)) {
+    delay(500);
+    Serial.print(".");
+  }
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.printf("\n[WiFi] Connected! IP: %s, RSSI: %d dBm\n", WiFi.localIP().toString().c_str(), WiFi.RSSI());
+  } else {
+    Serial.printf("\n[WiFi] Connect timed out (status=%d). Will continue in background.\n", WiFi.status());
+  }
 
   server.on("/api/telemetry", HTTP_GET, handleTelemetry);
   server.on("/api/ble/sensors", HTTP_GET, []() {
@@ -663,27 +662,26 @@ void loop() {
     processSerialCommand(input);
   }
 
-  // Initial BLE poll 5 sec after startup
-  if (!lastBlePollTime && millis() > 5000) {
+  // Initial BLE poll 10 sec after startup
+  if (!lastBlePollTime && millis() > 10000) {
     lastBlePollTime = millis();
     pollAllBleSensors();
   }
 
-  // 15-min scheduled BLE sensor poll
+  // Scheduled BLE sensor poll (every 2 min)
   if (millis() - lastBlePollTime > BLE_POLL_INTERVAL) {
     lastBlePollTime = millis();
     pollAllBleSensors();
   }
 
-  // Periodic Telemetry every 5 sec
+  // Periodic Telemetry every 10 sec
   if (millis() - lastTelemetryTime > TELEMETRY_INTERVAL) {
     lastTelemetryTime = millis();
-    readSensors();
     sendTelemetryToServer();
   }
 
-  // Check Wi-Fi every 30 seconds
-  if (millis() - lastWifiCheckTime > 30000) {
+  // Check Wi-Fi every 15 seconds
+  if (millis() - lastWifiCheckTime > 15000) {
     lastWifiCheckTime = millis();
     checkWifiConnection();
   }

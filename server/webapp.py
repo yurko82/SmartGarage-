@@ -374,15 +374,13 @@ def esp32_telemetry():
                             mac=fval.get("mac"),
                             sensor_name=fval.get("name")
                         )
-
-        temp = data.get("temperature", 21.3)
-        hum = data.get("humidity", 63.0)
+        temp = data.get("temperature")
+        hum = data.get("humidity")
         door = garage.esp32.state.get("door", "closed")
         light = garage.esp32.state.get("light", False)
         car = data.get("car_present", False)
-        telemetry_history.add(temp=temp, hum=hum, door=door, light=light, car=car)
-        if hasattr(garage, "telemetry_db") and garage.telemetry_db and "floors" not in data:
-            garage.telemetry_db.record(floor="basement", temperature=temp, humidity=hum)
+        if temp is not None or hum is not None:
+            telemetry_history.add(temp=temp, hum=hum, door=door, light=light, car=car)
 
     return jsonify({
         "success": success,

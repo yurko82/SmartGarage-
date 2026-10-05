@@ -134,21 +134,8 @@ class ESP32Controller:
                         dev["service_uuids"] = [uuid] if uuid else []
                     with self._lock:
                         self.last_ble_scan_results = devices
-                with self._lock:
-                    if "door" in data:
-                        self.state["door"] = data["door"]
-                    if "light" in data:
-                        self.state["light"] = bool(data["light"])
-                    if "fan" in data:
-                        self.state["fan"] = bool(data["fan"])
-                    if "temperature" in data:
-                        self.state["temperature"] = data["temperature"]
-                    if "humidity" in data:
-                        self.state["humidity"] = data["humidity"]
-                    if "floors" in data:
-                        self.state["floors"] = data["floors"]
-                    self.state["last_seen"] = time.time()
-                    self.state["online"] = True
+                if data.get("type") != "ble_scan":
+                    self.update_from_webhook(data)
             except Exception:
                 pass
 
@@ -348,6 +335,11 @@ class ESP32Controller:
                 self.state.update(telemetry_dict)
                 self.state["online"] = True
                 self.state["last_seen"] = time.time()
+            if hasattr(self, "on_telemetry_callback") and callable(self.on_telemetry_callback):
+                try:
+                    self.on_telemetry_callback(telemetry_dict)
+                except Exception:
+                    pass
             return True
         return False
 

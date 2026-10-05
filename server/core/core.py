@@ -123,6 +123,39 @@ class SmartGarage:
             self._start_voice_worker()
 
         self.automation = AutomationEngine(self.esp32, self.projector, self.memory, self.logger)
+
+        def _on_esp32_telemetry(data):
+            if hasattr(self, "automation") and self.automation:
+                self.automation.evaluate_telemetry(data)
+            if "floors" in data and hasattr(self, "bt_sensors") and self.bt_sensors:
+                with self.bt_sensors._lock:
+                    for fk, fval in data["floors"].items():
+                        mac = fval.get("mac")
+                        if mac and mac in self.bt_sensors.sensors:
+                            s = self.bt_sensors.sensors[mac]
+                            if fval.get("temperature") is not None:
+                                s["temperature"] = fval["temperature"]
+                            if fval.get("humidity") is not None:
+                                s["humidity"] = fval["humidity"]
+                            if fval.get("battery") is not None:
+                                s["battery"] = fval["battery"]
+                            s["online"] = fval.get("online", True)
+                            s["last_updated"] = time.time()
+                    self.bt_sensors._save_cache()
+            if hasattr(self, "telemetry_db") and self.telemetry_db and "floors" in data:
+                for fk, fval in data["floors"].items():
+                    if isinstance(fval, dict) and fval.get("temperature") is not None:
+                        self.telemetry_db.record(
+                            floor=fk,
+                            temperature=fval["temperature"],
+                            humidity=fval.get("humidity"),
+                            battery=fval.get("battery"),
+                            mac=fval.get("mac"),
+                            sensor_name=fval.get("name")
+                        )
+
+        self.esp32.on_telemetry_callback = _on_esp32_telemetry
+
         self.commands = CommandProcessor(self.logger, self.memory, self.projector, self.esp32, self.automation, self.bt_sensors, speaker=self.speaker, presence=self.presence, telemetry_db=self.telemetry_db)
         self.tool_dispatcher = ToolDispatcher(self)
         if hasattr(self.ai, "set_tool_dispatcher"):
@@ -161,17 +194,6 @@ class SmartGarage:
                             floors[fk]["source"] = "esp32"
                         elif not is_esp_online and fk in floors:
                             floors[fk]["online"] = False
-
-        # Fallback to persistent SQLite latest readings if a floor has no temperature
-        if hasattr(self, "telemetry_db") and self.telemetry_db:
-            latest_db = self.telemetry_db.get_latest_by_floor()
-            for fk, db_val in latest_db.items():
-                if fk in floors and floors[fk].get("temperature") is None and db_val.get("temperature") is not None:
-                    floors[fk]["temperature"] = db_val["temperature"]
-                    floors[fk]["humidity"] = db_val.get("humidity")
-                    floors[fk]["battery"] = db_val.get("battery")
-                    floors[fk]["last_updated"] = db_val.get("timestamp")
-                    floors[fk]["source"] = "db"
         return floors
 
     def get_context_snapshot(self) -> str:

@@ -16,9 +16,9 @@ bus = dbus.SystemBus()
 adapter_obj = bus.get_object("org.bluez", "/org/bluez/hci0")
 adapter = dbus.Interface(adapter_obj, "org.bluez.Adapter1")
 
-print(f"📡 Setting BR/EDR discovery filter for {TARGET_NAME} ({TARGET_MAC})...")
+print(f"📡 Setting auto discovery filter for {TARGET_NAME} ({TARGET_MAC})...")
 try:
-    adapter.SetDiscoveryFilter({"Transport": "bredr"})
+    adapter.SetDiscoveryFilter({})
 except Exception as e:
     print(f"Warning setting filter: {e}")
 
@@ -87,20 +87,39 @@ bus.add_signal_receiver(
     signal_name="InterfacesAdded"
 )
 
+def on_properties_changed(interface, changed_props, invalidated_props, path=""):
+    if interface == "org.bluez.Device1":
+        name = str(changed_props.get("Name", changed_props.get("Alias", "")))
+        if TARGET_NAME.lower() in name.lower():
+            print(f"  [+] PropertiesChanged identified: {path} -> {name}")
+            GLib.idle_add(do_connect, path)
+
+bus.add_signal_receiver(
+    on_properties_changed,
+    dbus_interface="org.freedesktop.DBus.Properties",
+    signal_name="PropertiesChanged",
+    path_keyword="path"
+)
+
 # Also check already known objects
 manager = dbus.Interface(bus.get_object("org.bluez", "/"), "org.freedesktop.DBus.ObjectManager")
 for path, ifaces in manager.GetManagedObjects().items():
     if "org.bluez.Device1" in ifaces:
         addr = str(ifaces["org.bluez.Device1"].get("Address", "")).upper()
-        if TARGET_MAC in addr:
+        name = str(ifaces["org.bluez.Device1"].get("Name", ifaces["org.bluez.Device1"].get("Alias", "")))
+        if TARGET_MAC in addr or TARGET_NAME.lower() in name.lower():
             print(f"Found existing registered device: {path}")
             GLib.idle_add(do_connect, path)
             break
 
-print("🚀 Starting discovery... Please power-cycle JX-BT or hold the Bluetooth button!")
+print("🚀 Starting discovery (5 min window)... Please power-cycle JX-BT or disconnect it from phone!")
 try:
+    try:
+        adapter.StopDiscovery()
+    except Exception:
+        pass
     adapter.StartDiscovery()
-    GLib.timeout_add_seconds(60, loop.quit)
+    GLib.timeout_add_seconds(300, loop.quit)
     loop.run()
 finally:
     try:
@@ -114,7 +133,12 @@ if connected:
     subprocess.run(["pactl", "set-default-sink", sink], capture_output=True)
     subprocess.run(["pactl", "set-sink-volume", sink, "80%"], capture_output=True)
     print("✓ PipeWire sink configured at 80% volume.")
+    # Also notify SmartGarage server
+    try:
+        subprocess.run(["curl", "-s", "-X", "POST", "http://127.0.0.1:5000/api/speaker/connect", "-H", "Content-Type: application/json", "-d", f'{{"mac": "{TARGET_MAC}"}}'], capture_output=True)
+    except Exception:
+        pass
     sys.exit(0)
 else:
-    print("\n⏱ Timeout reached (60s). Device did not respond.")
+    print("\n⏱ Timeout reached (300s). Device did not respond.")
     sys.exit(1)
