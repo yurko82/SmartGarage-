@@ -1,3 +1,4 @@
+import os
 import json
 import logging
 import time
@@ -109,9 +110,18 @@ class AIManager:
             return "Історію діалогу очищено."
 
         # 1. High-speed direct completion with Tool Calling
-        api_key = self.llm.get("api_key")
+        api_key = (self.llm.get("api_key") or os.getenv("OPENROUTER_API_KEY") or os.getenv("LLM_API_KEY") or "").strip()
         api_base = self.llm.get("api_base", "https://openrouter.ai/api/v1")
         clean_model = self.llm.get("model", "google/gemini-2.5-flash").replace("openrouter/", "")
+
+        if not api_key:
+            if context_info and any(w in clean_p for w in ("стан", "гараж", "світло", "ворот", "клімат", "температур", "датчик", "присутн", "хто", "де", "музик", "проектор")):
+                return f"📋 Поточний стан системи:\n{context_info}\n\n💡 Підказка: для вільного діалогу з AI підключіть OPENROUTER_API_KEY у файлі .env або config/config.yaml."
+            return (
+                "⚠️ AI-асистент наразі не налаштований: відсутній ключ OPENROUTER_API_KEY у конфігурації.\n"
+                "Будь ласка, вкажіть ваш ключ у файлі .env або config/config.yaml.\n"
+                "Всі локальні команди (ворота, світло, вентиляція, клімат на поверхах, радіо) працюють у штатному режимі."
+            )
 
         if api_key:
             try:
@@ -208,6 +218,7 @@ class AIManager:
 
         # 2. Fallback to OpenInterpreter
         try:
+            interpreter.llm.api_key = api_key
             messages = interpreter.chat(prompt, display=False)
             if not messages:
                 return "Немає відповіді від AI."
@@ -235,5 +246,12 @@ class AIManager:
 
             return "AI завершив обробку."
         except Exception as e:
-            return f"Помилка AI: {str(e)}"
+            err_msg = str(e)
+            if "401" in err_msg or "AuthenticationError" in err_msg or "No cookie auth" in err_msg or "Clerk" in err_msg:
+                return "⚠️ Помилка авторизації AI: перевірте валідність ключа OPENROUTER_API_KEY у конфігурації."
+            if "Name or service not known" in err_msg or "ConnectionError" in err_msg or "Errno -2" in err_msg:
+                return "⚠️ Тимчасова помилка зв'язку з сервером AI (перевірте інтернет-з'єднання сервера)."
+            if "timeout" in err_msg.lower():
+                return "⚠️ Час очікування відповіді від AI вичерпано. Спробуйте ще раз."
+            return f"⚠️ Помилка AI під час обробки запиту: {err_msg[:120]}"
 

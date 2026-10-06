@@ -79,7 +79,7 @@ class CommandProcessor:
                     if sub_handled:
                         return True, sub_resp
 
-        cmd = command.lower()
+        cmd = command.lower().rstrip("?!.,; ")
 
         # -----------------------
         # STATUS
@@ -694,24 +694,30 @@ class CommandProcessor:
             b_str = f", 🔋 батарея: {b}%" if b is not None else ""
             return True, f"🏢 Клімат на 2-му поверсі: температура {t}°C, вологість {h}%{b_str}."
 
-        is_floor1 = any(w in cmd for w in ("1 поверх", "1-й поверх", "1-му повер", "1 повер", "перший поверх", "першому повер", "floor1", "1-й", "1-му"))
+        is_floor1 = any(w in cmd for w in ("1 поверх", "1-й поверх", "1-му повер", "1 повер", "перший поверх", "першому повер", "floor1", "1-й", "1-му")) or (
+            any(w in cmd for w in ("в гаражі", "у гаражі", "гараж")) and any(w in cmd for w in ("температур", "градус")) and not any(w in cmd for w in ("стан", "все", "всі", "що"))
+        )
         if is_floor1 and any(w in cmd for w in ("температур", "волог", "датчик", "стан", "клімат", "скільки", "яка", "що")):
             floors = self._get_floors()
             f = floors.get("floor1", {})
             if not f.get("online") or f.get("temperature") is None:
                 status_txt = "очікує встановлення датчика" if not f.get("mac") else "датчик наразі офлайн"
-                return True, f"🏠 Клімат на 1-му поверсі: {status_txt}."
+                return True, f"🏠 Клімат на 1-му поверсі (Гараж): {status_txt}."
             t = f.get("temperature")
             h = f.get("humidity", "--")
             b = f.get("battery")
             b_str = f", 🔋 батарея: {b}%" if b is not None else ""
-            return True, f"🏠 Клімат на 1-му поверсі: температура {t}°C, вологість {h}%{b_str}."
+            return True, f"🏠 Клімат на 1-му поверсі (Гараж): температура {t}°C, вологість {h}%{b_str}."
 
-        if any(cmd == q for q in (
-            "sensors", "telemetry", "garage status", "датчики", "стан гаража", "яка температура",
-            "покажи датчики", "покажи всі датчики", "всі датчики", "всі сенсори", "покажи сенсори",
-            "що в гаражі", "клімат", "стан датчиків", "клімат на поверхах", "температура на поверхах"
-        )):
+        is_sensor_query = (
+            any(w in cmd for w in ("температур", "волог", "датчик", "сенсор", "клімат", "градус", "sensors", "telemetry"))
+            or any(cmd == q for q in (
+                "garage status", "датчики", "стан гаража", "що в гаражі", "стан датчиків",
+                "покажи датчики", "покажи всі датчики", "всі датчики", "всі сенсори", "покажи сенсори",
+                "клімат на поверхах", "температура на поверхах"
+            ))
+        )
+        if is_sensor_query:
             tel = self.esp32.get_telemetry()
             floors = self._get_floors()
 

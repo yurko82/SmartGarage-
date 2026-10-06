@@ -288,7 +288,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (btnMicHero) btnMicHero.classList.remove('listening');
                 if (event.error === 'not-allowed') {
                     if (voiceStatusText) {
-                        voiceStatusText.textContent = '⚠️ Доступ до мікрофона відхилено в браузері';
+                        voiceStatusText.textContent = '⚠️ Доступ до мікрофона заблоковано браузером (надайте дозвіл)';
+                        voiceStatusText.style.color = '#ef4444';
+                    }
+                } else if (event.error === 'network') {
+                    if (voiceStatusText) {
+                        voiceStatusText.textContent = '⚠️ Збій мережі розпізнавання мови Google. Введіть команду текстом';
                         voiceStatusText.style.color = '#ef4444';
                     }
                 } else if (event.error === 'no-speech') {
