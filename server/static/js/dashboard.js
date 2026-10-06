@@ -131,7 +131,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- HAPTIC FEEDBACK ---
     function hapticFeedback(duration = 25) {
         if (navigator.vibrate) {
-            try { navigator.vibrate(duration); } catch (e) {}
+            try { navigator.vibrate(duration); } catch (e) { }
         }
     }
 
@@ -345,7 +345,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     recognition.start();
                 } catch (e) {
                     console.warn('Recognition start exception:', e);
-                    try { recognition.stop(); } catch (_) {}
+                    try { recognition.stop(); } catch (_) { }
                 }
             }
         });
@@ -692,7 +692,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const data = await res.json();
                 if (voiceStatusText) voiceStatusText.textContent = data.response;
                 fetchTelemetry();
-            } catch (e) {}
+            } catch (e) { }
         });
     }
 
@@ -1147,12 +1147,12 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (dotJbl) dotJbl.className = `speaker-btn-dot ${jblOnline ? 'online' : 'offline'}`;
 
                     if (subJxbt) {
-                        subJxbt.textContent = isJxbtActive 
+                        subJxbt.textContent = isJxbtActive
                             ? (spk.playing ? '▶ Грає зараз' : (jxbtOnline ? 'Підключено' : '1-й поверх (Музика)'))
                             : (jxbtOnline ? 'Підключено' : '1-й поверх');
                     }
                     if (subJbl) {
-                        subJbl.textContent = isJblActive 
+                        subJbl.textContent = isJblActive
                             ? (spk.playing ? '▶ Грає зараз' : (jblOnline ? 'Підключено' : 'Гараж (Юрій)'))
                             : (jblOnline ? 'Підключено' : 'Гараж (Юрій)');
                     }
@@ -1187,7 +1187,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         jblNowPlaying.textContent = `▶ ${spk.current_track}${elapsed}`;
                         jblNowPlaying.style.color = 'var(--accent-cyan)';
                     } else {
-                        jblNowPlaying.textContent = 'Немає активного відтворення';
+                        jblNowPlaying.textContent = 'Немає активного відтворення'; ``
                         jblNowPlaying.style.color = '#fff';
                     }
                 }
@@ -1243,7 +1243,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (statLocalIp) statLocalIp.textContent = s.local_ip || '--';
                 if (statTailscaleIp) statTailscaleIp.textContent = s.tailscale_ip || '--';
             }
-        } catch (e) {}
+        } catch (e) { }
 
         // 3. Projector status
         try {
@@ -1259,7 +1259,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     projStatusBadge.textContent = isOnline ? `Онлайн (${p.ip})` : 'Вимкнено';
                 }
             }
-        } catch (e) {}
+        } catch (e) { }
     }
 
     if (btnRefresh) {
@@ -1494,7 +1494,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         boxPadding: 4,
                         usePointStyle: true,
                         callbacks: {
-                            label: function(context) {
+                            label: function (context) {
                                 let label = context.dataset.label || '';
                                 if (label) label += ': ';
                                 if (context.parsed.y !== null) {

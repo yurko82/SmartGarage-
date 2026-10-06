@@ -131,8 +131,8 @@ if connected:
     print("\n🎉 JX-BT IS CONNECTED! Setting PipeWire default sink...")
     sink = f"bluez_output.{TARGET_MAC.replace(':', '_')}.1"
     subprocess.run(["pactl", "set-default-sink", sink], capture_output=True)
-    subprocess.run(["pactl", "set-sink-volume", sink, "80%"], capture_output=True)
-    print("✓ PipeWire sink configured at 80% volume.")
+    subprocess.run(["pactl", "set-sink-volume", sink, "33%"], capture_output=True)
+    print("✓ PipeWire sink configured at 33% volume.")
     # Also notify SmartGarage server
     try:
         subprocess.run(["curl", "-s", "-X", "POST", "http://127.0.0.1:5000/api/speaker/connect", "-H", "Content-Type: application/json", "-d", f'{{"mac": "{TARGET_MAC}"}}'], capture_output=True)

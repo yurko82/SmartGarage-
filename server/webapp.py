@@ -939,7 +939,7 @@ def speaker_disconnect():
 @app.route("/api/speaker/volume", methods=["POST"])
 def speaker_volume():
     data = request.get_json(silent=True) or {}
-    val = data.get("value", data.get("volume", data.get("val", 75)))
+    val = data.get("value", data.get("volume", data.get("val", 33)))
     ok = garage.speaker.set_volume(val)
     return jsonify({
         "success": ok,

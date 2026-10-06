@@ -32,7 +32,7 @@ class BluetoothSpeakerController:
         self._current_track: Optional[str] = None
         self._playback_start_time: Optional[float] = None
         self._is_paused = False
-        self._cached_volume = 75
+        self._cached_volume = 33
         self._last_stream_url: Optional[str] = None
         self._last_stream_title: Optional[str] = None
 
@@ -47,6 +47,7 @@ class BluetoothSpeakerController:
                 res = subprocess.run(["bluetoothctl", "info", m], capture_output=True, text=True, timeout=2.0)
                 if "Connected: yes" in res.stdout:
                     self.set_active_speaker(m, s["name"])
+                    self.set_volume(33)
                     return
             except Exception:
                 pass
@@ -143,7 +144,7 @@ class BluetoothSpeakerController:
             )
             vol = self.get_volume()
             if vol == 0:
-                self.set_volume(self._cached_volume or 75)
+                self.set_volume(self._cached_volume or 33)
             self.logger.info(f"{self.name} is already connected.")
             return True
 
@@ -171,8 +172,8 @@ class BluetoothSpeakerController:
                     timeout=3.0
                 )
                 vol = self.get_volume()
-                if vol < 30:
-                    self.set_volume(30)
+                if vol < 33:
+                    self.set_volume(33)
                 self.logger.info(f"Connected to {self.name} successfully.")
                 return True
             return False
@@ -430,10 +431,10 @@ class BluetoothSpeakerController:
         self.stop()
         time.sleep(0.2)
 
-        # Ensure volume is audible (at least 30%)
+        # Ensure volume is audible (at least 33% by default)
         vol = self.get_volume()
-        if vol < 30:
-            self.set_volume(30)
+        if vol < 33:
+            self.set_volume(33)
 
         sink_target = self.sink_name if self.is_connected() else "@DEFAULT_AUDIO_SINK@"
         loop_cmd = (

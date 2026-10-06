@@ -85,12 +85,12 @@ if command -v pactl >/dev/null 2>&1; then
         log "--> Знайдено Bluetooth Sink: ${DEVICE_DESC}"
         log "--> Активний кодек: ${CODEC_FOUND}"
 
-        # Фіксація гучності на 80% для запобігання спрацьовування апаратного шумодаву (noise gate)
+        # Встановлення замовчуваної гучності на 33%
         BT_SINK_NAME=$(echo "$SINKS_DUMP" | grep "Назва:\|Name:" | grep "bluez" | head -n 1 | awk '{print $2}')
         if [ -n "$BT_SINK_NAME" ]; then
-            pactl set-sink-volume "$BT_SINK_NAME" 80% 2>/dev/null || true
+            pactl set-sink-volume "$BT_SINK_NAME" 33% 2>/dev/null || true
             pactl set-sink-mute "$BT_SINK_NAME" 0 2>/dev/null || true
-            log "--> Гучність $BT_SINK_NAME встановлено на 80% (noise gate bypass)."
+            log "--> Гучність $BT_SINK_NAME встановлено на 33%."
         fi
     else
         log "--> ПОПЕРЕДЖЕННЯ: Bluetooth audio sink поки що не зареєстровано в PipeWire."
