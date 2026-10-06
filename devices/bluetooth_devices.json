@@ -2,7 +2,7 @@
     "F8:5C:7E:EE:7D:CC": {
         "name": "JBL Clip 5",
         "in_garage": true,
-        "alias": "JBL Clip 5 (Гараж)",
+        "alias": "JBL Clip 5 (\u0413\u0430\u0440\u0430\u0436)",
         "floor": "garage",
         "type": "speaker"
     },

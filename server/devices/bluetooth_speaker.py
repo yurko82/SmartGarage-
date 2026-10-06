@@ -32,11 +32,16 @@ class BluetoothSpeakerController:
         self._current_track: Optional[str] = None
         self._playback_start_time: Optional[float] = None
         self._is_paused = False
+        self._active_stream = False
         self._cached_volume = 33
         self._last_stream_url: Optional[str] = None
         self._last_stream_title: Optional[str] = None
 
         self._auto_detect_active_speaker()
+
+        self._stop_watchdog = False
+        self._watchdog_thread = threading.Thread(target=self._watchdog_loop, daemon=True, name="SpeakerWatchdog")
+        self._watchdog_thread.start()
 
     def _auto_detect_active_speaker(self):
         """Auto-detect which configured speaker is currently connected."""
@@ -51,6 +56,45 @@ class BluetoothSpeakerController:
                     return
             except Exception:
                 pass
+
+    def _watchdog_loop(self):
+        """Active watchdog to maintain Bluetooth connection and auto-heal radio streaming 24/7."""
+        while not getattr(self, "_stop_watchdog", False):
+            try:
+                time.sleep(5.0)
+                if not getattr(self, "_active_stream", False) or getattr(self, "_is_paused", False):
+                    continue
+
+                # 1. Verify Bluetooth connection
+                if not self.is_connected():
+                    self.logger.warning(f"[Watchdog] Bluetooth speaker {self.name} ({self.mac}) disconnected. Reconnecting...")
+                    if self.connect():
+                        self.logger.info(f"[Watchdog] Successfully reconnected to {self.name}.")
+                        time.sleep(1.0)
+                        if self._last_stream_url:
+                            self._restart_stream()
+                    continue
+
+                # 2. Check if player process is alive
+                proc_alive = False
+                with self._lock:
+                    if self._player_proc and self._player_proc.poll() is None:
+                        proc_alive = True
+
+                if not proc_alive and self._last_stream_url:
+                    self.logger.warning(f"[Watchdog] Player process died. Restarting stream '{self._last_stream_title}'...")
+                    self._restart_stream()
+
+            except Exception as e:
+                self.logger.error(f"[Watchdog] Error in watchdog loop: {e}")
+
+    def _restart_stream(self):
+        """Internal helper to restart active stream without resetting active flag."""
+        if not self._last_stream_url:
+            return
+        url = self._last_stream_url
+        title = self._last_stream_title
+        self.play_stream(url, track_title=title, is_recovery=True)
 
     def get_configured_speakers(self) -> list:
         """Load list of configured speaker devices."""
@@ -273,9 +317,11 @@ class BluetoothSpeakerController:
             return self.play_stream(self._last_stream_url, track_title=getattr(self, "_last_stream_title", None))
         return False
 
-    def stop(self) -> bool:
+    def stop(self, manual: bool = True) -> bool:
         """Stop current audio playback reliably."""
         with self._lock:
+            if manual:
+                self._active_stream = False
             if self._player_proc:
                 try:
                     import signal
@@ -290,7 +336,8 @@ class BluetoothSpeakerController:
                 subprocess.run(["pkill", "-9", "-f", "gst-launch-1.0"], capture_output=True, timeout=2.0)
             except Exception:
                 pass
-            self._current_track = None
+            if manual:
+                self._current_track = None
             self._playback_start_time = None
             self._is_paused = False
             time.sleep(0.2)
@@ -340,7 +387,7 @@ class BluetoothSpeakerController:
             if self._player_proc and self._player_proc.poll() is None:
                 try:
                     import signal
-                    os.kill(self._player_proc.pid, signal.SIGSTOP)
+                    os.killpg(os.getpgid(self._player_proc.pid), signal.SIGSTOP)
                     self._is_paused = True
                     return True
                 except Exception as e:
@@ -353,7 +400,7 @@ class BluetoothSpeakerController:
             if self._player_proc and self._player_proc.poll() is None and self._is_paused:
                 try:
                     import signal
-                    os.kill(self._player_proc.pid, signal.SIGCONT)
+                    os.killpg(os.getpgid(self._player_proc.pid), signal.SIGCONT)
                     self._is_paused = False
                     return True
                 except Exception as e:
@@ -407,8 +454,8 @@ class BluetoothSpeakerController:
             self.logger.error(f"Error starting playback: {e}")
             return False
 
-    def play_stream(self, stream_url: str, track_title: Optional[str] = None) -> bool:
-        """Play an internet audio stream (e.g. online radio) on the active Bluetooth speaker."""
+    def play_stream(self, stream_url: str, track_title: Optional[str] = None, is_recovery: bool = False) -> bool:
+        """Stream an internet radio station URL reliably with live buffers and auto-reconnect."""
         target_url = stream_url.strip()
         if not target_url:
             return False
@@ -428,7 +475,7 @@ class BluetoothSpeakerController:
                 self.logger.error(f"Cannot stream '{title}': Bluetooth speaker {self.name} is not connected.")
                 return False
 
-        self.stop()
+        self.stop(manual=False)
         time.sleep(0.2)
 
         # Ensure volume is audible (at least 33% by default)
@@ -437,9 +484,23 @@ class BluetoothSpeakerController:
             self.set_volume(33)
 
         sink_target = self.sink_name if self.is_connected() else "@DEFAULT_AUDIO_SINK@"
+        sink_mac_str = self.mac.replace(":", "_")
+        # Live radio stream pipeline with 15s input buffer + 10s output PCM queue to absorb mobile Wi-Fi jitter
         loop_cmd = (
             f"while true; do "
-            f"gst-launch-1.0 playbin uri=\"{target_url}\" video-sink=fakesink audio-sink=\"pipewiresink target-object={sink_target}\"; "
+            f"if ! pactl list sinks short 2>/dev/null | grep -q \"{sink_mac_str}\"; then "
+            f"  bluetoothctl connect {self.mac} >/dev/null 2>&1 || true; "
+            f"  sleep 2; "
+            f"  if ! pactl list sinks short 2>/dev/null | grep -q \"{sink_mac_str}\"; then "
+            f"    sleep 3; "
+            f"    continue; "
+            f"  fi; "
+            f"fi; "
+            f"gst-launch-1.0 souphttpsrc location=\"{target_url}\" keep-alive=true is-live=true timeout=20 retries=5 ! "
+            f"queue2 max-size-time=15000000000 max-size-bytes=10485760 max-size-buffers=0 ! "
+            f"decodebin ! audioconvert ! audioresample ! "
+            f"queue max-size-time=10000000000 max-size-bytes=10485760 max-size-buffers=0 ! "
+            f"pipewiresink target-object=\"{sink_target}\"; "
             f"sleep 1; "
             f"done"
         )
@@ -458,6 +519,7 @@ class BluetoothSpeakerController:
                 self._last_stream_title = title
                 self._playback_start_time = time.time()
                 self._is_paused = False
+                self._active_stream = True
             self.logger.info(f"Streaming radio '{title}' from {target_url} on {self.name}.")
             return True
         except Exception as e:
