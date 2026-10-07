@@ -111,6 +111,15 @@ def dashboard():
     return render_template("dashboard.html")
 
 
+@app.after_request
+def add_no_cache_headers(response):
+    if request.path.startswith("/static/") or request.path in ("/", "/dashboard", "/floor1"):
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+    return response
+
+
 @app.route("/manifest.json")
 def serve_manifest():
     return send_from_directory(

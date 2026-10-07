@@ -821,7 +821,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!text) return '';
         let clean = text
             .replace(/https?:\/\/\S+/g, '')
-            .replace(/[\u{1F300}-\u{1F9FF}\u{1FA00}-\u{1FAFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F1E6}-\u{1F1FF}\u{FE00}-\u{FE0F}\u{1F900}-\u{1F9FF}\u{200D}]/gu, '')
+            .replace(/\p{Extended_Pictographic}/gu, '')
+            .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE00}-\u{FE0F}\u{1F900}-\u{1F9FF}\u{200D}]/gu, '')
             .replace(/[*_#`~[\]()]/g, ' ')
             .replace(/[•·]/g, ', ')
             .replace(/\|/g, ', ')
@@ -845,12 +846,13 @@ document.addEventListener('DOMContentLoaded', () => {
     function getUkrainianVoiceApp() {
         if (!('speechSynthesis' in window)) return null;
         const voices = window.speechSynthesis.getVoices() || [];
-        if (voices.length === 0) return null;
+        if (!voices || voices.length === 0) return null;
         return voices.find(v => {
-            const lang = (v.lang || '').toLowerCase();
+            const lang = (v.lang || '').toLowerCase().replace(/_/g, '-');
             const name = (v.name || '').toLowerCase();
-            return lang.startsWith('uk') || lang.includes('uk-') || lang.includes('uk_') ||
-                   name.includes('ukrain') || name.includes('україн');
+            const isEnglish = lang.startsWith('en') || name.includes('english') || name.includes('british') || name.includes('united kingdom');
+            if (isEnglish) return false;
+            return lang === 'uk' || lang.startsWith('uk-') || name.includes('ukrain') || name.includes('україн');
         }) || null;
     }
 
