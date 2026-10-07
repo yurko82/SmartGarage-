@@ -29,21 +29,22 @@ document.addEventListener('DOMContentLoaded', () => {
     const sidebarProjBadge = document.getElementById('sidebarProjBadge');
     const sidebarJblBadge = document.getElementById('sidebarJblBadge');
 
-    // Metric Cards in Charts Tab
+    // Floor Climate Cards in Charts Tab
     const chartCardTemp = document.getElementById('chartCardTemp');
+    const chartCardHumF1 = document.getElementById('chartCardHumF1');
     const chartCardTempSub = document.getElementById('chartCardTempSub');
+    const badgeFloor1 = document.getElementById('badgeFloor1');
+
     const chartCardTempF2 = document.getElementById('chartCardTempF2');
-    const chartCardSubF2 = document.getElementById('chartCardSubF2');
-    const chartCardTempFB = document.getElementById('chartCardTempFB');
-    const chartCardSubFB = document.getElementById('chartCardSubFB');
-    const chartCardHum = document.getElementById('chartCardHum');
-    const chartCardHumSub = document.getElementById('chartCardHumSub');
     const chartCardHumF2 = document.getElementById('chartCardHumF2');
-    const chartCardHumSubF2 = document.getElementById('chartCardHumSubF2');
+    const chartCardSubF2 = document.getElementById('chartCardSubF2');
+    const badgeFloor2 = document.getElementById('badgeFloor2');
+
+    const chartCardTempFB = document.getElementById('chartCardTempFB');
     const chartCardHumFB = document.getElementById('chartCardHumFB');
-    const chartCardHumSubFB = document.getElementById('chartCardHumSubFB');
-    const chartCardCar = document.getElementById('chartCardCar');
-    const chartCardAir = document.getElementById('chartCardAir');
+    const chartCardSubFB = document.getElementById('chartCardSubFB');
+    const badgeBasement = document.getElementById('badgeBasement');
+
     const telTempFloor2 = document.getElementById('telTempFloor2');
     const telTempBasement = document.getElementById('telTempBasement');
     const refreshChartBtn = document.getElementById('refreshChartBtn');
@@ -186,10 +187,10 @@ document.addEventListener('DOMContentLoaded', () => {
                         return `${obj.name || defaultName}: Оновлено о ${timeStr}`;
                     };
 
-                    // Floor 1 (Garage - currently waiting for sensor)
+                    // Floor 1 (Garage)
                     const hasF1 = f1 && f1.temperature !== undefined && f1.temperature !== null;
-                    const t1 = hasF1 ? `${Number(f1.temperature).toFixed(1)} °C` : 'Очікує датчик';
-                    const tip1 = hasF1 ? formatTime(f1, '1-й поверх (Гараж)') : 'BLE-термометр на 1-му поверсі ще не встановлено';
+                    const t1 = hasF1 ? `${Number(f1.temperature).toFixed(1)} °C` : '-- °C';
+                    const tip1 = hasF1 ? formatTime(f1, '1-й поверх (Гараж)') : 'Очікує монтажу датчика';
                     if (telTemp) {
                         telTemp.textContent = t1;
                         telTemp.title = tip1;
@@ -199,8 +200,23 @@ document.addEventListener('DOMContentLoaded', () => {
                         chartCardTemp.textContent = t1;
                         chartCardTemp.title = tip1;
                     }
+                    const hasHumF1 = hasF1 && f1.humidity !== undefined && f1.humidity !== null;
+                    const h1Val = hasHumF1 ? `${Number(f1.humidity).toFixed(0)} %` : '-- %';
+                    if (telHumFloor1) {
+                        telHumFloor1.textContent = h1Val;
+                        telHumFloor1.className = hasHumF1 ? 'val-badge active hoverable' : 'val-badge hoverable';
+                        telHumFloor1.title = hasF1 ? `Вологість 1-й поверх: ${h1Val}` : 'Очікує монтажу датчика';
+                    }
+                    if (chartCardHumF1) {
+                        chartCardHumF1.textContent = h1Val;
+                        chartCardHumF1.title = hasF1 ? `Вологість 1-й поверх: ${h1Val}` : 'Очікує монтажу датчика';
+                    }
                     if (chartCardTempSub) {
                         chartCardTempSub.textContent = hasF1 ? `Оновлено: ${f1.last_updated_time || '--:--'} • 🔋 ${f1.battery || 100}%` : 'Очікує монтажу датчика';
+                    }
+                    if (badgeFloor1) {
+                        badgeFloor1.textContent = hasF1 ? 'Онлайн' : 'Очікує датчик';
+                        badgeFloor1.className = hasF1 ? 'floor-badge active' : 'floor-badge';
                     }
 
                     // Floor 2 (Xiaomi LYWSD03MMC)
@@ -217,10 +233,25 @@ document.addEventListener('DOMContentLoaded', () => {
                         chartCardTempF2.textContent = t2;
                         chartCardTempF2.title = tip2;
                     }
+                    const hasHumF2 = hasF2 && f2.humidity !== undefined && f2.humidity !== null;
+                    const h2Val = hasHumF2 ? `${Number(f2.humidity).toFixed(0)} %` : '-- %';
+                    if (telHumFloor2) {
+                        telHumFloor2.textContent = h2Val;
+                        telHumFloor2.className = hasHumF2 ? 'val-badge active hoverable' : 'val-badge hoverable';
+                        telHumFloor2.title = hasF2 ? `Вологість 2-й поверх: ${h2Val}` : 'Офлайн (немає даних)';
+                    }
+                    if (chartCardHumF2) {
+                        chartCardHumF2.textContent = h2Val;
+                        chartCardHumF2.title = hasF2 ? `Вологість 2-й поверх: ${h2Val}` : 'Офлайн';
+                    }
                     if (chartCardSubF2) {
                         const timeStr2 = f2.last_updated_time || '--:--';
                         const batStr2 = f2.battery !== undefined && f2.battery !== null ? ` • 🔋 ${f2.battery}%` : '';
                         chartCardSubF2.textContent = isOnlineF2 ? `Онлайн • ${timeStr2}${batStr2}` : (hasF2 ? `Офлайн • ${timeStr2}${batStr2}` : 'Офлайн (немає зв\'язку)');
+                    }
+                    if (badgeFloor2) {
+                        badgeFloor2.textContent = isOnlineF2 ? 'BLE Онлайн' : 'BLE Офлайн';
+                        badgeFloor2.className = isOnlineF2 ? 'floor-badge active' : 'floor-badge warning';
                     }
 
                     // Basement (Xiaomi LYWSD03MMC)
@@ -237,41 +268,6 @@ document.addEventListener('DOMContentLoaded', () => {
                         chartCardTempFB.textContent = tb;
                         chartCardTempFB.title = tipB;
                     }
-                    if (chartCardSubFB) {
-                        const timeStrB = fb.last_updated_time || '--:--';
-                        const batStrB = fb.battery !== undefined && fb.battery !== null ? ` • 🔋 ${fb.battery}%` : '';
-                        chartCardSubFB.textContent = isOnlineFB ? `Онлайн • ${timeStrB}${batStrB}` : (hasFB ? `Офлайн • ${timeStrB}${batStrB}` : 'Очікує даних');
-                    }
-
-                    // Humidity per floor (Floor 1, Floor 2, Basement)
-                    // 1-й поверх (ESP32 / майбутній BLE)
-                    const hasHumF1 = hasF1 && f1.humidity !== undefined && f1.humidity !== null;
-                    const h1Val = hasHumF1 ? `${Number(f1.humidity).toFixed(0)} %` : '-- %';
-                    if (telHumFloor1) {
-                        telHumFloor1.textContent = h1Val;
-                        telHumFloor1.className = hasHumF1 ? 'val-badge active hoverable' : 'val-badge hoverable';
-                        telHumFloor1.title = hasF1 ? `Вологість 1-й поверх: ${h1Val}` : 'Очікує монтажу датчика';
-                    }
-
-                    // 2-й поверх (Xiaomi LYWSD03MMC)
-                    const hasHumF2 = hasF2 && f2.humidity !== undefined && f2.humidity !== null;
-                    const h2Val = hasHumF2 ? `${Number(f2.humidity).toFixed(0)} %` : '-- %';
-                    if (telHumFloor2) {
-                        telHumFloor2.textContent = h2Val;
-                        telHumFloor2.className = hasHumF2 ? 'val-badge active hoverable' : 'val-badge hoverable';
-                        telHumFloor2.title = hasF2 ? `Вологість 2-й поверх: ${h2Val}` : 'Офлайн (немає даних)';
-                    }
-                    if (chartCardHumF2) {
-                        chartCardHumF2.textContent = h2Val;
-                        chartCardHumF2.title = hasF2 ? `Вологість 2-й поверх: ${h2Val}` : 'Офлайн';
-                    }
-                    if (chartCardHumSubF2) {
-                        const timeStr2 = f2.last_updated_time || '--:--';
-                        const batStr2 = f2.battery !== undefined && f2.battery !== null ? ` • 🔋 ${f2.battery}%` : '';
-                        chartCardHumSubF2.textContent = isOnlineF2 ? `Онлайн • ${timeStr2}${batStr2}` : (hasF2 ? `Офлайн • ${timeStr2}${batStr2}` : 'Офлайн');
-                    }
-
-                    // Підвал (Xiaomi LYWSD03MMC)
                     const hasHumFB = hasFB && fb.humidity !== undefined && fb.humidity !== null;
                     const hBVal = hasHumFB ? `${Number(fb.humidity).toFixed(0)} %` : '-- %';
                     if (telHumBasement) {
@@ -283,18 +279,14 @@ document.addEventListener('DOMContentLoaded', () => {
                         chartCardHumFB.textContent = hBVal;
                         chartCardHumFB.title = hasFB ? `Вологість підвал: ${hBVal}` : 'Офлайн';
                     }
-                    if (chartCardHumSubFB) {
+                    if (chartCardSubFB) {
                         const timeStrB = fb.last_updated_time || '--:--';
                         const batStrB = fb.battery !== undefined && fb.battery !== null ? ` • 🔋 ${fb.battery}%` : '';
-                        chartCardHumSubFB.textContent = isOnlineFB ? `Онлайн • ${timeStrB}${batStrB}` : (hasFB ? `Офлайн • ${timeStrB}${batStrB}` : 'Офлайн');
+                        chartCardSubFB.textContent = isOnlineFB ? `Онлайн • ${timeStrB}${batStrB}` : (hasFB ? `Офлайн • ${timeStrB}${batStrB}` : 'Очікує даних');
                     }
-
-                    // Legacy fallback
-                    if (telHum && !telHumBasement) {
-                        telHum.textContent = hBVal;
-                    }
-                    if (chartCardHum && !chartCardHumFB) {
-                        chartCardHum.textContent = hBVal;
+                    if (badgeBasement) {
+                        badgeBasement.textContent = isOnlineFB ? 'BLE Онлайн' : 'BLE Офлайн';
+                        badgeBasement.className = isOnlineFB ? 'floor-badge active' : 'floor-badge warning';
                     }
 
                     // Battery (calculate only from real configured sensors)
@@ -308,34 +300,6 @@ document.addEventListener('DOMContentLoaded', () => {
                         } else {
                             telBat.textContent = `🔋 -- %`;
                             telBat.title = `Немає активних датчиків`;
-                        }
-                    }
-
-                    // Car status (Ultrasonic HC-SR04 not installed yet)
-                    if (telCar) {
-                        if (s.car_present === null || s.car_sensor_installed === false) {
-                            telCar.textContent = 'Очікує датчик';
-                            telCar.className = 'val-badge';
-                            telCar.title = 'Ультразвуковий датчик авто ще не встановлено';
-                            if (chartCardCar) chartCardCar.textContent = 'Очікує монтажу';
-                        } else {
-                            const carText = s.car_present ? 'На місці' : 'Відсутнє';
-                            telCar.textContent = carText;
-                            telCar.className = s.car_present ? 'val-badge active' : 'val-badge';
-                            if (chartCardCar) chartCardCar.textContent = carText;
-                        }
-                    }
-
-                    // Gas / Air quality (MQ2 sensor not installed yet)
-                    if (chartCardAir) {
-                        if (s.gas_ppm === null || s.gas_installed === false) {
-                            chartCardAir.textContent = 'Очікує монтажу';
-                            chartCardAir.className = 'metric-val text-muted';
-                            chartCardAir.title = 'Газовий сенсор MQ2 фізично ще не підключено';
-                        } else {
-                            const gas = s.gas_ppm;
-                            chartCardAir.textContent = gas < 100 ? `Норма (${gas} ppm)` : `Увага (${gas} ppm)`;
-                            chartCardAir.className = gas < 100 ? 'metric-val text-success' : 'metric-val text-warning';
                         }
                     }
                     updateSpeakerStatus();

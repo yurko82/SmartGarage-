@@ -6,7 +6,7 @@
     <title>Smart Garage — AI Control Center</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🏠</text></svg>">
     <link rel="stylesheet" href="/static/css/theme.css?v=0.3.1">
-    <link rel="stylesheet" href="/static/css/style.css?v=0.3.1">
+    <link rel="stylesheet" href="/static/css/style.css?v=0.4.1">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
@@ -82,13 +82,9 @@
                         <span class="label">🚪 Ворота:</span>
                         <span class="val-badge" id="telDoor">Очікує датчик</span>
                     </div>
-                    <div class="telemetry-item">
+                    <div class="telemetry-item full-width">
                         <span class="label">💡 Світло:</span>
                         <span class="val-badge" id="telLight">Очікує реле</span>
-                    </div>
-                    <div class="telemetry-item">
-                        <span class="label">🚗 Авто:</span>
-                        <span class="val-badge" id="telCar">Очікує датчик</span>
                     </div>
                 </div>
             </div>
@@ -114,25 +110,6 @@
                 </button>
             </div>
 
-            <div class="quick-actions">
-                <h3>Сценарії автоматизації</h3>
-                <div class="action-btn-row">
-                    <button class="quick-btn mini-btn" data-cmd="я приїхав" aria-label="Сценарій автоматизації: Прибуття">
-                        <span class="icon">🚗</span> Прибуття
-                    </button>
-                    <button class="quick-btn mini-btn" data-cmd="я поїхав" aria-label="Сценарій автоматизації: Від'їзд">
-                        <span class="icon">🔒</span> Від'їзд
-                    </button>
-                </div>
-                <div class="action-btn-row">
-                    <button class="quick-btn mini-btn" data-cmd="добраніч" aria-label="Сценарій автоматизації: Добраніч">
-                        <span class="icon">🌙</span> Добраніч
-                    </button>
-                    <button class="quick-btn mini-btn" data-cmd="кінотеатр" aria-label="Сценарій автоматизації: Кінотеатр">
-                        <span class="icon">🍿</span> Кінотеатр
-                    </button>
-                </div>
-            </div>
 
             <div class="sidebar-footer">
                 <button class="btn-secondary" id="clearBtn" aria-label="Очистити історію консолі">
@@ -221,61 +198,76 @@
             <!-- TAB 2: Charts & Telemetry -->
             <div class="tab-pane" id="chartsTab">
                 <div class="charts-wrapper">
-                    <div class="cards-row">
-                        <div class="metric-card">
-                            <div class="metric-icon">🏠</div>
-                            <div class="metric-data">
-                                <span class="metric-title">1-й поверх (Гараж)</span>
-                                <span class="metric-val hoverable" id="chartCardTemp" title="Час оновлення">-- °C</span>
-                                <span class="metric-sub" id="chartCardTempSub">Контролер ESP32</span>
+                    <div class="floor-cards-row">
+                        <!-- 1-й поверх (Гараж) -->
+                        <div class="floor-metric-card" id="floorCard1">
+                            <div class="floor-card-top">
+                                <div class="floor-card-title">
+                                    <span class="floor-icon">🏠</span>
+                                    <span class="floor-name">1-й поверх (Гараж)</span>
+                                </div>
+                                <span class="floor-badge" id="badgeFloor1">Очікує датчик</span>
+                            </div>
+                            <div class="floor-values-grid">
+                                <div class="floor-val-item">
+                                    <span class="floor-val-label">🌡️ Температура</span>
+                                    <span class="floor-val-num hoverable" id="chartCardTemp" title="Час оновлення">-- °C</span>
+                                </div>
+                                <div class="floor-val-item">
+                                    <span class="floor-val-label">💧 Вологість</span>
+                                    <span class="floor-val-num hoverable" id="chartCardHumF1" title="Час оновлення">-- %</span>
+                                </div>
+                            </div>
+                            <div class="floor-card-bottom" id="chartCardTempSub">
+                                Очікує монтажу датчика
                             </div>
                         </div>
-                        <div class="metric-card">
-                            <div class="metric-icon">🏢</div>
-                            <div class="metric-data">
-                                <span class="metric-title">2-й поверх</span>
-                                <span class="metric-val hoverable" id="chartCardTempF2" title="Час оновлення">-- °C</span>
-                                <span class="metric-sub" id="chartCardSubF2">BLE LYWSD03MMC</span>
+
+                        <!-- 2-й поверх -->
+                        <div class="floor-metric-card" id="floorCard2">
+                            <div class="floor-card-top">
+                                <div class="floor-card-title">
+                                    <span class="floor-icon">🏢</span>
+                                    <span class="floor-name">2-й поверх</span>
+                                </div>
+                                <span class="floor-badge active" id="badgeFloor2">BLE Онлайн</span>
+                            </div>
+                            <div class="floor-values-grid">
+                                <div class="floor-val-item">
+                                    <span class="floor-val-label">🌡️ Температура</span>
+                                    <span class="floor-val-num hoverable" id="chartCardTempF2" title="Час оновлення">-- °C</span>
+                                </div>
+                                <div class="floor-val-item">
+                                    <span class="floor-val-label">💧 Вологість</span>
+                                    <span class="floor-val-num active hoverable" id="chartCardHumF2" title="Час оновлення">-- %</span>
+                                </div>
+                            </div>
+                            <div class="floor-card-bottom" id="chartCardSubF2">
+                                Онлайн • Очікує даних
                             </div>
                         </div>
-                        <div class="metric-card">
-                            <div class="metric-icon">⚓</div>
-                            <div class="metric-data">
-                                <span class="metric-title">Підвал</span>
-                                <span class="metric-val hoverable" id="chartCardTempFB" title="Час оновлення">-- °C</span>
-                                <span class="metric-sub" id="chartCardSubFB">BLE LYWSD03MMC</span>
+
+                        <!-- Підвал -->
+                        <div class="floor-metric-card" id="floorCardBasement">
+                            <div class="floor-card-top">
+                                <div class="floor-card-title">
+                                    <span class="floor-icon">⚓</span>
+                                    <span class="floor-name">Підвал</span>
+                                </div>
+                                <span class="floor-badge active" id="badgeBasement">BLE Онлайн</span>
                             </div>
-                        </div>
-                        <div class="metric-card">
-                            <div class="metric-icon">💧</div>
-                            <div class="metric-data">
-                                <span class="metric-title">Вологість (2-й пов)</span>
-                                <span class="metric-val active" id="chartCardHumF2">-- %</span>
-                                <span class="metric-sub" id="chartCardHumSubF2">Житлове приміщення</span>
+                            <div class="floor-values-grid">
+                                <div class="floor-val-item">
+                                    <span class="floor-val-label">🌡️ Температура</span>
+                                    <span class="floor-val-num hoverable" id="chartCardTempFB" title="Час оновлення">-- °C</span>
+                                </div>
+                                <div class="floor-val-item">
+                                    <span class="floor-val-label">💧 Вологість</span>
+                                    <span class="floor-val-num active hoverable" id="chartCardHumFB" title="Час оновлення">-- %</span>
+                                </div>
                             </div>
-                        </div>
-                        <div class="metric-card">
-                            <div class="metric-icon">💧</div>
-                            <div class="metric-data">
-                                <span class="metric-title">Вологість (Підвал)</span>
-                                <span class="metric-val active" id="chartCardHumFB">-- %</span>
-                                <span class="metric-sub" id="chartCardHumSubFB">Зона зберігання</span>
-                            </div>
-                        </div>
-                        <div class="metric-card">
-                            <div class="metric-icon">🚗</div>
-                            <div class="metric-data">
-                                <span class="metric-title">Статус авто</span>
-                                <span class="metric-val text-muted" id="chartCardCar">Очікує монтажу</span>
-                                <span class="metric-sub">УЗ-датчик (не підключено)</span>
-                            </div>
-                        </div>
-                        <div class="metric-card">
-                            <div class="metric-icon">🛡️</div>
-                            <div class="metric-data">
-                                <span class="metric-title">Якість повітря</span>
-                                <span class="metric-val text-muted" id="chartCardAir">Очікує монтажу</span>
-                                <span class="metric-sub">MQ2 Сенсор (не підключено)</span>
+                            <div class="floor-card-bottom" id="chartCardSubFB">
+                                Онлайн • Очікує даних
                             </div>
                         </div>
                     </div>
@@ -563,7 +555,7 @@
         </main>
     </div>
 
-    <script src="/static/js/app.js?v=0.4.0"></script>
+    <script src="/static/js/app.js?v=0.4.1"></script>
 </body>
 </html>
 
