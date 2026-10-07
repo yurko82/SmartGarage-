@@ -55,16 +55,24 @@
                         <span class="val-badge active hoverable" id="telTemp" title="Час оновлення">-- °C</span>
                     </div>
                     <div class="telemetry-item">
+                        <span class="label">💧 Вол. 1-й пов:</span>
+                        <span class="val-badge hoverable" id="telHumFloor1" title="Час оновлення">-- %</span>
+                    </div>
+                    <div class="telemetry-item">
                         <span class="label">🌡️ 2-й поверх:</span>
                         <span class="val-badge active hoverable" id="telTempFloor2" title="Час оновлення">-- °C</span>
+                    </div>
+                    <div class="telemetry-item">
+                        <span class="label">💧 Вол. 2-й пов:</span>
+                        <span class="val-badge active hoverable" id="telHumFloor2" title="Час оновлення">-- %</span>
                     </div>
                     <div class="telemetry-item">
                         <span class="label">🌡️ Підвал:</span>
                         <span class="val-badge active hoverable" id="telTempBasement" title="Час оновлення">-- °C</span>
                     </div>
                     <div class="telemetry-item">
-                        <span class="label">💧 Вологість:</span>
-                        <span class="val-badge active" id="telHum">-- %</span>
+                        <span class="label">💧 Вол. Підвал:</span>
+                        <span class="val-badge active hoverable" id="telHumBasement" title="Час оновлення">-- %</span>
                     </div>
                     <div class="telemetry-item">
                         <span class="label">🔋 Датчики BLE:</span>
@@ -241,9 +249,17 @@
                         <div class="metric-card">
                             <div class="metric-icon">💧</div>
                             <div class="metric-data">
-                                <span class="metric-title">Вологість (Гараж)</span>
-                                <span class="metric-val" id="chartCardHum">-- %</span>
-                                <span class="metric-sub" id="chartCardHumSub">Оптимальний рівень</span>
+                                <span class="metric-title">Вологість (2-й пов)</span>
+                                <span class="metric-val active" id="chartCardHumF2">-- %</span>
+                                <span class="metric-sub" id="chartCardHumSubF2">Житлове приміщення</span>
+                            </div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-icon">💧</div>
+                            <div class="metric-data">
+                                <span class="metric-title">Вологість (Підвал)</span>
+                                <span class="metric-val active" id="chartCardHumFB">-- %</span>
+                                <span class="metric-sub" id="chartCardHumSubFB">Зона зберігання</span>
                             </div>
                         </div>
                         <div class="metric-card">
@@ -547,7 +563,7 @@
         </main>
     </div>
 
-    <script src="/static/js/app.js?v=0.3.9"></script>
+    <script src="/static/js/app.js?v=0.4.0"></script>
 </body>
 </html>
 

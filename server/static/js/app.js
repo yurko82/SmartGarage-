@@ -21,6 +21,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const telLight = document.getElementById('telLight');
     const telTemp = document.getElementById('telTemp');
     const telHum = document.getElementById('telHum');
+    const telHumFloor1 = document.getElementById('telHumFloor1');
+    const telHumFloor2 = document.getElementById('telHumFloor2');
+    const telHumBasement = document.getElementById('telHumBasement');
     const telBat = document.getElementById('telBat');
     const telCar = document.getElementById('telCar');
     const sidebarProjBadge = document.getElementById('sidebarProjBadge');
@@ -35,6 +38,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const chartCardSubFB = document.getElementById('chartCardSubFB');
     const chartCardHum = document.getElementById('chartCardHum');
     const chartCardHumSub = document.getElementById('chartCardHumSub');
+    const chartCardHumF2 = document.getElementById('chartCardHumF2');
+    const chartCardHumSubF2 = document.getElementById('chartCardHumSubF2');
+    const chartCardHumFB = document.getElementById('chartCardHumFB');
+    const chartCardHumSubFB = document.getElementById('chartCardHumSubFB');
     const chartCardCar = document.getElementById('chartCardCar');
     const chartCardAir = document.getElementById('chartCardAir');
     const telTempFloor2 = document.getElementById('telTempFloor2');
@@ -236,17 +243,58 @@ document.addEventListener('DOMContentLoaded', () => {
                         chartCardSubFB.textContent = isOnlineFB ? `Онлайн • ${timeStrB}${batStrB}` : (hasFB ? `Офлайн • ${timeStrB}${batStrB}` : 'Очікує даних');
                     }
 
-                    // Humidity (prefer real basement reading or floor1)
-                    const humReading = (hasFB && fb.humidity !== undefined && fb.humidity !== null) ? fb.humidity : (hasF1 ? f1.humidity : null);
-                    const humVal = humReading !== null ? `${Number(humReading).toFixed(0)} %` : '-- %';
-                    const humTip = hasFB ? `Вологість у підвалі: ${humVal}` : 'Очікується датчик';
-                    if (telHum) {
-                        telHum.textContent = humVal;
-                        telHum.title = humTip;
+                    // Humidity per floor (Floor 1, Floor 2, Basement)
+                    // 1-й поверх (ESP32 / майбутній BLE)
+                    const hasHumF1 = hasF1 && f1.humidity !== undefined && f1.humidity !== null;
+                    const h1Val = hasHumF1 ? `${Number(f1.humidity).toFixed(0)} %` : '-- %';
+                    if (telHumFloor1) {
+                        telHumFloor1.textContent = h1Val;
+                        telHumFloor1.className = hasHumF1 ? 'val-badge active hoverable' : 'val-badge hoverable';
+                        telHumFloor1.title = hasF1 ? `Вологість 1-й поверх: ${h1Val}` : 'Очікує монтажу датчика';
                     }
-                    if (chartCardHum) {
-                        chartCardHum.textContent = humVal;
-                        chartCardHum.title = humTip;
+
+                    // 2-й поверх (Xiaomi LYWSD03MMC)
+                    const hasHumF2 = hasF2 && f2.humidity !== undefined && f2.humidity !== null;
+                    const h2Val = hasHumF2 ? `${Number(f2.humidity).toFixed(0)} %` : '-- %';
+                    if (telHumFloor2) {
+                        telHumFloor2.textContent = h2Val;
+                        telHumFloor2.className = hasHumF2 ? 'val-badge active hoverable' : 'val-badge hoverable';
+                        telHumFloor2.title = hasF2 ? `Вологість 2-й поверх: ${h2Val}` : 'Офлайн (немає даних)';
+                    }
+                    if (chartCardHumF2) {
+                        chartCardHumF2.textContent = h2Val;
+                        chartCardHumF2.title = hasF2 ? `Вологість 2-й поверх: ${h2Val}` : 'Офлайн';
+                    }
+                    if (chartCardHumSubF2) {
+                        const timeStr2 = f2.last_updated_time || '--:--';
+                        const batStr2 = f2.battery !== undefined && f2.battery !== null ? ` • 🔋 ${f2.battery}%` : '';
+                        chartCardHumSubF2.textContent = isOnlineF2 ? `Онлайн • ${timeStr2}${batStr2}` : (hasF2 ? `Офлайн • ${timeStr2}${batStr2}` : 'Офлайн');
+                    }
+
+                    // Підвал (Xiaomi LYWSD03MMC)
+                    const hasHumFB = hasFB && fb.humidity !== undefined && fb.humidity !== null;
+                    const hBVal = hasHumFB ? `${Number(fb.humidity).toFixed(0)} %` : '-- %';
+                    if (telHumBasement) {
+                        telHumBasement.textContent = hBVal;
+                        telHumBasement.className = hasHumFB ? 'val-badge active hoverable' : 'val-badge hoverable';
+                        telHumBasement.title = hasFB ? `Вологість підвал: ${hBVal}` : 'Офлайн (немає даних)';
+                    }
+                    if (chartCardHumFB) {
+                        chartCardHumFB.textContent = hBVal;
+                        chartCardHumFB.title = hasFB ? `Вологість підвал: ${hBVal}` : 'Офлайн';
+                    }
+                    if (chartCardHumSubFB) {
+                        const timeStrB = fb.last_updated_time || '--:--';
+                        const batStrB = fb.battery !== undefined && fb.battery !== null ? ` • 🔋 ${fb.battery}%` : '';
+                        chartCardHumSubFB.textContent = isOnlineFB ? `Онлайн • ${timeStrB}${batStrB}` : (hasFB ? `Офлайн • ${timeStrB}${batStrB}` : 'Офлайн');
+                    }
+
+                    // Legacy fallback
+                    if (telHum && !telHumBasement) {
+                        telHum.textContent = hBVal;
+                    }
+                    if (chartCardHum && !chartCardHumFB) {
+                        chartCardHum.textContent = hBVal;
                     }
 
                     // Battery (calculate only from real configured sensors)
