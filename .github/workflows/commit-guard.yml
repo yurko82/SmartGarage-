@@ -1,0 +1,62 @@
+name: Commit Guard
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  validate-commits:
+    name: Перевірка валідності комітів (Commit Quality Guard)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Клонування репозиторію з повною історією
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Перевірка наявності сміттєвих AI-шаблонів у повідомленнях комітів
+        run: |
+          echo "🔍 Перевірка повідомлень комітів..."
+          FORBIDDEN_REGEX="Please provide|No changes provided"
+
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE_REF="origin/${{ github.base_ref }}"
+            COMMITS=$(git log --format="%H" "${BASE_REF}..HEAD")
+          else
+            BEFORE="${{ github.event.before }}"
+            if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+              COMMITS=$(git log -n 10 --format="%H")
+            else
+              COMMITS=$(git log --format="%H" "${BEFORE}..HEAD" || git log -n 10 --format="%H")
+            fi
+          fi
+
+          FAILED=0
+          for commit in $COMMITS; do
+            msg=$(git log -1 --format="%s" "$commit")
+            if echo "$msg" | grep -qE "$FORBIDDEN_REGEX"; then
+              echo "❌ Знайдено заборонений AI-шаблон у коміті $commit:"
+              echo "   Повідомлення: \"$msg\""
+              FAILED=1
+            fi
+
+            # Перевірка на порожні зміни (empty commit)
+            parent=$(git rev-parse "${commit}^" 2>/dev/null || true)
+            if [ -n "$parent" ]; then
+              if git diff --quiet "$parent" "$commit"; then
+                echo "❌ Знайдено порожній коміт без жодних змін (empty diff): $commit"
+                echo "   Повідомлення: \"$msg\""
+                FAILED=1
+              fi
+            fi
+          done
+
+          if [ "$FAILED" -eq 1 ]; then
+            echo "::error::Коміти містять порожні зміни або заборонені заглушки AI! Merge заблоковано."
+            exit 1
+          fi
+
+          echo "✅ Усі коміти пройшли перевірку успішно!"

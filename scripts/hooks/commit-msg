@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Git commit-msg hook: Перевірка тексту повідомлення коміту на заборонені AI-шаблони
+set -e
+
+COMMIT_MSG_FILE="$1"
+FORBIDDEN_REGEX="Please provide|No changes provided"
+
+if [ -f "$COMMIT_MSG_FILE" ]; then
+    if grep -qE "$FORBIDDEN_REGEX" "$COMMIT_MSG_FILE"; then
+        echo "❌ Error: Forbidden AI placeholder commit message pattern detected!" >&2
+        echo "   Pattern matched: '$FORBIDDEN_REGEX'" >&2
+        echo "   Message content: $(cat "$COMMIT_MSG_FILE")" >&2
+        echo "   Будь ласка, вкажіть змістовне повідомлення коміту українською або англійською мовою." >&2
+        exit 1
+    fi
+fi
+
+exit 0

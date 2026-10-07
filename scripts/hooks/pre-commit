@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# Git pre-commit hook: Захист від порожніх комітів та AI-заглушок
+set -e
+
+# 1. Перевірка наявності реальних змін у staging area
+if git diff --cached --quiet; then
+    echo "❌ No changes to commit. AI agent tried to commit empty diff." >&2
+    exit 1
+fi
+
+# 2. Додатковий захист від комітів, де змінено виключно динамічний файл присутності
+# (запобігає автоматичним псевдокомітам фонового сканера пристроїв)
+STAGED_FILES=$(git diff --cached --name-only)
+if [ "$STAGED_FILES" = "devices/presence_devices.json" ]; then
+    # Перевіряємо, чи зміни стосуються лише таймштампів/last_seen/status
+    NON_RUNTIME_DIFF=$(git diff --cached devices/presence_devices.json | grep -E "^[+-]" | grep -vE "^[+-]{3}" | grep -vE '"(status|last_seen|last_rssi)"' || true)
+    if [ -z "$NON_RUNTIME_DIFF" ]; then
+        echo "⚠️ Увага: У staging area присутні лише динамічні мітки часу presence_devices.json." >&2
+        echo "   Коміт заблоковано, оскільки відсутні зміни коду проекту." >&2
+        echo "   (Використовуйте git commit --no-verify, якщо це навмисна зміна)." >&2
+        exit 1
+    fi
+fi
+
+# 3. Перевірка команди коміту на наявність заборонених AI-шаблонів (якщо викликано з -m)
+FORBIDDEN_REGEX="Please provide|No changes provided"
+PARENT_CMD=$(ps -p $PPID -o args= 2>/dev/null || true)
+
+if echo "$PARENT_CMD" | grep -qE "$FORBIDDEN_REGEX"; then
+    echo "❌ Error: AI placeholder commit message detected in commit command!" >&2
+    echo "   Pattern matched: '$FORBIDDEN_REGEX'" >&2
+    exit 1
+fi
+
+exit 0
