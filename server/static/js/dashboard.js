@@ -1158,7 +1158,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (fb.online) activeBleCount++;
                 if (valBleSensorsCount) valBleSensorsCount.textContent = `${activeBleCount} / ${totalBleSensors} онлайн`;
                 if (subBleSensors) {
-                    subBleSensors.textContent = activeBleCount > 0 ? "Підвал на зв'язку" : "Очікування сигналів";
+                    if (activeBleCount === 2) {
+                        subBleSensors.textContent = "Підвал та 2-й поверх на зв'язку";
+                    } else if (activeBleCount === 1) {
+                        subBleSensors.textContent = f2.online ? "2-й поверх на зв'язку" : "Підвал на зв'язку";
+                    } else {
+                        subBleSensors.textContent = "Очікування сигналів";
+                    }
                 }
 
                 // Air quality / Gas
