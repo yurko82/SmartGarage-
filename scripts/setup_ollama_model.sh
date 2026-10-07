@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# Smart Garage - Ollama Qwen 2.5 Coder 7B Setup Script
+# Smart Garage - Ollama Qwen 2.5 Coder 1.5B Setup Script (8GB RAM Optimized)
 # ==============================================================================
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 MODELFILE_PATH="${PROJECT_ROOT}/config/Modelfile.qwen2.5-coder"
-MODEL_NAME="qwen2.5-coder:7b"
+MODEL_NAME="qwen2.5-coder:1.5b"
 OLLAMA_HOST="${OLLAMA_HOST:-http://localhost:11434}"
 
 echo "=========================================================="

@@ -1,0 +1,16 @@
+[Unit]
+Description=SmartGarage Memory Watchdog for ASUS X413E (8GB RAM)
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/home/yurko/AI/SmartGarage
+ExecStart=/home/yurko/AI/SmartGarage/scripts/memory_watchdog.sh --daemon
+Restart=always
+RestartSec=5
+StandardOutput=append:/var/log/antigravity-memory.log
+StandardError=append:/var/log/antigravity-memory.log
+
+[Install]
+WantedBy=multi-user.target

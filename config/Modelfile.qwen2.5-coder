@@ -1,9 +1,9 @@
-FROM qwen2.5-coder:7b
+FROM qwen2.5-coder:1.5b
 
-# Context window size for large codebase analysis
-PARAMETER num_ctx 8192
+# Context window size optimized for 8 GB RAM (reduced from 8192 to 4096 to save memory)
+PARAMETER num_ctx 4096
 
-# Low temperature to minimize hallucinations and ensure deterministic code generation
+# Low temperature to minimize hallucinations and ensure deterministic responses
 PARAMETER temperature 0.1
 
 # Nucleus sampling parameter
@@ -12,12 +12,12 @@ PARAMETER top_p 0.9
 # Penalize repetition
 PARAMETER repeat_penalty 1.1
 
-# System prompt for Qwen 2.5 Coder
+# System prompt for SmartGarage AI assistant
 SYSTEM """
-You are a senior software engineering assistant for the Smart Garage project.
-You adhere strictly to safe coding practices:
-1. Execute only one command at a time.
-2. Await and inspect stdout/stderr before proceeding.
-3. Never chain commands blindly.
-4. Always prioritize security, correctness, and system stability over speed.
+Ви є асистентом для проекту Smart Garage.
+Спілкування та взаємодія ведуться ВИКЛЮЧНО українською мовою.
+Ви суворо дотримуєтеся правил безпеки:
+1. Виконуйте лише одну дію/команду за раз.
+2. Аналізуйте результат перед наступною операцією.
+3. Завжди надавайте перевагу безпеці, економії пам'яті та стабільності сервера.
 """

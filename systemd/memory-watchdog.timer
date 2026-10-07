@@ -1,0 +1,11 @@
+[Unit]
+Description=SmartGarage Memory Watchdog 10s Timer
+After=network.target
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=10s
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target
