@@ -5,11 +5,12 @@ import threading
 import traceback
 import urllib.parse
 import psutil
-from flask import Flask, request, jsonify, render_template, send_from_directory
+from flask import Flask, request, jsonify, render_template, send_from_directory, send_file
 from .core.core import SmartGarage
 from .devices.projector import get_local_ip
 from server.config import config
 from server.services.radio_service import radio_service
+from server.services.neural_tts import neural_tts, clean_text_for_tts
 
 
 class TelemetryHistory:
@@ -890,38 +891,43 @@ def voice_status():
     })
 
 
+@app.route("/api/voice/tts", methods=["GET", "POST"])
+def voice_tts():
+    """Generates and streams high-definition neural Ukrainian speech (MP3) for web clients."""
+    if request.method == "POST":
+        data = request.get_json(silent=True) or {}
+        text = data.get("text") or ""
+        voice = data.get("voice")
+    else:
+        text = request.args.get("text", "")
+        voice = request.args.get("voice")
+
+    clean = clean_text_for_tts(text)
+    if not clean:
+        return jsonify({"success": False, "error": "Порожній текст"}), 400
+
+    try:
+        mp3_path = neural_tts.synthesize(clean, voice=voice)
+        return send_file(mp3_path, mimetype="audio/mpeg", as_attachment=False)
+    except Exception as e:
+        app.logger.warning(f"Neural TTS generation error: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 @app.route("/api/voice/speak", methods=["POST"])
 def voice_speak():
-    """Server-side TTS announcement via spd-say (Ukrainian voice) to Bluetooth/PipeWire output."""
+    """Server-side TTS announcement via neural TTS (Ostap/Polina) to Bluetooth/PipeWire output."""
     data = request.get_json(silent=True) or {}
     text = (data.get("text") or "").strip()
+    voice = data.get("voice")
     if not text:
         return jsonify({"success": False, "error": "Порожній текст"}), 400
 
-    import re
-    import subprocess
-
-    # Strip emoji Unicode ranges
-    clean = re.sub(
-        r'[\U00010000-\U0010ffff\u2600-\u26ff\u2700-\u27bf\ufe00-\ufe0f\u200d]',
-        '',
-        text
-    )
-    # Strip markdown and symbols
-    clean = re.sub(r'[*_#`[\]()•·|]', ' ', clean)
-    clean = clean.replace('°C', ' градусів ').replace('%', ' відсотків ')
-    clean = re.sub(r'\s+', ' ', clean).strip()
-
+    clean = clean_text_for_tts(text)
     if not clean:
         return jsonify({"success": False, "error": "Порожній текст після очищення"}), 400
 
-    def _speak_thread():
-        try:
-            subprocess.run(["spd-say", "-l", "uk", "-r", "5", clean], timeout=15)
-        except Exception as ex:
-            app.logger.warning(f"spd-say execution error: {ex}")
-
-    threading.Thread(target=_speak_thread, daemon=True).start()
+    neural_tts.speak_locally(clean, voice=voice)
     return jsonify({"success": True, "spoken": clean})
 
 

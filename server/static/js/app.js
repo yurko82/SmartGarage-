@@ -856,44 +856,44 @@ document.addEventListener('DOMContentLoaded', () => {
         }) || null;
     }
 
-    if ('speechSynthesis' in window) {
-        window.speechSynthesis.onvoiceschanged = () => {
-            cachedUkVoiceApp = getUkrainianVoiceApp();
-        };
-        cachedUkVoiceApp = getUkrainianVoiceApp();
-    }
+    let currentTtsAudioApp = null;
 
     function speakText(text) {
         if (!ttsEnabled) return;
         const clean = cleanSpeechText(text);
         if (!clean) return;
 
-        const ukVoice = cachedUkVoiceApp || getUkrainianVoiceApp();
-
-        if ('speechSynthesis' in window && ukVoice) {
-            try {
-                window.speechSynthesis.cancel();
-                const utterance = new SpeechSynthesisUtterance(clean);
-                utterance.voice = ukVoice;
-                utterance.lang = ukVoice.lang || 'uk-UA';
-                utterance.rate = 1.05;
-                utterance.pitch = 1.0;
-                window.speechSynthesis.speak(utterance);
-                return;
-            } catch (e) {
-                console.warn('Browser TTS error, using server fallback:', e);
-            }
-        }
-
-        // Fallback: server-side spd-say in native Ukrainian
         if ('speechSynthesis' in window) {
-            window.speechSynthesis.cancel();
+            try { window.speechSynthesis.cancel(); } catch (_) {}
         }
-        fetch('/api/voice/speak', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text: clean })
-        }).catch(err => console.warn('Server TTS failed:', err));
+
+        if (currentTtsAudioApp) {
+            try {
+                currentTtsAudioApp.pause();
+                currentTtsAudioApp.currentTime = 0;
+            } catch (_) {}
+            currentTtsAudioApp = null;
+        }
+
+        try {
+            const audioUrl = '/api/voice/tts?text=' + encodeURIComponent(clean);
+            currentTtsAudioApp = new Audio(audioUrl);
+            currentTtsAudioApp.play().catch(err => {
+                console.warn('Browser audio autoplay blocked, broadcasting to garage speaker:', err);
+                fetch('/api/voice/speak', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text: clean })
+                }).catch(e => console.warn('Server TTS failed:', e));
+            });
+        } catch (e) {
+            console.warn('Audio init error, broadcasting to garage speaker:', e);
+            fetch('/api/voice/speak', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text: clean })
+            }).catch(e => console.warn('Server TTS failed:', e));
+        }
     }
 
     // --- SPEECH RECOGNITION (STT) ---

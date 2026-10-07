@@ -271,47 +271,48 @@ document.addEventListener('DOMContentLoaded', () => {
         }) || null;
     }
 
-    if ('speechSynthesis' in window) {
-        window.speechSynthesis.onvoiceschanged = () => {
-            cachedUkVoice = getUkrainianVoice();
-        };
-        cachedUkVoice = getUkrainianVoice();
-    }
+    let currentTtsAudio = null;
 
     function speakText(text) {
         if (!ttsEnabled) return;
         const clean = cleanSpeechText(text);
         if (!clean) return;
 
-        const ukVoice = cachedUkVoice || getUkrainianVoice();
-
-        // 1. If the browser has an authentic Ukrainian voice (Android, Windows, iOS, Mac, etc.)
-        if ('speechSynthesis' in window && ukVoice) {
-            try {
-                window.speechSynthesis.cancel();
-                const utterance = new SpeechSynthesisUtterance(clean);
-                utterance.voice = ukVoice;
-                utterance.lang = ukVoice.lang || 'uk-UA';
-                utterance.rate = 1.05;
-                utterance.pitch = 1.0;
-                window.speechSynthesis.speak(utterance);
-                return;
-            } catch (e) {
-                console.warn('Browser TTS failed, falling back to server TTS:', e);
-            }
-        }
-
-        // 2. If NO Ukrainian voice is found in the client browser:
-        // NEVER let Chrome speak with an English voice (which causes "broken English-accented Ukrainian")!
-        // Instead, broadcast native Ukrainian via server spd-say directly to garage speaker (JX-BT):
+        // Cancel any browser speech synthesis
         if ('speechSynthesis' in window) {
-            window.speechSynthesis.cancel();
+            try { window.speechSynthesis.cancel(); } catch (_) {}
         }
-        fetch('/api/voice/speak', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text: clean })
-        }).catch(err => console.warn('Server TTS failed:', err));
+
+        // Stop any currently playing TTS audio
+        if (currentTtsAudio) {
+            try {
+                currentTtsAudio.pause();
+                currentTtsAudio.currentTime = 0;
+            } catch (_) {}
+            currentTtsAudio = null;
+        }
+
+        // 1. Play high-definition neural Ukrainian voice (Ostap) directly in the browser!
+        try {
+            const audioUrl = '/api/voice/tts?text=' + encodeURIComponent(clean);
+            currentTtsAudio = new Audio(audioUrl);
+            currentTtsAudio.play().catch(err => {
+                console.warn('Browser audio autoplay blocked, broadcasting to garage speaker:', err);
+                // 2. Fallback: broadcast neural speech via PipeWire pw-play on garage speaker
+                fetch('/api/voice/speak', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text: clean })
+                }).catch(e => console.warn('Server TTS failed:', e));
+            });
+        } catch (e) {
+            console.warn('Audio init error, broadcasting to garage speaker:', e);
+            fetch('/api/voice/speak', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text: clean })
+            }).catch(e => console.warn('Server TTS failed:', e));
+        }
     }
 
     // --- VOICE SPEECH RECOGNITION (Web Speech API) ---
