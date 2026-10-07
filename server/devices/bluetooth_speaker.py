@@ -62,6 +62,10 @@ class BluetoothSpeakerController:
         while not getattr(self, "_stop_watchdog", False):
             try:
                 time.sleep(5.0)
+
+                # Maintain internal microphone routing and unmuted state
+                self._maintain_microphone_state()
+
                 if not getattr(self, "_active_stream", False) or getattr(self, "_is_paused", False):
                     continue
 
@@ -95,6 +99,20 @@ class BluetoothSpeakerController:
         url = self._last_stream_url
         title = self._last_stream_title
         self.play_stream(url, track_title=title, is_recovery=True)
+
+    def _maintain_microphone_state(self):
+        """Maintain ALC256 internal mic routed to physical pin 0x1b and unmuted in PipeWire."""
+        try:
+            cget = subprocess.run(["amixer", "-c", "0", "cget", "numid=6"], capture_output=True, text=True, timeout=1.0)
+            if "values=0" in cget.stdout or "values=1" in cget.stdout:
+                subprocess.run(["amixer", "-c", "0", "cset", "numid=6", "2"], capture_output=True, timeout=1.0)
+                subprocess.run(["amixer", "-c", "0", "sset", "Internal Mic Boost,1", "2"], capture_output=True, timeout=1.0)
+                subprocess.run(["amixer", "-c", "0", "sset", "Capture", "63"], capture_output=True, timeout=1.0)
+            vol = subprocess.run(["wpctl", "get-volume", "@DEFAULT_AUDIO_SOURCE@"], capture_output=True, text=True, timeout=1.0)
+            if "MUTED" in vol.stdout:
+                subprocess.run(["wpctl", "set-mute", "@DEFAULT_AUDIO_SOURCE@", "0"], capture_output=True, timeout=1.0)
+        except Exception:
+            pass
 
     def get_configured_speakers(self) -> list:
         """Load list of configured speaker devices."""
