@@ -881,6 +881,41 @@ def voice_status():
     })
 
 
+@app.route("/api/voice/speak", methods=["POST"])
+def voice_speak():
+    """Server-side TTS announcement via spd-say (Ukrainian voice) to Bluetooth/PipeWire output."""
+    data = request.get_json(silent=True) or {}
+    text = (data.get("text") or "").strip()
+    if not text:
+        return jsonify({"success": False, "error": "Порожній текст"}), 400
+
+    import re
+    import subprocess
+
+    # Strip emoji Unicode ranges
+    clean = re.sub(
+        r'[\U00010000-\U0010ffff\u2600-\u26ff\u2700-\u27bf\ufe00-\ufe0f\u200d]',
+        '',
+        text
+    )
+    # Strip markdown and symbols
+    clean = re.sub(r'[*_#`[\]()•·|]', ' ', clean)
+    clean = clean.replace('°C', ' градусів ').replace('%', ' відсотків ')
+    clean = re.sub(r'\s+', ' ', clean).strip()
+
+    if not clean:
+        return jsonify({"success": False, "error": "Порожній текст після очищення"}), 400
+
+    def _speak_thread():
+        try:
+            subprocess.run(["spd-say", "-l", "uk", "-r", "5", clean], timeout=15)
+        except Exception as ex:
+            app.logger.warning(f"spd-say execution error: {ex}")
+
+    threading.Thread(target=_speak_thread, daemon=True).start()
+    return jsonify({"success": True, "spoken": clean})
+
+
 # --- BLUETOOTH SPEAKER API (JBL Clip 5) ---
 @app.route("/api/speaker/status", methods=["GET"])
 def speaker_status():

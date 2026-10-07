@@ -223,24 +223,92 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // --- TTS SPEAK FUNCTION ---
+    // --- TTS & SPEECH CLEANING ---
+    function cleanSpeechText(text) {
+        if (!text) return '';
+        let clean = text
+            // Strip URLs
+            .replace(/https?:\/\/\S+/g, '')
+            // Strip all emojis (comprehensive Unicode regex)
+            .replace(/[\u{1F300}-\u{1F9FF}\u{1FA00}-\u{1FAFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F1E6}-\u{1F1FF}\u{FE00}-\u{FE0F}\u{1F900}-\u{1F9FF}\u{200D}]/gu, '')
+            // Strip Markdown formatting
+            .replace(/[*_#`~[\]()]/g, ' ')
+            .replace(/[•·]/g, ', ')
+            .replace(/\|/g, ', ')
+            // Units and numbers to spoken Ukrainian
+            .replace(/(\d+(?:[.,]\d+)?)\s*°C/g, '$1 градусів')
+            .replace(/°C/g, ' градусів')
+            .replace(/(\d+(?:[.,]\d+)?)\s*%/g, '$1 відсотків')
+            .replace(/%/g, ' відсотків')
+            // Floors and locations
+            .replace(/1-й\s*поверх/gi, 'перший поверх')
+            .replace(/2-й\s*поверх/gi, 'другий поверх')
+            .replace(/1-му\s*поверсі/gi, 'першому поверсі')
+            .replace(/2-му\s*поверсі/gi, 'другому поверсі')
+            // System status cleanups
+            .replace(/\[онлайн\]/gi, 'онлайн')
+            .replace(/\[офлайн\]/gi, 'офлайн')
+            // Clean redundant colons and dashes
+            .replace(/[:\-]+/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+        return clean;
+    }
+
+    let cachedUkVoice = null;
+    function getUkrainianVoice() {
+        if (!('speechSynthesis' in window)) return null;
+        const voices = window.speechSynthesis.getVoices() || [];
+        if (!voices || voices.length === 0) return null;
+        return voices.find(v => {
+            const lang = (v.lang || '').toLowerCase();
+            const name = (v.name || '').toLowerCase();
+            return lang.startsWith('uk') || lang.includes('uk-') || lang.includes('uk_') ||
+                   name.includes('ukrain') || name.includes('україн');
+        }) || null;
+    }
+
+    if ('speechSynthesis' in window) {
+        window.speechSynthesis.onvoiceschanged = () => {
+            cachedUkVoice = getUkrainianVoice();
+        };
+        cachedUkVoice = getUkrainianVoice();
+    }
+
     function speakText(text) {
-        if (!ttsEnabled || !('speechSynthesis' in window)) return;
-        try {
-            window.speechSynthesis.cancel();
-            const utterance = new SpeechSynthesisUtterance(text);
-            utterance.lang = 'uk-UA';
-            utterance.rate = 1.05;
-            utterance.pitch = 1.0;
+        if (!ttsEnabled) return;
+        const clean = cleanSpeechText(text);
+        if (!clean) return;
 
-            const voices = window.speechSynthesis.getVoices();
-            const ukVoice = voices.find(v => v.lang.includes('uk') || v.lang.includes('UK'));
-            if (ukVoice) utterance.voice = ukVoice;
+        const ukVoice = cachedUkVoice || getUkrainianVoice();
 
-            window.speechSynthesis.speak(utterance);
-        } catch (e) {
-            console.error('Speech error:', e);
+        // 1. If the browser has an authentic Ukrainian voice (Android, Windows, iOS, Mac, etc.)
+        if ('speechSynthesis' in window && ukVoice) {
+            try {
+                window.speechSynthesis.cancel();
+                const utterance = new SpeechSynthesisUtterance(clean);
+                utterance.voice = ukVoice;
+                utterance.lang = ukVoice.lang || 'uk-UA';
+                utterance.rate = 1.05;
+                utterance.pitch = 1.0;
+                window.speechSynthesis.speak(utterance);
+                return;
+            } catch (e) {
+                console.warn('Browser TTS failed, falling back to server TTS:', e);
+            }
         }
+
+        // 2. If NO Ukrainian voice is found in the client browser:
+        // NEVER let Chrome speak with an English voice (which causes "broken English-accented Ukrainian")!
+        // Instead, broadcast native Ukrainian via server spd-say directly to garage speaker (JX-BT):
+        if ('speechSynthesis' in window) {
+            window.speechSynthesis.cancel();
+        }
+        fetch('/api/voice/speak', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: clean })
+        }).catch(err => console.warn('Server TTS failed:', err));
     }
 
     // --- VOICE SPEECH RECOGNITION (Web Speech API) ---

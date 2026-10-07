@@ -817,28 +817,81 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // --- TEXT TO SPEECH (TTS) ---
-    function speakText(text) {
-        if (!ttsEnabled || !window.speechSynthesis) return;
-
+    function cleanSpeechText(text) {
+        if (!text) return '';
         let clean = text
             .replace(/https?:\/\/\S+/g, '')
-            .replace(/[*_#`[\]()]/g, '')
-            .replace(/•/g, '')
+            .replace(/[\u{1F300}-\u{1F9FF}\u{1FA00}-\u{1FAFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F1E6}-\u{1F1FF}\u{FE00}-\u{FE0F}\u{1F900}-\u{1F9FF}\u{200D}]/gu, '')
+            .replace(/[*_#`~[\]()]/g, ' ')
+            .replace(/[•·]/g, ', ')
+            .replace(/\|/g, ', ')
+            .replace(/(\d+(?:[.,]\d+)?)\s*°C/g, '$1 градусів')
+            .replace(/°C/g, ' градусів')
+            .replace(/(\d+(?:[.,]\d+)?)\s*%/g, '$1 відсотків')
+            .replace(/%/g, ' відсотків')
+            .replace(/1-й\s*поверх/gi, 'перший поверх')
+            .replace(/2-й\s*поверх/gi, 'другий поверх')
+            .replace(/1-му\s*поверсі/gi, 'першому поверсі')
+            .replace(/2-му\s*поверсі/gi, 'другому поверсі')
+            .replace(/\[онлайн\]/gi, 'онлайн')
+            .replace(/\[офлайн\]/gi, 'офлайн')
+            .replace(/[:\-]+/g, ' ')
             .replace(/\s+/g, ' ')
             .trim();
+        return clean;
+    }
 
+    let cachedUkVoiceApp = null;
+    function getUkrainianVoiceApp() {
+        if (!('speechSynthesis' in window)) return null;
+        const voices = window.speechSynthesis.getVoices() || [];
+        if (voices.length === 0) return null;
+        return voices.find(v => {
+            const lang = (v.lang || '').toLowerCase();
+            const name = (v.name || '').toLowerCase();
+            return lang.startsWith('uk') || lang.includes('uk-') || lang.includes('uk_') ||
+                   name.includes('ukrain') || name.includes('україн');
+        }) || null;
+    }
+
+    if ('speechSynthesis' in window) {
+        window.speechSynthesis.onvoiceschanged = () => {
+            cachedUkVoiceApp = getUkrainianVoiceApp();
+        };
+        cachedUkVoiceApp = getUkrainianVoiceApp();
+    }
+
+    function speakText(text) {
+        if (!ttsEnabled) return;
+        const clean = cleanSpeechText(text);
         if (!clean) return;
 
-        window.speechSynthesis.cancel();
-        const utterance = new SpeechSynthesisUtterance(clean);
-        utterance.lang = 'uk-UA';
-        utterance.rate = 1.05;
+        const ukVoice = cachedUkVoiceApp || getUkrainianVoiceApp();
 
-        const voices = window.speechSynthesis.getVoices();
-        const ukVoice = voices.find(v => v.lang.startsWith('uk')) || voices.find(v => v.lang.startsWith('en'));
-        if (ukVoice) utterance.voice = ukVoice;
+        if ('speechSynthesis' in window && ukVoice) {
+            try {
+                window.speechSynthesis.cancel();
+                const utterance = new SpeechSynthesisUtterance(clean);
+                utterance.voice = ukVoice;
+                utterance.lang = ukVoice.lang || 'uk-UA';
+                utterance.rate = 1.05;
+                utterance.pitch = 1.0;
+                window.speechSynthesis.speak(utterance);
+                return;
+            } catch (e) {
+                console.warn('Browser TTS error, using server fallback:', e);
+            }
+        }
 
-        window.speechSynthesis.speak(utterance);
+        // Fallback: server-side spd-say in native Ukrainian
+        if ('speechSynthesis' in window) {
+            window.speechSynthesis.cancel();
+        }
+        fetch('/api/voice/speak', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: clean })
+        }).catch(err => console.warn('Server TTS failed:', err));
     }
 
     // --- SPEECH RECOGNITION (STT) ---

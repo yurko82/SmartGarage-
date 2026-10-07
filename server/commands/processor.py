@@ -85,12 +85,30 @@ class CommandProcessor:
         # STATUS
         # -----------------------
 
-        if cmd in ("status", "стан", "статус"):
+        if cmd in ("стан", "статус"):
+            return True, "Система Smart Garage працює в штатному режимі."
+
+        if cmd == "status":
             return True, "Smart Garage is running."
 
         # -----------------------
         # HELP
         # -----------------------
+
+        if cmd in ("допомога", "довідка"):
+            return True, ("""Доступні команди:
+  стан / статус
+  допомога
+  пам'ять
+  запам'ятай <ключ> <значення>
+  забудь <ключ>
+  ворота відкрити | закрити | перемкнути | стан
+  світло увімкнути | вимкнути | перемкнути
+  вентиляція увімкнути | вимкнути | перемкнути
+  датчики / клімат / стан гаража
+  сценарії
+  трансляція на проектор
+  вихід""")
 
         if cmd == "help":
             return True, ("""Available commands:
@@ -107,14 +125,11 @@ class CommandProcessor:
   project screen | stop | status | slide | stream <query>
   exit""")
 
-
-
-
         # -----------------------
         # MEMORY
         # -----------------------
 
-        if cmd == "memory":
+        if cmd in ("memory", "пам'ять", "память"):
             return True, str(self.memory.all())
 
         # -----------------------
@@ -122,33 +137,40 @@ class CommandProcessor:
         # -----------------------
 
         if cmd.startswith("remember "):
-
             parts = command.split(maxsplit=2)
-
             if len(parts) < 3:
                 return True, "Usage: remember <key> <value>"
-
             key = parts[1]
             value = parts[2]
-
             self.memory.set(key, value)
-
             return True, f"Saved '{key}'."
+
+        if cmd.startswith("запам'ятай ") or cmd.startswith("пам'ятай "):
+            parts = command.split(maxsplit=2)
+            if len(parts) < 3:
+                return True, "Використання: запам'ятай <ключ> <значення>"
+            key = parts[1]
+            value = parts[2]
+            self.memory.set(key, value)
+            return True, f"Збережено '{key}'."
 
         # -----------------------
         # FORGET
         # -----------------------
 
         if cmd.startswith("forget "):
-
             parts = command.split(maxsplit=1)
-
             if len(parts) < 2:
                 return True, "Usage: forget <key>"
-
             self.memory.delete(parts[1])
-
             return True, f"Deleted '{parts[1]}'."
+
+        if cmd.startswith("забудь "):
+            parts = command.split(maxsplit=1)
+            if len(parts) < 2:
+                return True, "Використання: забудь <ключ>"
+            self.memory.delete(parts[1])
+            return True, f"Видалено '{parts[1]}'."
 
         # -----------------------
         # PROJECTOR
@@ -535,12 +557,12 @@ class CommandProcessor:
         ):
 
             if not self.projector.is_reachable():
-                return True, f"Projector HY350MAX ({self.projector.ip}:{self.projector.port}) is offline or unreachable."
+                return True, f"Проектор HY350MAX ({self.projector.ip}:{self.projector.port}) офлайн або недоступний."
             success = self.projector.capture_and_send_screen()
             self.projector.start_mirroring(fps=2)
             if success:
                 return True, f"Трансляцію екрану ноутбука розпочато на проектор HY350MAX ({self.projector.ip})."
-            return True, f"Failed to project screen to HY350MAX."
+            return True, f"Не вдалося запустити трансляцію на HY350MAX."
 
         # Direct Projector App Launchers & Native Controls
         if cmd in ("відкрий transcreen", "запусти transcreen", "включи transcreen", "увімкни transcreen", "transcreen", "транскрін"):
@@ -597,18 +619,24 @@ class CommandProcessor:
             mirror_str = "Active" if status["mirroring"] else "Inactive"
             return True, f"Projector {status['device']}: {online_str} ({status['ip']}:{status['port']}) | Mirroring: {mirror_str}"
 
-        if cmd == "project slide":
+        if cmd in ("стан проектора", "статус проектора"):
+            status = self.projector.get_status()
+            online_str = "Онлайн" if status["online"] else "Офлайн"
+            mirror_str = "Активна" if status["mirroring"] else "Неактивна"
+            return True, f"Проектор {status['device']}: {online_str} ({status['ip']}:{status['port']}) | Трансляція: {mirror_str}"
+
+        if cmd in ("project slide", "слайд проектора"):
             if not self.projector.is_reachable():
-                return True, f"Projector HY350MAX ({self.projector.ip}:{self.projector.port}) is offline."
-            mem_summary = [f"{k}: {v}" for k, v in list(self.memory.all().items())[:5]] or ["Memory: Empty"]
+                return True, f"Проектор HY350MAX ({self.projector.ip}:{self.projector.port}) офлайн."
+            mem_summary = [f"{k}: {v}" for k, v in list(self.memory.all().items())[:5]] or ["Пам'ять: порожня"]
             success = self.projector.render_and_send_slide(
                 title="Smart Garage Infrastructure",
-                subtitle="System Status: Online",
-                details=["Backend: Flask Gateway", "Model: GPT-4.1-mini", "Wireless Display: Connected"] + mem_summary
+                subtitle="Стан системи: Онлайн",
+                details=["Сервер: Flask Gateway", "Модель: GPT-4.1-mini", "Бездротовий дисплей: Підключено"] + mem_summary
             )
             if success:
-                return True, "Dashboard slide sent to HY350MAX."
-            return True, "Failed to send slide to HY350MAX."
+                return True, "Слайд дашборду надіслано на HY350MAX."
+            return True, "Не вдалося надіслати слайд на HY350MAX."
 
 
         # -----------------------
