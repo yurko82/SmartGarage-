@@ -235,7 +235,8 @@ document.addEventListener('DOMContentLoaded', () => {
             // Strip Markdown formatting
             .replace(/[*_#`~[\]()]/g, ' ')
             .replace(/[•·]/g, ', ')
-            .replace(/\|/g, ', ')
+            // Strip single and double quotes (prevents staccato robotic pauses in neural TTS)
+            .replace(/['"«»“”]/g, '')
             // Units and numbers to spoken Ukrainian
             .replace(/(\d+(?:[.,]\d+)?)\s*°C/g, '$1 градусів')
             .replace(/°C/g, ' градусів')
@@ -246,13 +247,28 @@ document.addEventListener('DOMContentLoaded', () => {
             .replace(/2-й\s*поверх/gi, 'другий поверх')
             .replace(/1-му\s*поверсі/gi, 'першому поверсі')
             .replace(/2-му\s*поверсі/gi, 'другому поверсі')
+            .replace(/на\s+музика\s+(?:1-й|перший|1)\s+поверх/gi, 'на першому поверсі')
+            .replace(/на\s+музика\s+1/gi, 'на першому поверсі')
             // System status cleanups
             .replace(/\[онлайн\]/gi, 'онлайн')
             .replace(/\[офлайн\]/gi, 'офлайн')
-            // Clean redundant colons and dashes
-            .replace(/[:\-]+/g, ' ')
+            // Radio & Latin names to phonetic Ukrainian
+            .replace(/\bhit\s*fm\b/gi, 'Хіт ФМ')
+            .replace(/\bkiss\s*fm\b/gi, 'Кіс ФМ')
+            .replace(/\blounge\s*fm\b/gi, 'Лаундж ФМ')
+            .replace(/\bradio\s*roks\b/gi, 'Радіо Рокс')
+            .replace(/\bradio\s*jazz\b/gi, 'Радіо Джаз')
+            .replace(/\bfm\b/gi, 'ФМ')
+            // Punctuation to conversational intonational pauses
+            .replace(/[:;]+/g, ', ')
+            .replace(/\s+[-—–]\s+/g, ', ')
+            .replace(/[-—–]+/g, ' ')
             .replace(/\s+/g, ' ')
+            .replace(/\s+([.,!?])/g, '$1')
             .trim();
+        if (clean && !/[.!?]$/.test(clean)) {
+            clean += '.';
+        }
         return clean;
     }
 

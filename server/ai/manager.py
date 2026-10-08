@@ -101,6 +101,87 @@ class AIManager:
         print("Model    :", llm.get("model"))
         print("========================")
 
+    def _chat_local_ollama(self, prompt: str, context_info: str = "", session_id: str = "default") -> Optional[str]:
+        """Local offline LLM completion via Ollama with Function Calling and structured Ukrainian prompt."""
+        local_cfg = self.config.get("local_llm", {})
+        if not local_cfg.get("enabled", True):
+            return None
+
+        ollama_base = local_cfg.get("api_base", "http://localhost:11434").rstrip("/")
+        ollama_model = local_cfg.get("model", "qwen2.5-coder:1.5b")
+
+        sys_msg = (
+            "Ти асистент Smart Garage. Твій власник Юрій. Відповідай коротко українською мовою.\n"
+            "Якщо потрібно керувати обладнанням гаража, виведи ТІЛЬКИ JSON за такою схемою:\n"
+            "{\"action\": \"control_device\", \"parameters\": {\"device\": \"door|light|fan\", \"action\": \"open|close|on|off\"}}\n"
+            "{\"action\": \"get_climate_history\", \"parameters\": {\"floor\": \"basement|floor2\", \"hours\": 24}}\n"
+            "{\"action\": \"play_media\", \"parameters\": {\"query\": \"назва пісні/відео\"}}\n"
+            "{\"action\": \"stop_media\", \"parameters\": {}}\n"
+            "{\"action\": \"play_radio\", \"parameters\": {\"station\": \"Hit FM|Radio ROKS|Kiss FM|Lounge FM|Байрактар|Люкс FM\"}}\n"
+            "{\"action\": \"stop_radio\", \"parameters\": {}}\n"
+            "{\"action\": \"run_scenario\", \"parameters\": {\"scenario\": \"arrival|departure|night|cinema|safety\"}}\n"
+            "Приклади:\n"
+            "Користувач: відчини ворота -> {\"action\": \"control_device\", \"parameters\": {\"device\": \"door\", \"action\": \"open\"}}\n"
+            "Користувач: зачини ворота -> {\"action\": \"control_device\", \"parameters\": {\"device\": \"door\", \"action\": \"close\"}}\n"
+            "Користувач: увімкни світло -> {\"action\": \"control_device\", \"parameters\": {\"device\": \"light\", \"action\": \"on\"}}\n"
+            "Користувач: вимкни світло -> {\"action\": \"control_device\", \"parameters\": {\"device\": \"light\", \"action\": \"off\"}}\n"
+            "Користувач: увімкни витяжку -> {\"action\": \"control_device\", \"parameters\": {\"device\": \"fan\", \"action\": \"on\"}}\n"
+            "Користувач: вимкни вентиляцію -> {\"action\": \"control_device\", \"parameters\": {\"device\": \"fan\", \"action\": \"off\"}}\n"
+            "Користувач: включи радіо хіт фм -> {\"action\": \"play_radio\", \"parameters\": {\"station\": \"Hit FM\"}}\n"
+            "Користувач: вкючи радіо хіт фм -> {\"action\": \"play_radio\", \"parameters\": {\"station\": \"Hit FM\"}}\n"
+            "Користувач: вимкни радіо -> {\"action\": \"stop_radio\", \"parameters\": {}}\n"
+            "Користувач: яка вологість у підвалі -> {\"action\": \"get_climate_history\", \"parameters\": {\"floor\": \"basement\", \"hours\": 24}}\n"
+            "Користувач: привіт -> Привіт, Юрію! Чим можу допомогти?\n"
+        )
+        if context_info:
+            sys_msg += f"\nПОТОЧНИЙ СТАН СИСТЕМИ:\n{context_info}\n"
+
+        payload = {
+            "model": ollama_model,
+            "system": sys_msg,
+            "prompt": f"Юрій: {prompt}",
+            "stream": False,
+            "options": {
+                "temperature": 0.1,
+                "num_ctx": 2048
+            }
+        }
+
+        try:
+            resp = requests.post(f"{ollama_base}/api/generate", json=payload, timeout=6)
+            if resp.status_code == 200:
+                raw_answer = resp.json().get("response", "").strip()
+                clean_json = raw_answer
+                if "```json" in clean_json:
+                    clean_json = clean_json.split("```json")[1].split("```")[0].strip()
+                elif "```" in clean_json:
+                    clean_json = clean_json.split("```")[1].split("```")[0].strip()
+
+                if "{" in clean_json and "}" in clean_json:
+                    start_idx = clean_json.find("{")
+                    end_idx = clean_json.rfind("}") + 1
+                    json_str = clean_json[start_idx:end_idx]
+                    try:
+                        tool_call = json.loads(json_str)
+                        action_name = tool_call.get("action") or tool_call.get("name")
+                        params = tool_call.get("parameters") or tool_call.get("arguments") or {}
+                        if action_name and self.tool_dispatcher:
+                            exec_res = self.tool_dispatcher.execute(action_name, params, session_id=session_id)
+                            msg = exec_res.get("message") or exec_res.get("error") or "Команду виконано."
+                            self.conversation_buffer.add_user_message(session_id, prompt)
+                            self.conversation_buffer.add_assistant_message(session_id, msg)
+                            return f"[Локальний ШІ] {msg}"
+                    except Exception as ej:
+                        logger.debug(f"JSON parsing failed for local ollama output: {ej}")
+
+                if raw_answer:
+                    self.conversation_buffer.add_user_message(session_id, prompt)
+                    self.conversation_buffer.add_assistant_message(session_id, raw_answer)
+                    return f"[Локальний ШІ] {raw_answer}"
+        except Exception as eo:
+            logger.debug(f"Local Ollama generation failed: {eo}")
+        return None
+
     def chat(self, prompt, context_info: str = "", session_id: str = "default"):
         """Fast direct chat completion via OpenRouter API (< 1s) with Function Calling & conversation buffer."""
         # Check if user wants to reset dialogue context
@@ -115,6 +196,9 @@ class AIManager:
         clean_model = self.llm.get("model", "google/gemini-2.5-flash").replace("openrouter/", "")
 
         if not api_key:
+            local_res = self._chat_local_ollama(prompt, context_info, session_id)
+            if local_res:
+                return local_res
             if context_info and any(w in clean_p for w in ("стан", "гараж", "світло", "ворот", "клімат", "температур", "датчик", "присутн", "хто", "де", "музик", "проектор")):
                 return f"📋 Поточний стан системи:\n{context_info}\n\n💡 Підказка: для вільного діалогу з AI підключіть OPENROUTER_API_KEY у файлі .env або config/config.yaml."
             return (
@@ -214,7 +298,11 @@ class AIManager:
                             self.conversation_buffer.add_assistant_message(session_id, content)
                             return content
             except Exception as e:
-                logger.warning(f"Fast OpenRouter direct completion failed: {e}. Falling back to OpenInterpreter.")
+                logger.warning(f"Fast OpenRouter direct completion failed: {e}. Falling back to local Ollama.")
+                local_res = self._chat_local_ollama(prompt, context_info, session_id)
+                if local_res:
+                    return local_res
+                logger.warning("Local Ollama fallback unavailable. Falling back to OpenInterpreter.")
 
         # 2. Fallback to OpenInterpreter
         try:

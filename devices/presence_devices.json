@@ -11,7 +11,7 @@
             "B8:7E:39:88:22:9B"
         ],
         "status": "present",
-        "last_seen": 1791387263.4622061,
+        "last_seen": 1791477146.0267587,
         "last_rssi": -50,
         "proximity": "immediate",
         "auto_welcome": true
@@ -26,7 +26,7 @@
         "ble_services": [],
         "recent_ble_rpa": [],
         "status": "present",
-        "last_seen": 1791387263.462726,
+        "last_seen": 1791477146.0275228,
         "last_rssi": null,
         "proximity": "near",
         "auto_welcome": false

@@ -58,6 +58,10 @@ if command -v ollama >/dev/null 2>&1; then
     if ollama list | awk '{print $1}' | grep -q "^${MODEL_NAME}$"; then
         MODEL_EXISTS=true
     fi
+elif docker ps --format '{{.Names}}' | grep -q "^ollama$"; then
+    if docker exec ollama ollama list | awk '{print $1}' | grep -q "^${MODEL_NAME}$"; then
+        MODEL_EXISTS=true
+    fi
 else
     # Fallback checking via REST API
     TAGS_JSON=$(curl -s "${OLLAMA_HOST}/api/tags" || echo "{}")
@@ -74,6 +78,9 @@ else
     echo "==> Завантаження базової моделі ${MODEL_NAME} (це може зайняти деякий час)..."
     if command -v ollama >/dev/null 2>&1; then
         ollama pull "${MODEL_NAME}"
+    elif docker ps --format '{{.Names}}' | grep -q "^ollama$"; then
+        echo "--> Завантаження через docker exec ollama..."
+        docker exec ollama ollama pull "${MODEL_NAME}"
     else
         echo "--> Завантаження через REST API..."
         curl -X POST "${OLLAMA_HOST}/api/pull" -d "{\"name\": \"${MODEL_NAME}\", \"stream\": false}"
@@ -88,7 +95,7 @@ if [ ! -f "${MODELFILE_PATH}" ]; then
 fi
 
 echo "==> Застосування кастомних параметрів з Modelfile..."
-echo "    - num_ctx: 8192"
+echo "    - num_ctx: 4096"
 echo "    - temperature: 0.1"
 echo "    - top_p: 0.9"
 echo "    - repeat_penalty: 1.1"
@@ -113,6 +120,8 @@ fi
 echo "==> Перевірка конфігурації моделі ${MODEL_NAME}:"
 if command -v ollama >/dev/null 2>&1; then
     ollama show "${MODEL_NAME}" --parameters || true
+elif docker ps --format '{{.Names}}' | grep -q "^ollama$"; then
+    docker exec ollama ollama show "${MODEL_NAME}" --parameters || true
 else
     curl -s "${OLLAMA_HOST}/api/show" -d "{\"name\": \"${MODEL_NAME}\"}" | jq '.parameters // .' 2>/dev/null || true
 fi

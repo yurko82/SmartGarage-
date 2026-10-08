@@ -190,16 +190,36 @@ class TestCommandProcessor(unittest.TestCase):
         self.assertTrue(handled)
         self.assertIn("Kiss FM", resp)
 
+        handled, resp = self.processor.execute("вкючи радіо хіт фм")
+        self.assertTrue(handled)
+        self.assertIn("Hit FM", resp)
+
         handled, resp = self.processor.execute("зупини радіо на jbl")
         self.assertTrue(handled)
         mock_speaker.stop.assert_called()
 
         mock_speaker.connect.return_value = True
-        mock_speaker.name = "JX-BT (1-й поверх)"
         handled, resp = self.processor.execute("на оид грає норм, спробуй включити на xt-bt")
         self.assertTrue(handled)
         mock_speaker.set_active_speaker.assert_called_with("41:42:62:69:51:9B", "JX-BT (1-й поверх)")
         self.assertIn("JX-BT", resp)
+
+        # Commands without explicit word 'радіо'
+        handled, resp = self.processor.execute("включи кіс фм")
+        self.assertTrue(handled)
+        self.assertIn("Kiss FM", resp)
+
+        handled, resp = self.processor.execute("увімкни кіс фм")
+        self.assertTrue(handled)
+        self.assertIn("Kiss FM", resp)
+
+        handled, resp = self.processor.execute("включи хіт фм")
+        self.assertTrue(handled)
+        self.assertIn("Hit FM", resp)
+
+        handled, resp = self.processor.execute("kiss fm")
+        self.assertTrue(handled)
+        self.assertIn("Kiss FM", resp)
 
 
 
@@ -856,6 +876,7 @@ class TestPresenceGreetingDebounce(unittest.TestCase):
         garage = SmartGarage(start_workers=False)
         garage.telegram.notify_admin = MagicMock()
         garage.ai.chat = MagicMock(return_value="Привіт, Юрію!")
+        garage.telegram.notify_admin.reset_mock()
 
         cb = garage.presence.event_callback
         self.assertIsNotNone(cb)

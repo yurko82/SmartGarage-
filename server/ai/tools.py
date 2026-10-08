@@ -143,6 +143,39 @@ GARAGE_TOOLS = [
                 "required": ["floor"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "play_radio",
+            "description": "Увімкнення онлайн інтернет-радіостанції на Bluetooth-колонці (Hit FM, Radio ROKS, Kiss FM, Lounge FM, Радіо Байрактар, Люкс FM тощо).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "station": {
+                        "type": "string",
+                        "description": "Назва радіостанції або жанр (наприклад: 'Hit FM', 'Radio ROKS', 'Kiss FM', 'Радіо Байрактар', 'Люкс FM', 'Relax'). За замовчуванням 'Hit FM'."
+                    },
+                    "speaker": {
+                        "type": "string",
+                        "enum": ["jbl", "jx-bt"],
+                        "description": "Цільова колонка: 'jbl' (JBL Clip 5 у гаражі) або 'jx-bt' (JX-BT на 1-му поверсі)."
+                    }
+                },
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "stop_radio",
+            "description": "Зупинка відтворення радіостанції або музичного потоку на Bluetooth-колонці.",
+            "parameters": {
+                "type": "object",
+                "properties": {}
+            }
+        }
     }
 ]
 
@@ -253,6 +286,17 @@ class ToolDispatcher:
                     }
                 return {"success": False, "error": "Telegram чат недоступний для надсилання графіка"}
 
+            elif tool_name == "play_radio":
+                station = arguments.get("station") or "Hit FM"
+                spk = str(arguments.get("speaker") or "").lower()
+                return self._play_radio(station, spk)
+
+            elif tool_name == "stop_radio":
+                if hasattr(self.garage, "speaker") and self.garage.speaker:
+                    self.garage.speaker.stop()
+                    return {"success": True, "message": "Радіо зупинено"}
+                return {"success": False, "error": "Контролер колонки недоступний"}
+
             else:
                 return {"success": False, "error": f"Невідомий інструмент: {tool_name}"}
 
@@ -322,3 +366,27 @@ class ToolDispatcher:
             return {"success": True, "message": msg}
 
         return {"success": False, "error": f"Невідомий сценарій '{scenario}'"}
+
+    def _play_radio(self, station: str, speaker_target: str = "") -> Dict[str, Any]:
+        if not hasattr(self.garage, "speaker") or not self.garage.speaker:
+            return {"success": False, "error": "Контролер колонки недоступний"}
+
+        from server.services.radio_service import radio_service
+        if speaker_target in ("jx-bt", "jxbt", "floor1", "1 поверх"):
+            self.garage.speaker.set_active_speaker("41:42:62:69:51:9B", "JX-BT (1-й поверх)")
+        elif speaker_target in ("jbl", "garage", "гараж"):
+            self.garage.speaker.set_active_speaker("F8:5C:7E:EE:7D:CC", "Юрій: JBL Clip 5")
+
+        stations = radio_service.search_stations(station, limit=3)
+        if not stations:
+            stations = radio_service.get_top_stations(limit=5)
+
+        if stations:
+            st = stations[0]
+            ok = self.garage.speaker.play_stream(st["url"], track_title=st["name"])
+            spk_name = self.garage.speaker.name or "колонці"
+            if ok:
+                return {"success": True, "message": f"📻 Транслюю радіо '{st['name']}' на {spk_name}."}
+            else:
+                return {"success": False, "error": f"Не вдалося запустити радіо '{st['name']}' на {spk_name} (перевірте підключення)"}
+        return {"success": False, "error": f"Радіостанцію '{station}' не знайдено"}

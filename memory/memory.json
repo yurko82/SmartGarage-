@@ -66,11 +66,11 @@
       "status": "active"
     },
     "planned_hardware_to_connect_later": [
-      "Ultrasonic distance sensor HC-SR04 (car presence)",
-      "MQ Gas/Smoke sensor",
-      "PIR motion sensor",
-      "Door reed switch",
-      "Relays for garage door, lighting, and exhaust fan"
+      "Visitor presence tracking database with BLE gadgets/beacons binding"
+    ],
+    "strictly_excluded_hardware": [
+      "Door reed switch / open sensor (немає і не передбачається - ворота мають лише реле імпульсу)",
+      "MQ Gas/Smoke analyzer (немає і не передбачається)"
     ]
   }
 }

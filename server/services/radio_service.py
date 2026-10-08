@@ -85,20 +85,61 @@ API_MIRRORS = [
 
 
 CYRILLIC_ALIASES = {
-    "рокс": "ROKS",
+    "рокс": "Radio ROKS",
+    "радіо рокс": "Radio ROKS",
+    "радіорокс": "Radio ROKS",
+    "roks": "Radio ROKS",
+    "radio roks": "Radio ROKS",
     "хіт": "Hit FM",
     "хіт фм": "Hit FM",
+    "хітfm": "Hit FM",
+    "hit fm": "Hit FM",
+    "hitfm": "Hit FM",
+    "hit": "Hit FM",
     "кісс": "Kiss FM",
+    "кіс": "Kiss FM",
+    "кісс фм": "Kiss FM",
     "кіс фм": "Kiss FM",
+    "кісfm": "Kiss FM",
+    "kiss fm": "Kiss FM",
+    "kissfm": "Kiss FM",
+    "kiss": "Kiss FM",
     "люкс": "Люкс FM",
     "люкс фм": "Люкс FM",
-    "релакс": "Relax",
-    "джаз": "Jazz",
-    "байрактар": "Байрактар",
+    "люксfm": "Люкс FM",
+    "lux fm": "Люкс FM",
+    "luxfm": "Люкс FM",
+    "релакс": "Радіо Relax",
+    "радіо релакс": "Радіо Relax",
+    "relax": "Радіо Relax",
+    "radio relax": "Радіо Relax",
+    "джаз": "Radio Jazz",
+    "радіо джаз": "Radio Jazz",
+    "jazz": "Radio Jazz",
+    "radio jazz": "Radio Jazz",
+    "байрактар": "Радіо Байрактар",
+    "радіо байрактар": "Радіо Байрактар",
+    "bayraktar": "Радіо Байрактар",
+    "лаундж": "Lounge FM",
+    "лаунж": "Lounge FM",
+    "лаундж фм": "Lounge FM",
+    "лаунж фм": "Lounge FM",
+    "lounge fm": "Lounge FM",
+    "loungefm": "Lounge FM",
+    "lounge": "Lounge FM",
     "наше": "Наше Радіо",
-    "нв": "Радио НВ",
+    "наше радіо": "Наше Радіо",
+    "нв": "Радіо НВ",
+    "радіо нв": "Радіо НВ",
     "промінь": "Промінь",
+    "радіо промінь": "Промінь",
     "культура": "Культура",
+    "радіо культура": "Культура",
+    "армія": "Армія FM",
+    "армія фм": "Армія FM",
+    "army fm": "Армія FM",
+    "мейдан": "Радіо Мейдан",
+    "радіо мейдан": "Радіо Мейдан",
 }
 
 
@@ -167,13 +208,17 @@ class RadioService:
             return self.get_top_stations(limit=limit)
 
         q_clean = raw_q.lower().replace("радіо", "").replace("radio", "").strip() or raw_q.lower()
-        search_term = CYRILLIC_ALIASES.get(q_clean, raw_q)
+        search_term = CYRILLIC_ALIASES.get(q_clean) or CYRILLIC_ALIASES.get(raw_q.lower(), raw_q)
 
         # First, check direct match in default top Ukrainian stations
         exact_defaults = []
         term_lower = search_term.lower()
         for st in DEFAULT_UKRAINIAN_STATIONS:
-            if term_lower in st["name"].lower() or term_lower in st["tags"].lower():
+            if (
+                term_lower in st["name"].lower()
+                or st["name"].lower() in term_lower
+                or term_lower in st["tags"].lower()
+            ):
                 exact_defaults.append(st)
 
         params = {"order": "clickcount", "reverse": "true", "limit": limit * 2}
