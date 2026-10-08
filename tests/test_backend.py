@@ -5,6 +5,7 @@ import tempfile
 import time
 from pathlib import Path
 import json
+from unittest.mock import MagicMock
 
 from server.memory.memory import Memory
 from server.commands.processor import CommandProcessor
@@ -241,6 +242,46 @@ class TestCommandProcessor(unittest.TestCase):
         self.assertTrue(handled)
         self.assertIn("Kiss FM", resp)
 
+    def test_audio_inquiries_not_intercepted_as_playback(self):
+        # Inquiries like "чому не грає..." must NOT be intercepted as streaming commands
+        for q in (
+            "чому не грає радіо",
+            "чому не грає хіт фм",
+            "чому не грає хід фм",
+            "чому мовчить колонка",
+            "чому вимкнено радіо",
+            "чому не чути музику",
+            "радіо чому не грає хід фм",
+        ):
+            handled, resp = self.processor.execute(q)
+            self.assertFalse(handled, f"Query '{q}' should NOT be handled as a command, but routed to AI")
+
+    def test_audio_status_inquiries(self):
+        mock_speaker = MagicMock()
+        mock_speaker.get_status.return_value = {
+            "name": "Музика 1-й поверх",
+            "volume": 40,
+            "playing": True,
+            "paused": False,
+            "current_track": "📻 Хіт FM"
+        }
+        self.processor.speaker = mock_speaker
+        handled, resp = self.processor.execute("що зараз грає")
+        self.assertTrue(handled)
+        self.assertIn("Хіт FM", resp)
+        self.assertIn("40%", resp)
+
+        mock_speaker.get_status.return_value = {
+            "name": "Музика 1-й поверх",
+            "volume": 0,
+            "playing": False,
+            "paused": False,
+            "current_track": None
+        }
+        handled, resp = self.processor.execute("чи грає радіо")
+        self.assertTrue(handled)
+        self.assertIn("не грає", resp)
+
 
 
 class TestProjectorController(unittest.TestCase):
@@ -318,6 +359,14 @@ class TestCommandRouter(unittest.TestCase):
         # Wake phrase prefix before AI query strips prefix
         res = self.router.execute("Альо гараж, розкажи казку")
         self.assertEqual(self.ai.called_with, "розкажи казку")
+
+    def test_audio_inquiry_routes_to_ai(self):
+        # Audio inquiries must be passed to AI rather than returning station not found
+        res = self.router.execute("чому не грає радіо")
+        self.assertEqual(self.ai.called_with, "чому не грає радіо")
+
+        res2 = self.router.execute("чому не грає хід фм")
+        self.assertEqual(self.ai.called_with, "чому не грає хід фм")
 
 
 class TestWebApp(unittest.TestCase):

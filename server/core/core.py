@@ -240,7 +240,34 @@ class SmartGarage:
             proj_online = self.projector.is_reachable()
             lines.append(f"- Проектор HY350MAX (192.168.100.191): {'онлайн' if proj_online else 'очікування/вимкнено'}")
         if hasattr(self, "speaker") and self.speaker:
-            lines.append(f"- BT-колонка JBL Clip 5: {'підключено' if self.speaker.is_connected() else 'не підключено'}")
+            try:
+                st = self.speaker.get_status()
+                active_name = st.get("name", "Bluetooth-колонка")
+                is_conn = st.get("connected", False)
+                is_play = st.get("playing", False)
+                is_paused = st.get("paused", False)
+                vol = st.get("volume", 0)
+                track = st.get("current_track") or "радіо/аудіо"
+
+                spk_parts = []
+                for s in st.get("speakers", []):
+                    s_name = s.get("name")
+                    s_state = "підключено" if s.get("connected") else "відключено/офлайн"
+                    if s.get("active"):
+                        s_state += ", АКТИВНА"
+                    spk_parts.append(f"{s_name} ({s_state})")
+                spk_summary = "; ".join(spk_parts) if spk_parts else f"{active_name} ({'підключено' if is_conn else 'офлайн'})"
+
+                if is_play:
+                    play_desc = f"Транслюється: '{track}' на активну колонку '{active_name}' (гучність {vol}%)"
+                elif is_paused:
+                    play_desc = f"На паузі: '{track}' на колонці '{active_name}' (гучність {vol}%)"
+                else:
+                    play_desc = "Зупинено / нічого не транслюється"
+
+                lines.append(f"- Мультимедіа/Аудіо: {play_desc} | Колонки: {spk_summary}")
+            except Exception as e:
+                lines.append(f"- Мультимедіа/Аудіо: помилка отримання статусу ({e})")
 
         return "\n".join(lines)
 

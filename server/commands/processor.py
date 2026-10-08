@@ -263,6 +263,39 @@ class CommandProcessor:
                 return True, f"🔊 Гучність колонки JBL встановлено на {val_str}%"
 
         # -----------------------
+        # AUDIO / RADIO STATUS INQUIRY
+        # -----------------------
+        if any(cmd == q or cmd.startswith(q) for q in (
+            "що зараз грає", "що грає", "яка станція грає", "яка радіостанція грає",
+            "яка станція зараз грає", "яка музика грає", "що це за музика", "що за радіо",
+            "чи грає радіо", "чи грає зараз радіо", "чи працює радіо",
+            "стан радіо", "статус радіо", "стан аудіо", "статус аудіо"
+        )):
+            st = self.speaker.get_status()
+            vol = st.get("volume", 0)
+            spk_loc = self._format_speaker_location(locative=True)
+            if st.get("playing"):
+                track = st.get("current_track") or "радіостанція"
+                return True, f"📻 Зараз грає {track} {spk_loc} (гучність {vol}%)."
+            elif st.get("paused"):
+                track = st.get("current_track") or "радіостанція"
+                return True, f"⏸️ Радіо на паузі: {track} {spk_loc} (гучність {vol}%)."
+            else:
+                return True, f"Радіо наразі не грає (вимкнено). Доступні станції: Хіт FM, Kiss FM, Radio ROKS, Lounge FM."
+
+        # Interrogative or troubleshooting query detection (should not be treated as playback commands)
+        is_inquiry_or_question = (
+            cmd.endswith("?")
+            or any(cmd.startswith(w) for w in (
+                "чому ", "чому не ", "навіщо ", "як ", "чи ", "що ", "яка ", "який ", "яке ", "які ", "де ", "хто ", "коли "
+            ))
+            or any(w in cmd for w in (
+                "чому не", "чому мовчить", "чому вимк", "не грає", "не чути", "не працює",
+                "що грає", "що зараз грає", "яка станція", "яка музика", "яка пісня", "чи грає", "чи увімкнен", "чому зупинил"
+            ))
+        )
+
+        # -----------------------
         # INTERNET RADIO STREAMING
         # -----------------------
         radio_verbs = (
@@ -287,7 +320,7 @@ class CommandProcessor:
             "радіо промінь", "промінь", "радіо культура", "культура",
             "армія фм", "арміяfm", "радіо мейдан"
         )
-        is_radio_cmd = not is_video_explicit and (
+        is_radio_cmd = not is_inquiry_or_question and not is_video_explicit and (
             any(cmd.startswith(prefix) for prefix in (
                 "увімкни радіо", "увімкнути радіо",
                 "включи радіо", "включити радіо",
@@ -429,46 +462,47 @@ class CommandProcessor:
         matched_media = False
         media_query = None
 
-        for prefix in prefixes_to_check:
-            if cmd.startswith(prefix):
-                candidate_query = command[len(prefix):].strip()
-                # If prefix was just a general verb, ensure it's not a device or sensor command
-                if prefix.strip() in media_verbs:
-                    words = [w.strip(" \"'.,:;-") for w in candidate_query.lower().split()]
-                    first_w = words[0] if words else ""
-                    if (
-                        any(rw in words for rw in ("радіо", "radio", "радио", "фм", "fm"))
-                        or any(st in candidate_query.lower() for st in (
-                            "кіс", "kiss", "хіт", "hit", "рокс", "roks", "байрактар",
-                            "люкс", "lux", "релакс", "relax", "lounge", "лаундж", "джаз", "jazz", "промінь"
-                        ))
-                        or candidate_query.lower().strip(" \"'.,:;-") in (
-                            "на колонку", "на колонки", "на колонці", "на колонках",
-                            "колонку", "колонки", "jbl", "на jbl", "колонку jbl", "колонки jbl",
-                            "jx-bt", "jxbt", "на jx-bt", "на jxbt", "1 поверх", "перший поверх"
-                        )
-                        or first_w in (
-                            "світло", "ворота", "вентиляція", "витяжка", "вентиляцію", "витяжку",
-                            "проектор", "екран", "light", "door", "fan", "датчик", "датчики",
-                            "клімат", "температур", "температура", "стан", "всі", "все", "статус",
-                            "поверх", "поверхи", "підвал", "цоколь"
-                        )
-                    ):
-                        break
-                matched_media = True
-                media_query = candidate_query
-                break
-
-        # 3. Keyword matching if not matched by prefix
-        if not matched_media:
-            for kw in ("кліп", "пісню", "пісня", "трек", "музику", "відео"):
-                if f" {kw} " in f" {cmd} ":
-                    import re
-                    parts = re.split(rf"\b{kw}\b", command, flags=re.IGNORECASE)
-                    candidate = parts[-1].strip() if len(parts) > 1 and parts[-1].strip() else command
+        if not is_inquiry_or_question:
+            for prefix in prefixes_to_check:
+                if cmd.startswith(prefix):
+                    candidate_query = command[len(prefix):].strip()
+                    # If prefix was just a general verb, ensure it's not a device or sensor command
+                    if prefix.strip() in media_verbs:
+                        words = [w.strip(" \"'.,:;-") for w in candidate_query.lower().split()]
+                        first_w = words[0] if words else ""
+                        if (
+                            any(rw in words for rw in ("радіо", "radio", "радио", "фм", "fm"))
+                            or any(st in candidate_query.lower() for st in (
+                                "кіс", "kiss", "хіт", "hit", "рокс", "roks", "байрактар",
+                                "люкс", "lux", "релакс", "relax", "lounge", "лаундж", "джаз", "jazz", "промінь"
+                            ))
+                            or candidate_query.lower().strip(" \"'.,:;-") in (
+                                "на колонку", "на колонки", "на колонці", "на колонках",
+                                "колонку", "колонки", "jbl", "на jbl", "колонку jbl", "колонки jbl",
+                                "jx-bt", "jxbt", "на jx-bt", "на jxbt", "1 поверх", "перший поверх"
+                            )
+                            or first_w in (
+                                "світло", "ворота", "вентиляція", "витяжка", "вентиляцію", "витяжку",
+                                "проектор", "екран", "light", "door", "fan", "датчик", "датчики",
+                                "клімат", "температур", "температура", "стан", "всі", "все", "статус",
+                                "поверх", "поверхи", "підвал", "цоколь"
+                            )
+                        ):
+                            break
                     matched_media = True
-                    media_query = candidate
+                    media_query = candidate_query
                     break
+
+            # 3. Keyword matching if not matched by prefix
+            if not matched_media:
+                for kw in ("кліп", "пісню", "пісня", "трек", "музику", "відео"):
+                    if f" {kw} " in f" {cmd} ":
+                        import re
+                        parts = re.split(rf"\b{kw}\b", command, flags=re.IGNORECASE)
+                        candidate = parts[-1].strip() if len(parts) > 1 and parts[-1].strip() else command
+                        matched_media = True
+                        media_query = candidate
+                        break
 
         if matched_media and media_query:
             query = media_query
