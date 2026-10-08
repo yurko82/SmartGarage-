@@ -9,8 +9,8 @@
     <title>Smart Garage — Панель 1-го поверху</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🏠</text></svg>">
     <link rel="manifest" href="/manifest.json">
-    <link rel="stylesheet" href="/static/css/theme.css?v=0.5.0">
-    <link rel="stylesheet" href="/static/css/dashboard.css?v=0.5.0">
+    <link rel="stylesheet" href="/static/css/theme.css?v=0.5.1">
+    <link rel="stylesheet" href="/static/css/dashboard.css?v=0.5.1">
 </head>
 <body>
     <div class="dashboard-container">
@@ -227,15 +227,21 @@
                     <div class="card-title">
                         <span>🎙️</span> Голосовий помічник AI
                     </div>
-                    <span class="card-badge">OpenRouter / GPT</span>
+                    <div style="display: flex; gap: 8px; align-items: center;">
+                        <button class="btn-wake-toggle" id="btnWakeContinuous" title="Режим авто-слухання фрази «Альо, гараж»" aria-label="Авто-слухання «Альо, гараж»">
+                            <span class="wake-dot"></span>
+                            <span class="wake-label" id="wakeContinuousLabel">«Альо, гараж»: Вимкнено</span>
+                        </button>
+                        <span class="card-badge">OpenRouter / GPT</span>
+                    </div>
                 </div>
 
                 <div class="voice-interactive-box">
-                    <button class="mic-hero-btn" id="btnMicHero" title="Натисніть і говоріть команду" aria-label="Голосовий помічник: натисніть і говоріть команду">
+                    <button class="mic-hero-btn" id="btnMicHero" title="Натисніть і говоріть або скажіть «Альо, гараж»" aria-label="Голосовий помічник: натисніть і говоріть команду">
                         <span>🎤</span>
                     </button>
                     <div class="voice-status-text" id="voiceStatusText">
-                        Натисніть мікрофон та скажіть команду (наприклад, "увімкни світло", "яка температура")
+                        Натисніть мікрофон або скажіть «Альо, гараж»
                     </div>
 
                     <div class="voice-dialog-box" id="voiceDialogBox" style="display: none; max-width: 650px;">
@@ -522,6 +528,6 @@
     </div>
 
     <script src="/static/js/chart.min.js"></script>
-    <script src="/static/js/dashboard.js?v=0.5.0"></script>
+    <script src="/static/js/dashboard.js?v=0.5.1"></script>
 </body>
 </html>

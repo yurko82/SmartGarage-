@@ -79,6 +79,39 @@ class CommandProcessor:
         if has_ru_chars or has_ru_words or has_ru_media_request:
             return True, "🚫 Російська мова та контент під суворим табу в цій системі. Будь ласка, звертайтесь виключно українською мовою."
 
+        # -----------------------
+        # WAKE PHRASE / ACTIVATION ("Альо, гараж" -> "Що тобі потрібно?")
+        # -----------------------
+        raw_clean = re.sub(r'^[!?.,;:~ \t]+|[!?.,;:~ \t]+$', '', command.strip().lower())
+        raw_clean = re.sub(r'\s+', ' ', raw_clean)
+
+        WAKE_CALL_EXACT = {
+            "альо гараж", "ало гараж", "алло гараж",
+            "альо, гараж", "ало, гараж", "алло, гараж",
+            "альо гаражу", "ало гаражу", "алло гаражу",
+            "альо", "ало", "алло",
+            "гараж", "гараж прийом", "гараж, прийом",
+            "гараж ти тут", "гараж, ти тут", "гараж слухай", "гараж, слухай"
+        }
+
+        if raw_clean in WAKE_CALL_EXACT or re.fullmatch(r'(?:альо|ало|алло)\s*[, -]?\s*гараж(?:у)?', raw_clean):
+            return True, "Що тобі потрібно?"
+
+        # Strip wake prefix if combined with command: e.g. "Альо гараж, відчини ворота" or "Ало гараж увімкни світло"
+        wake_prefix_match = re.match(
+            r'^(?:(?:альо|ало|алло)\s*[, -]?\s*гараж(?:у)?|гараж)\s*[,:;!?-]*\s+',
+            command,
+            flags=re.IGNORECASE
+        )
+        if wake_prefix_match:
+            sub_candidate = command[wake_prefix_match.end():].strip()
+            if not sub_candidate:
+                return True, "Що тобі потрібно?"
+            sub_handled, sub_resp = self.execute(sub_candidate)
+            if sub_handled:
+                return True, sub_resp
+            return False, None
+
         # Check sub-clauses if command contains comma or semicolon (e.g. conversational preamble + command)
         if "," in command or ";" in command:
             import re

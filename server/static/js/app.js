@@ -886,10 +886,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
     let currentTtsAudioApp = null;
 
-    function speakText(text) {
-        if (!ttsEnabled) return;
+    function speakText(text, onEnded) {
+        if (!ttsEnabled) {
+            if (typeof onEnded === 'function') onEnded();
+            return;
+        }
         const clean = cleanSpeechText(text);
-        if (!clean) return;
+        if (!clean) {
+            if (typeof onEnded === 'function') onEnded();
+            return;
+        }
 
         if ('speechSynthesis' in window) {
             try { window.speechSynthesis.cancel(); } catch (_) {}
@@ -903,9 +909,19 @@ document.addEventListener('DOMContentLoaded', () => {
             currentTtsAudioApp = null;
         }
 
+        let endedCalled = false;
+        const fireEnded = () => {
+            if (endedCalled) return;
+            endedCalled = true;
+            currentTtsAudioApp = null;
+            if (typeof onEnded === 'function') onEnded();
+        };
+
         try {
             const audioUrl = '/api/voice/tts?text=' + encodeURIComponent(clean);
             currentTtsAudioApp = new Audio(audioUrl);
+            currentTtsAudioApp.onended = fireEnded;
+            currentTtsAudioApp.onerror = fireEnded;
             currentTtsAudioApp.play().catch(err => {
                 console.warn('Browser audio autoplay blocked, broadcasting to garage speaker:', err);
                 fetch('/api/voice/speak', {
@@ -913,6 +929,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ text: clean })
                 }).catch(e => console.warn('Server TTS failed:', e));
+                setTimeout(fireEnded, Math.min(Math.max(clean.length * 80, 1800), 5000));
             });
         } catch (e) {
             console.warn('Audio init error, broadcasting to garage speaker:', e);
@@ -921,6 +938,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ text: clean })
             }).catch(e => console.warn('Server TTS failed:', e));
+            setTimeout(fireEnded, Math.min(Math.max(clean.length * 80, 1800), 5000));
         }
     }
 
@@ -1082,7 +1100,19 @@ document.addEventListener('DOMContentLoaded', () => {
             if (data.success) {
                 const aiResp = data.response || 'Команду виконано.';
                 appendEntry('ai', aiResp);
-                speakText(aiResp);
+                const isFollowUpPrompt = aiResp.includes('потрібно') || aiResp.includes('Слухаю');
+                speakText(aiResp, () => {
+                    if (isFollowUpPrompt && recognition) {
+                        setTimeout(() => {
+                            try {
+                                if (!isListening) {
+                                    if (voiceHint) voiceHint.textContent = '🎙️ Слухаю команду... Назвіть дію';
+                                    recognition.start();
+                                }
+                            } catch (_) {}
+                        }, 250);
+                    }
+                });
                 updateTelemetry();
             } else {
                 appendEntry('system', `Помилка: ${data.response || 'Невідома помилка'}`);

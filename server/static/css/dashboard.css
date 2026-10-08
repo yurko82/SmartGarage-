@@ -623,10 +623,61 @@ body {
     animation: pulseMic 1.2s infinite;
 }
 
-@keyframes pulseMic {
-    0% { transform: scale(1); box-shadow: 0 0 20px rgba(239, 68, 68, 0.5); }
-    50% { transform: scale(1.08); box-shadow: 0 0 45px rgba(239, 68, 68, 0.9); }
-    100% { transform: scale(1); box-shadow: 0 0 20px rgba(239, 68, 68, 0.5); }
+.mic-hero-btn.speaking {
+    background: linear-gradient(135deg, #10b981, #06b6d4);
+    box-shadow: 0 0 35px rgba(16, 185, 129, 0.7);
+    animation: pulseSpeaking 1.5s infinite;
+}
+
+@keyframes pulseSpeaking {
+    0% { transform: scale(1); box-shadow: 0 0 20px rgba(16, 185, 129, 0.5); }
+    50% { transform: scale(1.05); box-shadow: 0 0 40px rgba(16, 185, 129, 0.8); }
+    100% { transform: scale(1); box-shadow: 0 0 20px rgba(16, 185, 129, 0.5); }
+}
+
+.btn-wake-toggle {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--border-card);
+    color: var(--text-secondary);
+    padding: 6px 12px;
+    border-radius: var(--radius-sm);
+    font-size: 0.82rem;
+    font-weight: 600;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.2s ease;
+}
+
+.btn-wake-toggle:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--text-primary);
+}
+
+.btn-wake-toggle .wake-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #6b7280;
+    transition: all 0.2s ease;
+}
+
+.btn-wake-toggle.active {
+    background: rgba(16, 185, 129, 0.15);
+    border-color: var(--accent-green);
+    color: #34d399;
+}
+
+.btn-wake-toggle.active .wake-dot {
+    background: #10b981;
+    box-shadow: 0 0 8px #10b981;
+    animation: pulseWakeDot 2s infinite ease-in-out;
+}
+
+@keyframes pulseWakeDot {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.4; transform: scale(1.2); }
 }
 
 .voice-status-text {

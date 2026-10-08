@@ -131,6 +131,8 @@ class AIManager:
             "Користувач: вкючи радіо хіт фм -> {\"action\": \"play_radio\", \"parameters\": {\"station\": \"Hit FM\"}}\n"
             "Користувач: вимкни радіо -> {\"action\": \"stop_radio\", \"parameters\": {}}\n"
             "Користувач: яка вологість у підвалі -> {\"action\": \"get_climate_history\", \"parameters\": {\"floor\": \"basement\", \"hours\": 24}}\n"
+            "Користувач: альо гараж -> Що тобі потрібно?\n"
+            "Користувач: ало гараж -> Що тобі потрібно?\n"
             "Користувач: привіт -> Привіт, Юрію! Чим можу допомогти?\n"
         )
         if context_info:

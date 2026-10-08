@@ -241,6 +241,14 @@ def generate_all_samples() -> List[Dict[str, Any]]:
 
     # 8. Conversational & Digital Butler (Concise, polite Ukrainian)
     greetings = [
+        ("альо гараж", "Що тобі потрібно?"),
+        ("альо, гараж", "Що тобі потрібно?"),
+        ("альо, гараж?", "Що тобі потрібно?"),
+        ("ало гараж", "Що тобі потрібно?"),
+        ("ало, гараж", "Що тобі потрібно?"),
+        ("алло гараж", "Що тобі потрібно?"),
+        ("гараж", "Що тобі потрібно?"),
+        ("гараж, прийом", "Що тобі потрібно?"),
         ("привіт", "Привіт, Юрію! Системи Smart Garage в нормі. Чим допомогти?"),
         ("як справи?", "Усе працює стабільно, зв'язок з обладнанням активний. Чекаю на твої вказівки, Юрку."),
         ("хто ти?", "Я бортовий ШІ-асистент Smart Garage. Допомагаю керувати воротами, світлом, вентиляцією, медіа та моніторю клімат."),
@@ -249,6 +257,21 @@ def generate_all_samples() -> List[Dict[str, Any]]:
         ("що ти вмієш?", "Я керую воротами, освітленням і вентиляцією, моніторю температуру й вологість у підвалі та на 2-му поверсі, транслюю контент на проектор HY350MAX та керую Bluetooth-звуком.")
     ]
     for p, ans in greetings:
+        samples.append(sample_item(p, ans))
+
+    # Pre-pended wake words with actual commands
+    wake_commands = [
+        ("альо гараж, відчини ворота", '{"action": "control_device", "parameters": {"device": "door", "action": "open"}}'),
+        ("альо гараж відчини ворота", '{"action": "control_device", "parameters": {"device": "door", "action": "open"}}'),
+        ("альо гараж, зачини ворота", '{"action": "control_device", "parameters": {"device": "door", "action": "close"}}'),
+        ("ало гараж увімкни світло", '{"action": "control_device", "parameters": {"device": "light", "action": "on"}}'),
+        ("альо гараж, вимкни світло", '{"action": "control_device", "parameters": {"device": "light", "action": "off"}}'),
+        ("ало гараж увімкни вентиляцію", '{"action": "control_device", "parameters": {"device": "fan", "action": "on"}}'),
+        ("альо гараж увімкни радіо хіт фм", '{"action": "play_radio", "parameters": {"station": "Hit FM"}}'),
+        ("альо гараж вимкни радіо", '{"action": "stop_radio", "parameters": {}}'),
+        ("альо гараж, яка вологість у підвалі?", '{"action": "get_climate_history", "parameters": {"floor": "basement", "hours": 24}}'),
+    ]
+    for p, ans in wake_commands:
         samples.append(sample_item(p, ans))
 
     # 9. Strict Russian Taboo (Blocking Russian text and music requests)

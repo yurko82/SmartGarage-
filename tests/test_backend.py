@@ -173,6 +173,26 @@ class TestCommandProcessor(unittest.TestCase):
         self.assertFalse(handled)
         self.assertIsNone(response)
 
+    def test_wake_phrase_commands(self):
+        # Exact wake phrases
+        for phrase in ("альо, гараж", "Альо гараж", "Ало, гараж", "алло гараж", "Альо, гараж?", "Гараж", "гараж, прийом"):
+            handled, resp = self.processor.execute(phrase)
+            self.assertTrue(handled, f"Failed for phrase: {phrase}")
+            self.assertEqual(resp, "Що тобі потрібно?")
+
+        # Wake phrase with actual commands
+        handled, resp = self.processor.execute("Альо гараж, відчини ворота")
+        self.assertTrue(handled)
+        self.assertIn("відкрито", resp)
+
+        handled, resp = self.processor.execute("Альо гараж увімкни світло")
+        self.assertTrue(handled)
+        self.assertIn("Освітлення", resp)
+
+        handled, resp = self.processor.execute("Ало гараж увімкни вентиляцію")
+        self.assertTrue(handled)
+        self.assertIn("Вентиляцію", resp)
+
     def test_radio_commands_routing(self):
         from unittest.mock import MagicMock
         mock_speaker = MagicMock()
@@ -284,6 +304,20 @@ class TestCommandRouter(unittest.TestCase):
         res = self.router.execute("cnfy")
         self.assertIn("Smart Garage", res)
         self.assertIsNone(self.ai.called_with)
+
+    def test_wake_phrase_routing(self):
+        res = self.router.execute("Альо, гараж")
+        self.assertEqual(res, "Що тобі потрібно?")
+        self.assertIsNone(self.ai.called_with)
+
+        # Accidental QWERTY layout: 'Fkmj ufhf;' -> 'Альо гараж'
+        res = self.router.execute("Fkmj ufhf;")
+        self.assertEqual(res, "Що тобі потрібно?")
+        self.assertIsNone(self.ai.called_with)
+
+        # Wake phrase prefix before AI query strips prefix
+        res = self.router.execute("Альо гараж, розкажи казку")
+        self.assertEqual(self.ai.called_with, "розкажи казку")
 
 
 class TestWebApp(unittest.TestCase):

@@ -72,6 +72,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const dialogAiText = document.getElementById('dialogAiText');
     const voiceForm = document.getElementById('voiceForm');
     const voiceInput = document.getElementById('voiceInput');
+    const btnWakeContinuous = document.getElementById('btnWakeContinuous');
+    const wakeContinuousLabel = document.getElementById('wakeContinuousLabel');
+    let isContinuousWakeMode = localStorage.getItem('smartgarage_wake_continuous') === 'true';
+    let isManualMicSession = false;
+    let isWaitingFollowup = false;
+    let followupTimeoutTimer = null;
 
     // Scenarios
     const scenarioBtns = document.querySelectorAll('.scenario-btn');
@@ -289,10 +295,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
     let currentTtsAudio = null;
 
-    function speakText(text) {
-        if (!ttsEnabled) return;
+    function speakText(text, onEnded) {
+        if (!ttsEnabled) {
+            if (typeof onEnded === 'function') onEnded();
+            return;
+        }
         const clean = cleanSpeechText(text);
-        if (!clean) return;
+        if (!clean) {
+            if (typeof onEnded === 'function') onEnded();
+            return;
+        }
 
         // Cancel any browser speech synthesis
         if ('speechSynthesis' in window) {
@@ -308,10 +320,27 @@ document.addEventListener('DOMContentLoaded', () => {
             currentTtsAudio = null;
         }
 
+        let endedFired = false;
+        const fireEnded = () => {
+            if (endedFired) return;
+            endedFired = true;
+            if (btnMicHero) btnMicHero.classList.remove('speaking');
+            currentTtsAudio = null;
+            if (typeof onEnded === 'function') {
+                onEnded();
+            }
+        };
+
+        if (btnMicHero) {
+            btnMicHero.classList.add('speaking');
+        }
+
         // 1. Play high-definition neural Ukrainian voice (Ostap) directly in the browser!
         try {
             const audioUrl = '/api/voice/tts?text=' + encodeURIComponent(clean);
             currentTtsAudio = new Audio(audioUrl);
+            currentTtsAudio.onended = fireEnded;
+            currentTtsAudio.onerror = fireEnded;
             currentTtsAudio.play().catch(err => {
                 console.warn('Browser audio autoplay blocked, broadcasting to garage speaker:', err);
                 // 2. Fallback: broadcast neural speech via PipeWire pw-play on garage speaker
@@ -320,6 +349,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ text: clean })
                 }).catch(e => console.warn('Server TTS failed:', e));
+                setTimeout(fireEnded, Math.min(Math.max(clean.length * 80, 1800), 5000));
             });
         } catch (e) {
             console.warn('Audio init error, broadcasting to garage speaker:', e);
@@ -328,7 +358,49 @@ document.addEventListener('DOMContentLoaded', () => {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ text: clean })
             }).catch(e => console.warn('Server TTS failed:', e));
+            setTimeout(fireEnded, Math.min(Math.max(clean.length * 80, 1800), 5000));
         }
+    }
+
+    // --- WAKE WORD PARSER & FILTER ---
+    function parseWakeCommand(rawText) {
+        if (!rawText || !rawText.trim()) return null;
+        const text = rawText.trim();
+        const lower = text.toLowerCase();
+
+        // 1. Regex to find wake phrase: альо/ало/алло/але/оле/ольо + гараж
+        const wakeRegex = /(?:^|\s)(?:альо|ало|алло|але|оле|ольо)\s*[, -]?\s*гараж(?:у)?(?:\s*[,:;!?-]+\s*|\s+|$)/i;
+        const wakeMatch = lower.match(wakeRegex);
+
+        if (wakeMatch) {
+            const splitIdx = wakeMatch.index + wakeMatch[0].length;
+            const commandAfter = text.substring(splitIdx).replace(/^[,:;!?-]+\s*/, '').trim();
+            return {
+                isWake: true,
+                command: commandAfter || null
+            };
+        }
+
+        // 2. Standalone call phrases: "альо", "ало", "алло", "гараж", "гараж прийом"
+        const standaloneRegex = /^(?:альо|ало|алло|гараж|гараж\s*прийом)\s*[!?.]*$/i;
+        if (standaloneRegex.test(lower)) {
+            return {
+                isWake: true,
+                command: null
+            };
+        }
+
+        // 3. Prefix "гараж, <команда>"
+        const garagePrefixRegex = /^гараж\s*[,:;-]\s*/i;
+        if (garagePrefixRegex.test(lower)) {
+            const commandAfter = text.replace(garagePrefixRegex, '').trim();
+            return {
+                isWake: true,
+                command: commandAfter || null
+            };
+        }
+
+        return null;
     }
 
     // --- VOICE SPEECH RECOGNITION (Web Speech API) ---
@@ -359,13 +431,70 @@ document.addEventListener('DOMContentLoaded', () => {
                 isListening = true;
                 if (btnMicHero) btnMicHero.classList.add('listening');
                 if (voiceStatusText) {
-                    voiceStatusText.textContent = '🎙️ Слухаю... Говоріть команду';
+                    if (isWaitingFollowup) {
+                        voiceStatusText.textContent = '🎙️ Слухаю команду... Назвіть дію';
+                    } else if (isContinuousWakeMode) {
+                        voiceStatusText.textContent = '👂 Слухаю тільки «Альо, гараж»...';
+                    } else {
+                        voiceStatusText.textContent = '🎙️ Слухаю... Говоріть команду';
+                    }
                     voiceStatusText.style.color = '';
                 }
             };
 
             recognition.onresult = (event) => {
-                const transcript = event.results[0][0].transcript;
+                const transcript = (event.results[0][0].transcript || '').trim();
+                if (!transcript) return;
+
+                // 1. Manual push-to-talk button press
+                if (isManualMicSession) {
+                    isManualMicSession = false;
+                    isWaitingFollowup = false;
+                    clearTimeout(followupTimeoutTimer);
+                    if (voiceStatusText) voiceStatusText.textContent = `Ви сказали: "${transcript}"`;
+                    executeUserCommand(transcript);
+                    return;
+                }
+
+                // 2. Answering follow-up question ("Що тобі потрібно?")
+                if (isWaitingFollowup) {
+                    clearTimeout(followupTimeoutTimer);
+                    isWaitingFollowup = false;
+                    if (voiceStatusText) voiceStatusText.textContent = `Команда: "${transcript}"`;
+                    executeUserCommand(transcript);
+                    return;
+                }
+
+                // 3. Continuous hands-free wake mode: MUST match wake phrase!
+                if (isContinuousWakeMode) {
+                    const wake = parseWakeCommand(transcript);
+                    if (!wake) {
+                        // Ambient talk in the room without "Альо, гараж" -> COMPLETELY IGNORE!
+                        console.log('🔇 Проігноровано фонову розмову (немає фрази «Альо, гараж»):', transcript);
+                        if (voiceStatusText) {
+                            voiceStatusText.textContent = `👂 Очікую «Альо, гараж»... (почуто: "${transcript}")`;
+                            setTimeout(() => {
+                                if (isContinuousWakeMode && !isWaitingFollowup && !isListening) {
+                                    updateWakeContinuousUi();
+                                }
+                            }, 2500);
+                        }
+                        return;
+                    }
+
+                    // WAKE WORD MATCHED!
+                    hapticFeedback(50);
+                    if (wake.command) {
+                        if (voiceStatusText) voiceStatusText.textContent = `⚡ «Альо, гараж»: ${wake.command}`;
+                        executeUserCommand(wake.command);
+                    } else {
+                        if (voiceStatusText) voiceStatusText.textContent = `⚡ «Альо, гараж» розпізнано!`;
+                        executeUserCommand("Альо, гараж");
+                    }
+                    return;
+                }
+
+                // 4. Default fallback:
                 if (voiceStatusText) voiceStatusText.textContent = `Ви сказали: "${transcript}"`;
                 executeUserCommand(transcript);
             };
@@ -385,7 +514,9 @@ document.addEventListener('DOMContentLoaded', () => {
                         voiceStatusText.style.color = '#ef4444';
                     }
                 } else if (event.error === 'no-speech') {
-                    if (voiceStatusText) voiceStatusText.textContent = 'Голос не виявлено. Натисніть і спробуйте знову';
+                    if (!isContinuousWakeMode && voiceStatusText) {
+                        voiceStatusText.textContent = 'Голос не виявлено. Натисніть і спробуйте знову';
+                    }
                 } else {
                     if (voiceStatusText) voiceStatusText.textContent = `Помилка: ${event.error}. Спробуйте ще раз`;
                 }
@@ -394,6 +525,16 @@ document.addEventListener('DOMContentLoaded', () => {
             recognition.onend = () => {
                 isListening = false;
                 if (btnMicHero) btnMicHero.classList.remove('listening');
+                // Auto-restart recognition in continuous wake mode or when waiting for follow-up
+                if ((isContinuousWakeMode || isWaitingFollowup) && !currentTtsAudio) {
+                    setTimeout(() => {
+                        try {
+                            if (!isListening && (isContinuousWakeMode || isWaitingFollowup) && !currentTtsAudio) {
+                                recognition.start();
+                            }
+                        } catch (_) {}
+                    }, 350);
+                }
             };
             return true;
         } catch (e) {
@@ -420,6 +561,63 @@ document.addEventListener('DOMContentLoaded', () => {
 
     initSpeechRecognition();
 
+    function updateWakeContinuousUi() {
+        if (!btnWakeContinuous) return;
+        if (isContinuousWakeMode) {
+            btnWakeContinuous.classList.add('active');
+            if (wakeContinuousLabel) wakeContinuousLabel.textContent = '«Альо, гараж»: Активно';
+            btnWakeContinuous.title = 'Режим авто-слухання активний (натисніть, щоб вимкнути)';
+            if (voiceStatusText && !isListening) {
+                voiceStatusText.textContent = '👂 Слухаю тільки «Альо, гараж»... (інші розмови ігноруються)';
+            }
+        } else {
+            btnWakeContinuous.classList.remove('active');
+            if (wakeContinuousLabel) wakeContinuousLabel.textContent = '«Альо, гараж»: Вимкнено';
+            btnWakeContinuous.title = 'Режим авто-слухання вимкнено (натисніть, щоб увімкнути)';
+            if (voiceStatusText && !isListening) {
+                voiceStatusText.textContent = 'Натисніть мікрофон або скажіть «Альо, гараж»';
+            }
+        }
+    }
+
+    if (btnWakeContinuous) {
+        btnWakeContinuous.addEventListener('click', () => {
+            hapticFeedback(30);
+            if (!recognition) {
+                initSpeechRecognition();
+            }
+            if (!recognition) {
+                showHttpVoiceHelp();
+                return;
+            }
+            isContinuousWakeMode = !isContinuousWakeMode;
+            localStorage.setItem('smartgarage_wake_continuous', isContinuousWakeMode ? 'true' : 'false');
+            updateWakeContinuousUi();
+            if (isContinuousWakeMode) {
+                try {
+                    if (!isListening) recognition.start();
+                } catch (e) {
+                    console.warn(e);
+                }
+            } else {
+                try {
+                    isWaitingFollowup = false;
+                    isManualMicSession = false;
+                    clearTimeout(followupTimeoutTimer);
+                    if (isListening) recognition.stop();
+                } catch (_) {}
+            }
+        });
+        updateWakeContinuousUi();
+        if (isContinuousWakeMode) {
+            setTimeout(() => {
+                try {
+                    if (!isListening && recognition) recognition.start();
+                } catch (_) {}
+            }, 800);
+        }
+    }
+
     if (btnMicHero) {
         btnMicHero.addEventListener('click', () => {
             hapticFeedback(40);
@@ -432,8 +630,14 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             if (isListening) {
+                isManualMicSession = false;
+                isWaitingFollowup = false;
+                clearTimeout(followupTimeoutTimer);
                 recognition.stop();
             } else {
+                isManualMicSession = true;
+                isWaitingFollowup = false;
+                clearTimeout(followupTimeoutTimer);
                 try {
                     recognition.start();
                 } catch (e) {
@@ -462,7 +666,46 @@ document.addEventListener('DOMContentLoaded', () => {
             const data = await res.json();
             const reply = data.response || 'Команду виконано.';
             if (dialogAiText) dialogAiText.textContent = reply;
-            speakText(reply);
+
+            // Check if this was a wake prompt question (e.g. "Що тобі потрібно?")
+            const isFollowUpPrompt = reply.includes('потрібно') || reply.includes('Слухаю');
+
+            speakText(reply, () => {
+                if (isFollowUpPrompt) {
+                    isWaitingFollowup = true;
+                    clearTimeout(followupTimeoutTimer);
+                    followupTimeoutTimer = setTimeout(() => {
+                        isWaitingFollowup = false;
+                        updateWakeContinuousUi();
+                    }, 10000);
+
+                    setTimeout(() => {
+                        try {
+                            if (!isListening && recognition) {
+                                recognition.start();
+                                if (voiceStatusText) {
+                                    voiceStatusText.textContent = '🎙️ Слухаю команду... Назвіть дію';
+                                }
+                            }
+                        } catch (e) {
+                            console.warn('Auto-listen trigger error:', e);
+                        }
+                    }, 250);
+                } else {
+                    isWaitingFollowup = false;
+                    clearTimeout(followupTimeoutTimer);
+                    if (isContinuousWakeMode) {
+                        setTimeout(() => {
+                            try {
+                                if (!isListening && isContinuousWakeMode && !currentTtsAudio && recognition) {
+                                    recognition.start();
+                                    updateWakeContinuousUi();
+                                }
+                            } catch (_) {}
+                        }, 500);
+                    }
+                }
+            });
             fetchTelemetry();
         } catch (err) {
             const errReply = 'Помилка зв\'язку з сервером.';

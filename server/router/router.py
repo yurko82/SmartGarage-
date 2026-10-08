@@ -36,15 +36,24 @@ class CommandRouter:
         if handled:
             return response
 
-        # Try converting accidental English keyboard layout to Ukrainian
+        # Try converting accidental English keyboard layout to Ukrainian for command execution
         converted_prompt = convert_qwerty_to_ua(prompt)
         if converted_prompt != prompt:
             handled, response = self.commands.execute(converted_prompt)
             if handled:
                 return response
-            prompt_for_ai = converted_prompt
-        else:
-            prompt_for_ai = prompt
+
+        prompt_for_ai = prompt
+
+        import re
+        clean_ai = re.sub(
+            r'^(?:(?:альо|ало|алло)\s*[, -]?\s*гараж(?:у)?|гараж)\s*[,:;!?-]*\s*',
+            '',
+            prompt_for_ai,
+            flags=re.IGNORECASE
+        ).strip()
+        if clean_ai:
+            prompt_for_ai = clean_ai
 
         context_info = ""
         if callable(self.context_provider):
@@ -54,10 +63,10 @@ class CommandRouter:
                 context_info = ""
 
         try:
-            return self.ai.chat(prompt, context_info=context_info, session_id=session_id)
+            return self.ai.chat(prompt_for_ai, context_info=context_info, session_id=session_id)
         except TypeError:
             try:
-                return self.ai.chat(prompt, context_info=context_info)
+                return self.ai.chat(prompt_for_ai, context_info=context_info)
             except TypeError:
-                return self.ai.chat(prompt)
+                return self.ai.chat(prompt_for_ai)
 
