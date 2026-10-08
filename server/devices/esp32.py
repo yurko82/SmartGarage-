@@ -19,6 +19,7 @@ class ESP32Controller:
         cfg = config.get("esp32", {}) if isinstance(config, dict) else {}
         self.host = host or cfg.get("host", "192.168.100.222")
         self.port = port or cfg.get("port", 80)
+        self.interface = cfg.get("interface", "wlo1")
         self.serial_port_name = serial_port or cfg.get("serial_port", "/dev/ttyACM0")
         self.baudrate = baudrate or cfg.get("baudrate", 115200)
         self.mode = mode or ("mock" if os.environ.get("TESTING") else cfg.get("mode", "auto"))  # auto | network | serial | mock
@@ -175,41 +176,88 @@ class ESP32Controller:
                     return False
             return False
 
-    def is_online(self, timeout=1.0):
+    def is_online(self, timeout=1.5):
         if self.mode == "mock" or os.environ.get("TESTING"):
             return True
         if self._serial and self._serial.is_open:
             return True
-        if self.state.get("last_seen") and (time.time() - self.state["last_seen"] < 15):
+        if self.state.get("last_seen") and (time.time() - self.state["last_seen"] < 30):
             return True
+
+        # Check via bound socket
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             s.settimeout(timeout)
-            res = s.connect_ex((self.host, int(self.port)))
+            if getattr(self, "interface", None):
+                try:
+                    s.setsockopt(socket.SOL_SOCKET, 25, self.interface.encode())
+                except Exception:
+                    pass
+            s.connect((self.host, int(self.port)))
             s.close()
-            online = (res == 0)
-            self.state["online"] = online
-            return online
+            self.state["online"] = True
+            return True
         except Exception:
-            self.state["online"] = False
-            return False
+            pass
 
-    def _send_request(self, endpoint, data=None, method="GET", timeout=2.0):
+        # Quick ICMP ping fallback (handles moments when ESP32 is busy in BLE polling)
+        try:
+            import subprocess
+            if subprocess.run(["ping", "-c", "1", "-W", "1", self.host],
+                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0:
+                self.state["online"] = True
+                return True
+        except Exception:
+            pass
+
+        self.state["online"] = False
+        return False
+
+    def _send_request(self, endpoint, data=None, method="GET", timeout=2.5):
         if self.mode == "mock" or os.environ.get("TESTING"):
             return None
-        if not self.is_online():
-            return None
         url = f"http://{self.host}:{self.port}{endpoint}"
+
+        # 1. Primary: urllib.request with Connection: close
         try:
             body = json.dumps(data).encode("utf-8") if data else None
-            headers = {"Content-Type": "application/json"} if data else {}
+            headers = {"Connection": "close"}
+            if data:
+                headers["Content-Type"] = "application/json"
             req = urllib.request.Request(url, data=body, headers=headers, method=method)
             with urllib.request.urlopen(req, timeout=timeout) as res:
                 self.state["last_seen"] = time.time()
                 self.state["transport"] = "http"
+                self.state["online"] = True
                 return json.loads(res.read().decode("utf-8"))
         except Exception:
-            return None
+            pass
+
+        # 2. Fallback: curl with interface binding if available
+        if getattr(self, "interface", None):
+            try:
+                import subprocess
+                cmd = [
+                    "curl", "--interface", self.interface, "-s",
+                    "--connect-timeout", str(max(1, int(timeout))),
+                    "--max-time", str(max(2, int(timeout) + 1))
+                ]
+                if method == "POST":
+                    cmd.extend(["-X", "POST"])
+                    if data:
+                        cmd.extend(["-H", "Content-Type: application/json", "-d", json.dumps(data)])
+                cmd.append(url)
+                res = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout + 2)
+                if res.returncode == 0 and res.stdout.strip():
+                    parsed = json.loads(res.stdout)
+                    self.state["last_seen"] = time.time()
+                    self.state["transport"] = "http"
+                    self.state["online"] = True
+                    return parsed
+            except Exception:
+                pass
+
+        return None
 
     # --- DOOR / GATES ---
     def door_open(self):
@@ -322,11 +370,31 @@ class ESP32Controller:
         if self._serial and self._serial.is_open:
             self._send_serial_command("CMD:GET_TELEMETRY")
 
-        remote = self._send_request("/api/telemetry", method="GET")
+        remote = self._send_request("/api/telemetry", method="GET", timeout=3.0)
+        if not remote or not isinstance(remote, dict) or not remote.get("floors"):
+            ble_data = self._send_request("/api/ble/sensors", method="GET", timeout=2.5)
+            if ble_data and isinstance(ble_data, dict):
+                if remote and isinstance(remote, dict):
+                    remote["floors"] = ble_data.get("floors", {})
+                else:
+                    remote = ble_data
         if remote and isinstance(remote, dict):
+            # If top-level temperature/humidity are None, fill from first active floor
+            if (remote.get("temperature") is None or remote.get("humidity") is None) and remote.get("floors"):
+                for fl_data in remote["floors"].values():
+                    if isinstance(fl_data, dict) and fl_data.get("online") and fl_data.get("temperature"):
+                        if remote.get("temperature") is None:
+                            remote["temperature"] = fl_data["temperature"]
+                        if remote.get("humidity") is None:
+                            remote["humidity"] = fl_data["humidity"]
+                        break
             with self._lock:
                 self.state.update(remote)
                 self.state["online"] = True
+                self.state["last_seen"] = time.time()
+        else:
+            with self._lock:
+                self.state["online"] = self.is_online()
         return dict(self.state)
 
     def update_from_webhook(self, telemetry_dict):
