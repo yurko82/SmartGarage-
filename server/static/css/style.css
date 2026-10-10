@@ -1612,3 +1612,394 @@ body {
 #adminTab::-webkit-scrollbar-thumb:hover {
     background-color: var(--accent);
 }
+
+/* ==========================================================
+   YOUTUBE MUSIC & MEDIA SUB-TABS STYLES
+   ========================================================== */
+.media-subtabs-nav {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 10px;
+    overflow-x: auto;
+}
+
+.media-subtab-btn {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-color);
+    color: var(--text-muted);
+    padding: 8px 16px;
+    border-radius: var(--radius-md);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+}
+
+.media-subtab-btn:hover {
+    background: var(--bg-surface-hover);
+    color: var(--text-primary);
+    border-color: rgba(255, 255, 255, 0.2);
+}
+
+.media-subtab-btn.active {
+    background: rgba(255, 0, 85, 0.15);
+    border-color: #ff0055;
+    color: #fff;
+    box-shadow: 0 0 12px rgba(255, 0, 85, 0.2);
+}
+
+.media-subtab-btn .subtab-pill {
+    font-size: 10px;
+    background: rgba(255, 0, 85, 0.25);
+    color: #ff3377;
+    padding: 2px 7px;
+    border-radius: 8px;
+}
+
+.media-subtab-pane {
+    display: none;
+}
+
+.media-subtab-pane.active {
+    display: block;
+    animation: fadeInSubtab 0.2s ease forwards;
+}
+
+@keyframes fadeInSubtab {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.ytmusic-hero-card {
+    background: linear-gradient(135deg, rgba(255, 0, 85, 0.14) 0%, rgba(225, 29, 72, 0.05) 100%);
+    border: 1px solid rgba(255, 0, 85, 0.35);
+    border-radius: var(--radius-lg);
+    padding: 22px 24px;
+    margin-bottom: 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 20px;
+    flex-wrap: wrap;
+    position: relative;
+    overflow: hidden;
+    box-shadow: 0 8px 24px rgba(255, 0, 85, 0.08);
+}
+
+.ytmusic-hero-card::before {
+    content: '';
+    position: absolute;
+    top: -40px;
+    right: -40px;
+    width: 140px;
+    height: 140px;
+    background: radial-gradient(circle, rgba(255, 0, 85, 0.25) 0%, transparent 70%);
+    border-radius: 50%;
+    pointer-events: none;
+}
+
+.ytmusic-hero-content {
+    flex: 1;
+    min-width: 260px;
+}
+
+.ytmusic-hero-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    font-weight: 700;
+    color: #ff3377;
+    letter-spacing: 0.5px;
+    margin-bottom: 8px;
+}
+
+.yt-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #ff0055;
+    box-shadow: 0 0 8px #ff0055;
+}
+
+.ytmusic-hero-title {
+    font-size: 20px;
+    font-weight: 800;
+    color: #ffffff;
+    margin-bottom: 6px;
+}
+
+.ytmusic-hero-subtitle {
+    font-size: 13px;
+    color: #cbd5e1;
+    line-height: 1.5;
+    margin-bottom: 16px;
+    max-width: 540px;
+}
+
+.ytmusic-hero-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.btn-yt-primary {
+    background: linear-gradient(135deg, #ff0055 0%, #e11d48 100%);
+    color: #fff;
+    border: none;
+    padding: 9px 18px;
+    border-radius: var(--radius-md);
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    transition: all 0.2s ease;
+    box-shadow: 0 4px 14px rgba(255, 0, 85, 0.35);
+}
+
+.btn-yt-primary:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 18px rgba(255, 0, 85, 0.5);
+}
+
+.btn-yt-secondary {
+    background: rgba(255, 255, 255, 0.08);
+    color: #fff;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    padding: 9px 16px;
+    border-radius: var(--radius-md);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    transition: all 0.2s ease;
+}
+
+.btn-yt-secondary:hover {
+    background: rgba(255, 255, 255, 0.15);
+    border-color: rgba(255, 255, 255, 0.3);
+}
+
+.btn-yt-outline {
+    background: transparent;
+    color: var(--accent-cyan);
+    border: 1px solid rgba(0, 240, 255, 0.4);
+    padding: 9px 16px;
+    border-radius: var(--radius-md);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    transition: all 0.2s ease;
+}
+
+.btn-yt-outline:hover {
+    background: rgba(0, 240, 255, 0.12);
+    border-color: var(--accent-cyan);
+}
+
+.ytmusic-hero-stat {
+    text-align: right;
+    padding-left: 20px;
+    border-left: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.stat-number {
+    font-size: 28px;
+    font-weight: 800;
+    color: #ff0055;
+    font-family: monospace;
+}
+
+.stat-label {
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+.yt-section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.yt-playlists-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 12px;
+    margin-bottom: 20px;
+}
+
+.yt-playlist-card {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    transition: all 0.2s ease;
+}
+
+.yt-playlist-card:hover {
+    border-color: rgba(255, 0, 85, 0.5);
+    background: var(--bg-surface-hover);
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
+}
+
+.yt-playlist-card.active-pl {
+    border-color: #ff0055;
+    box-shadow: 0 0 12px rgba(255, 0, 85, 0.25);
+}
+
+.yt-pl-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: #fff;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.yt-pl-count {
+    font-size: 11px;
+    color: var(--accent-cyan);
+    background: rgba(0, 240, 255, 0.1);
+    padding: 2px 7px;
+    border-radius: 8px;
+    font-family: monospace;
+}
+
+.yt-pl-actions {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.yt-track-drawer {
+    background: var(--bg-surface);
+    border: 1px solid rgba(255, 0, 85, 0.3);
+    border-radius: var(--radius-lg);
+    margin-bottom: 20px;
+    overflow: hidden;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+}
+
+.yt-drawer-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    background: rgba(255, 0, 85, 0.08);
+    border-bottom: 1px solid rgba(255, 0, 85, 0.2);
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.yt-tracks-list {
+    max-height: 360px;
+    overflow-y: auto;
+    padding: 4px;
+}
+
+.yt-track-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    border-radius: var(--radius-sm);
+    transition: all 0.15s ease;
+    cursor: pointer;
+    gap: 12px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+.yt-track-row:hover {
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.yt-track-row.playing {
+    background: rgba(0, 240, 255, 0.1);
+    border-left: 3px solid var(--accent-cyan);
+}
+
+.yt-track-main {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 1;
+    overflow: hidden;
+}
+
+.yt-track-idx {
+    font-size: 11px;
+    color: var(--text-muted);
+    width: 22px;
+    text-align: center;
+    font-family: monospace;
+}
+
+.yt-track-meta {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.yt-track-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: #fff;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.yt-track-artist {
+    font-size: 11px;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.yt-track-time {
+    font-size: 11px;
+    color: var(--text-muted);
+    font-family: monospace;
+}
+
+.yt-track-playbtn {
+    background: rgba(255, 0, 85, 0.15);
+    border: 1px solid rgba(255, 0, 85, 0.3);
+    color: #ff0055;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 11px;
+    transition: all 0.2s ease;
+}
+
+.yt-track-row:hover .yt-track-playbtn {
+    background: #ff0055;
+    color: #fff;
+    transform: scale(1.1);
+}

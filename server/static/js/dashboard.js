@@ -1085,6 +1085,35 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    const btnJblNext = document.getElementById('btnJblNext');
+    if (btnJblNext) {
+        btnJblNext.addEventListener('click', async () => {
+            hapticFeedback();
+            if (voiceStatusText) voiceStatusText.textContent = 'Перемикання треку...';
+            try {
+                const res = await fetch('/api/ytmusic/next', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ shuffle: true })
+                });
+                const data = await res.json();
+                if (data.success && data.track_title && jblNowPlaying) {
+                    jblNowPlaying.textContent = `🎵 ${data.track_title}`;
+                }
+                if (voiceStatusText && data.response) {
+                    voiceStatusText.textContent = data.response;
+                    voiceStatusText.style.color = 'var(--accent-cyan)';
+                }
+                fetchTelemetry();
+            } catch (e) {
+                if (voiceStatusText) {
+                    voiceStatusText.textContent = 'Помилка перемикання треку';
+                    voiceStatusText.style.color = '#ef4444';
+                }
+            }
+        });
+    }
+
     if (jblPlayForm) {
         jblPlayForm.addEventListener('submit', async (e) => {
             e.preventDefault();
@@ -1272,6 +1301,141 @@ document.addEventListener('DOMContentLoaded', () => {
             hapticFeedback();
             if (radioSearchInput) radioSearchInput.value = '';
             loadRadioStations('');
+        });
+    }
+
+    // --- DASHBOARD YOUTUBE MUSIC & AUDIO SOURCE SWITCHER ---
+    const btnDashTabYtmusic = document.getElementById('btnDashTabYtmusic');
+    const btnDashTabRadio = document.getElementById('btnDashTabRadio');
+    const dashYtmusicPanel = document.getElementById('dashYtmusicPanel');
+    const dashRadioPanel = document.getElementById('dashRadioPanel');
+
+    const btnDashYtLiked = document.getElementById('btnDashYtLiked');
+    const btnDashYtShuffleLiked = document.getElementById('btnDashYtShuffleLiked');
+    const dashYtLikedBadge = document.getElementById('dashYtLikedBadge');
+    const dashYtPlaylistsContainer = document.getElementById('dashYtPlaylistsContainer');
+    const btnDashRefreshPlaylists = document.getElementById('btnDashRefreshPlaylists');
+
+    if (btnDashTabYtmusic && btnDashTabRadio) {
+        btnDashTabYtmusic.addEventListener('click', () => {
+            hapticFeedback();
+            btnDashTabYtmusic.classList.add('active');
+            btnDashTabRadio.classList.remove('active');
+            if (dashYtmusicPanel) dashYtmusicPanel.style.display = 'block';
+            if (dashRadioPanel) dashRadioPanel.style.display = 'none';
+        });
+
+        btnDashTabRadio.addEventListener('click', () => {
+            hapticFeedback();
+            btnDashTabRadio.classList.add('active');
+            btnDashTabYtmusic.classList.remove('active');
+            if (dashRadioPanel) dashRadioPanel.style.display = 'block';
+            if (dashYtmusicPanel) dashYtmusicPanel.style.display = 'none';
+        });
+    }
+
+    async function playDashYTPlaylist(playlistId, shuffle = true, title = '') {
+        hapticFeedback();
+        const displayTitle = title || (playlistId === 'LM' ? 'Улюблені пісні' : 'Плейлист');
+        if (voiceStatusText) {
+            voiceStatusText.textContent = `Запуск '${displayTitle}'...`;
+            voiceStatusText.style.color = 'var(--accent-cyan)';
+        }
+
+        try {
+            const res = await fetch('/api/ytmusic/play', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    playlist_id: playlistId,
+                    shuffle: shuffle
+                })
+            });
+            const data = await res.json();
+            if (data.success) {
+                if (data.track_title && jblNowPlaying) {
+                    jblNowPlaying.textContent = `🎵 ${data.track_title}`;
+                }
+                if (voiceStatusText) {
+                    voiceStatusText.textContent = data.response || `Грає ${displayTitle}`;
+                    voiceStatusText.style.color = 'var(--accent-cyan)';
+                }
+            } else {
+                if (voiceStatusText) {
+                    voiceStatusText.textContent = `⚠️ ${data.response || 'Помилка відтворення'}`;
+                    voiceStatusText.style.color = '#ef4444';
+                }
+            }
+            if (ttsEnabled && data.response) speakText(data.response);
+            fetchTelemetry();
+        } catch (err) {
+            if (voiceStatusText) {
+                voiceStatusText.textContent = `Помилка запуску '${displayTitle}'`;
+                voiceStatusText.style.color = '#ef4444';
+            }
+        }
+    }
+
+    if (btnDashYtLiked) {
+        btnDashYtLiked.addEventListener('click', () => {
+            playDashYTPlaylist('LM', false, 'Улюблені пісні');
+        });
+    }
+
+    if (btnDashYtShuffleLiked) {
+        btnDashYtShuffleLiked.addEventListener('click', () => {
+            playDashYTPlaylist('LM', true, 'Улюблені пісні');
+        });
+    }
+
+    async function loadDashYTPlaylists(forceRefresh = false) {
+        if (!dashYtPlaylistsContainer) return;
+        dashYtPlaylistsContainer.innerHTML = '<div style="font-size: 0.75rem; color: var(--text-muted); padding: 4px;">⏳ Оновлення...</div>';
+
+        try {
+            const res = await fetch(`/api/ytmusic/playlists?refresh=${forceRefresh ? 1 : 0}`);
+            const data = await res.json();
+            if (data.success && data.playlists) {
+                const likedPl = data.playlists.find(p => p.is_liked || p.id === 'LM');
+                if (likedPl && dashYtLikedBadge) {
+                    dashYtLikedBadge.textContent = `${likedPl.track_count || 116}+ треків`;
+                }
+
+                const customPlaylists = data.playlists.filter(p => !p.is_liked && p.id !== 'LM');
+                dashYtPlaylistsContainer.innerHTML = '';
+                if (customPlaylists.length === 0) {
+                    dashYtPlaylistsContainer.innerHTML = '<div style="font-size: 0.75rem; color: var(--text-muted); padding: 4px;">Плейлистів не знайдено</div>';
+                    return;
+                }
+
+                customPlaylists.forEach(pl => {
+                    const chip = document.createElement('button');
+                    chip.type = 'button';
+                    chip.className = 'yt-dash-chip';
+                    chip.innerHTML = `
+                        <span>🎵</span>
+                        <span title="${pl.title}">${pl.title.length > 20 ? pl.title.substring(0, 18) + '...' : pl.title}</span>
+                        ${pl.track_count ? `<span class="dash-chip-badge">${pl.track_count}</span>` : ''}
+                    `;
+                    chip.addEventListener('click', () => {
+                        document.querySelectorAll('.yt-dash-chip').forEach(c => c.classList.remove('active'));
+                        chip.classList.add('active');
+                        playDashYTPlaylist(pl.id, true, pl.title);
+                    });
+                    dashYtPlaylistsContainer.appendChild(chip);
+                });
+            } else {
+                dashYtPlaylistsContainer.innerHTML = '<div style="font-size: 0.75rem; color: var(--text-muted); padding: 4px;">Немає плейлистів</div>';
+            }
+        } catch (e) {
+            dashYtPlaylistsContainer.innerHTML = '<div style="font-size: 0.75rem; color: var(--accent-pink); padding: 4px;">Помилка завантаження</div>';
+        }
+    }
+
+    if (btnDashRefreshPlaylists) {
+        btnDashRefreshPlaylists.addEventListener('click', () => {
+            hapticFeedback();
+            loadDashYTPlaylists(true);
         });
     }
 
@@ -1951,5 +2115,6 @@ document.addEventListener('DOMContentLoaded', () => {
     fetchTelemetry();
     loadMediaChips();
     loadRadioStations();
+    loadDashYTPlaylists();
     setInterval(fetchTelemetry, 2500);
 });

@@ -13,6 +13,9 @@ media/
 .vscode/
 devices/sensor_cache.json
 devices/presence_log.json
+devices/ytmusic_cache/
+devices/ytmusic_cookies.txt
+devices/ytmusic_playlists.json
 *.db
 *.db-wal
 *.db-shm

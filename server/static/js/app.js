@@ -117,6 +117,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 loadMediaList();
                 updateProjectorStatus();
                 loadFullRadioStations();
+                loadYTMusicPlaylists();
+                updateSpeakerStatus();
             } else if (targetTab === 'adminTab') {
                 checkAdminState();
             }
@@ -435,6 +437,35 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (jblConnectBtn) {
                         jblConnectBtn.textContent = isConnected ? '🔌 Відключити' : '🔗 Підключити';
                     }
+                    const fullJblNowPlaying = document.getElementById('fullJblNowPlaying');
+                    const fullJblVolumeSlider = document.getElementById('fullJblVolumeSlider');
+                    const fullJblVolumeVal = document.getElementById('fullJblVolumeVal');
+                    const fullSpeakerBtnJxbt = document.getElementById('fullSpeakerBtnJxbt');
+                    const fullSpeakerBtnJbl = document.getElementById('fullSpeakerBtnJbl');
+
+                    if (fullJblNowPlaying) {
+                        if (s.playing && s.current_track) {
+                            fullJblNowPlaying.textContent = s.current_track;
+                        } else {
+                            fullJblNowPlaying.textContent = isConnected ? 'Готово до відтворення' : 'Відключено';
+                        }
+                    }
+                    if (fullJblVolumeSlider && s.volume !== undefined) {
+                        fullJblVolumeSlider.value = s.volume;
+                    }
+                    if (fullJblVolumeVal && s.volume !== undefined) {
+                        fullJblVolumeVal.textContent = s.volume + '%';
+                    }
+                    if (fullSpeakerBtnJxbt && fullSpeakerBtnJbl) {
+                        const curMac = (s.mac || '').toUpperCase();
+                        if (curMac === '41:42:62:69:51:9B') {
+                            fullSpeakerBtnJxbt.classList.add('active');
+                            fullSpeakerBtnJbl.classList.remove('active');
+                        } else if (curMac === 'F8:5C:7E:EE:7D:CC') {
+                            fullSpeakerBtnJbl.classList.add('active');
+                            fullSpeakerBtnJxbt.classList.remove('active');
+                        }
+                    }
                 }
             })
             .catch(() => {});
@@ -452,6 +483,66 @@ document.addEventListener('DOMContentLoaded', () => {
                     updateSpeakerStatus();
                 })
                 .catch(err => appendEntry('system', `Помилка: ${err.message}`));
+        });
+    }
+
+    const jblNextBtn = document.getElementById('jblNextBtn');
+    if (jblNextBtn) {
+        jblNextBtn.addEventListener('click', () => {
+            fetch('/api/ytmusic/next', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ shuffle: true })
+            })
+            .then(res => res.json())
+            .then(data => {
+                appendEntry('system', data.response || 'Наступний трек');
+                updateSpeakerStatus();
+            })
+            .catch(err => appendEntry('system', `Помилка перемикання треку: ${err.message}`));
+        });
+    }
+
+    const fullSpeakerBtnJxbt = document.getElementById('fullSpeakerBtnJxbt');
+    const fullSpeakerBtnJbl = document.getElementById('fullSpeakerBtnJbl');
+    function switchFullSpeaker(mac, name) {
+        appendEntry('system', `Перемикання аудіо на ${name}...`);
+        fetch('/api/speaker/switch', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ mac: mac })
+        })
+        .then(res => res.json())
+        .then(data => {
+            appendEntry('system', data.response || `Активна колонка: ${name}`);
+            updateSpeakerStatus();
+        })
+        .catch(err => appendEntry('system', `Помилка перемикання: ${err.message}`));
+    }
+    if (fullSpeakerBtnJxbt) {
+        fullSpeakerBtnJxbt.addEventListener('click', () => {
+            switchFullSpeaker('41:42:62:69:51:9B', 'JX-BT (1-й поверх)');
+        });
+    }
+    if (fullSpeakerBtnJbl) {
+        fullSpeakerBtnJbl.addEventListener('click', () => {
+            switchFullSpeaker('F8:5C:7E:EE:7D:CC', 'JBL Clip 5 (Гараж)');
+        });
+    }
+
+    const fullJblVolumeSlider = document.getElementById('fullJblVolumeSlider');
+    const fullJblVolumeVal = document.getElementById('fullJblVolumeVal');
+    if (fullJblVolumeSlider) {
+        fullJblVolumeSlider.addEventListener('input', () => {
+            if (fullJblVolumeVal) fullJblVolumeVal.textContent = fullJblVolumeSlider.value + '%';
+        });
+        fullJblVolumeSlider.addEventListener('change', () => {
+            const val = parseInt(fullJblVolumeSlider.value, 10);
+            fetch('/api/speaker/volume', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ volume: val })
+            }).then(updateSpeakerStatus);
         });
     }
 
@@ -732,6 +823,310 @@ document.addEventListener('DOMContentLoaded', () => {
         fullBtnRadioReset.addEventListener('click', () => {
             if (fullRadioSearchInput) fullRadioSearchInput.value = '';
             loadFullRadioStations('');
+        });
+    }
+
+    // --- MEDIA HUB SUB-TABS SWITCHER ---
+    document.querySelectorAll('.media-subtab-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const targetId = btn.getAttribute('data-target');
+            document.querySelectorAll('.media-subtab-btn').forEach(b => {
+                b.classList.remove('active');
+                b.setAttribute('aria-selected', 'false');
+            });
+            document.querySelectorAll('.media-subtab-pane').forEach(p => p.classList.remove('active'));
+            btn.classList.add('active');
+            btn.setAttribute('aria-selected', 'true');
+            const targetPane = document.getElementById(targetId);
+            if (targetPane) targetPane.classList.add('active');
+        });
+    });
+
+    // --- YOUTUBE MUSIC CONTROLS (WEB PANEL) ---
+    const ytPlaylistsContainer = document.getElementById('ytPlaylistsContainer');
+    const ytPlaylistsCountBadge = document.getElementById('ytPlaylistsCountBadge');
+    const ytLikedCountBadge = document.getElementById('ytLikedCountBadge');
+    const ytPlaylistsSearch = document.getElementById('ytPlaylistsSearch');
+    const btnYtRefreshPlaylists = document.getElementById('btnYtRefreshPlaylists');
+
+    const btnYtPlayLiked = document.getElementById('btnYtPlayLiked');
+    const btnYtShuffleLiked = document.getElementById('btnYtShuffleLiked');
+    const btnYtBrowseLiked = document.getElementById('btnYtBrowseLiked');
+
+    const ytTrackViewerCard = document.getElementById('ytTrackViewerCard');
+    const ytActivePlaylistTitle = document.getElementById('ytActivePlaylistTitle');
+    const ytActivePlaylistCount = document.getElementById('ytActivePlaylistCount');
+    const btnYtCloseTracks = document.getElementById('btnYtCloseTracks');
+    const btnYtPlayCurrentAll = document.getElementById('btnYtPlayCurrentAll');
+    const btnYtShuffleCurrentAll = document.getElementById('btnYtShuffleCurrentAll');
+    const ytTrackSearchInput = document.getElementById('ytTrackSearchInput');
+    const ytTracksListContainer = document.getElementById('ytTracksListContainer');
+
+    let ytPlaylistsCache = [];
+    let ytActivePlaylistData = { id: 'LM', title: 'Улюблені пісні', tracks: [] };
+
+    function loadYTMusicPlaylists(forceRefresh = false) {
+        if (!ytPlaylistsContainer) return;
+        ytPlaylistsContainer.innerHTML = '<div style="grid-column: 1 / -1; font-size: 13px; color: var(--text-muted); padding: 16px; text-align: center;">⏳ Оновлення списків YouTube Music...</div>';
+
+        fetch(`/api/ytmusic/playlists?refresh=${forceRefresh ? 1 : 0}`)
+            .then(res => res.json())
+            .then(data => {
+                if (data.success && data.playlists) {
+                    ytPlaylistsCache = data.playlists;
+                    // Find Liked Music count
+                    const likedPl = data.playlists.find(p => p.is_liked || p.id === 'LM');
+                    if (likedPl && ytLikedCountBadge) {
+                        ytLikedCountBadge.textContent = `${likedPl.track_count || 116}+`;
+                    }
+                    if (ytPlaylistsCountBadge) {
+                        const customCount = data.playlists.filter(p => !p.is_liked && p.id !== 'LM').length;
+                        ytPlaylistsCountBadge.textContent = `${customCount} списків`;
+                    }
+                    renderYTPlaylists(ytPlaylistsCache, ytPlaylistsSearch ? ytPlaylistsSearch.value.trim() : '');
+                } else {
+                    ytPlaylistsContainer.innerHTML = '<div style="grid-column: 1 / -1; font-size: 13px; color: var(--text-muted); padding: 16px; text-align: center;">Плейлистів не знайдено</div>';
+                }
+            })
+            .catch(err => {
+                ytPlaylistsContainer.innerHTML = `<div style="grid-column: 1 / -1; font-size: 13px; color: #ff0055; padding: 16px; text-align: center;">Помилка завантаження: ${err.message}</div>`;
+            });
+    }
+
+    function renderYTPlaylists(playlists, filterText = '') {
+        if (!ytPlaylistsContainer) return;
+        ytPlaylistsContainer.innerHTML = '';
+
+        const customPlaylists = playlists.filter(p => !p.is_liked && p.id !== 'LM');
+        const q = filterText.toLowerCase();
+        const filtered = customPlaylists.filter(p => p.title.toLowerCase().includes(q));
+
+        if (filtered.length === 0) {
+            ytPlaylistsContainer.innerHTML = '<div style="grid-column: 1 / -1; font-size: 13px; color: var(--text-muted); padding: 16px; text-align: center;">Плейлистів за запитом не знайдено</div>';
+            return;
+        }
+
+        filtered.forEach(pl => {
+            const card = document.createElement('div');
+            card.className = 'yt-playlist-card';
+
+            const countText = pl.track_count ? `${pl.track_count} треків` : 'Плейлист';
+
+            card.innerHTML = `
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;">
+                    <div class="yt-pl-title">
+                        <span>🎵</span>
+                        <span title="${pl.title}">${pl.title}</span>
+                    </div>
+                    <span class="yt-pl-count">${countText}</span>
+                </div>
+                <div class="yt-pl-actions">
+                    <button type="button" class="btn-ctrl btn-play-pl" aria-label="Відтворити плейлист">▶ Слухати</button>
+                    <button type="button" class="btn-ctrl btn-shuffle-pl" aria-label="Відтворити у випадковому порядку">🔀 Shuffle</button>
+                    <button type="button" class="btn-ctrl btn-browse-pl" style="color: var(--accent-cyan); border-color: rgba(0,240,255,0.3);" aria-label="Переглянути треки плейлиста">☰ Треки</button>
+                </div>
+            `;
+
+            card.querySelector('.btn-play-pl').addEventListener('click', (e) => {
+                e.stopPropagation();
+                playYTPlaylist(pl.id, false, pl.title);
+            });
+
+            card.querySelector('.btn-shuffle-pl').addEventListener('click', (e) => {
+                e.stopPropagation();
+                playYTPlaylist(pl.id, true, pl.title);
+            });
+
+            card.querySelector('.btn-browse-pl').addEventListener('click', (e) => {
+                e.stopPropagation();
+                openYTPlaylistTracks(pl.id, pl.title);
+            });
+
+            card.addEventListener('click', () => {
+                openYTPlaylistTracks(pl.id, pl.title);
+            });
+
+            ytPlaylistsContainer.appendChild(card);
+        });
+    }
+
+    function playYTPlaylist(playlistId, shuffle = true, playlistTitle = '') {
+        const title = playlistTitle || (playlistId === 'LM' ? 'Улюблені пісні' : 'Плейлист');
+        appendEntry('system', `🎵 Запуск ${shuffle ? 'випадкового порядку ' : ''}з '${title}' на Bluetooth-колонку...`);
+
+        fetch('/api/ytmusic/play', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                playlist_id: playlistId,
+                shuffle: shuffle
+            })
+        })
+        .then(res => res.json())
+        .then(data => {
+            appendEntry('system', data.response || `Відтворення '${title}' запущено`);
+            updateSpeakerStatus();
+        })
+        .catch(err => {
+            appendEntry('system', `Помилка запуску плейлиста: ${err.message}`);
+        });
+    }
+
+    function openYTPlaylistTracks(playlistId, playlistTitle) {
+        if (!ytTrackViewerCard || !ytTracksListContainer) return;
+
+        ytActivePlaylistData.id = playlistId;
+        ytActivePlaylistData.title = playlistTitle;
+        ytActivePlaylistData.tracks = [];
+
+        ytTrackViewerCard.style.display = 'block';
+        if (ytActivePlaylistTitle) ytActivePlaylistTitle.textContent = playlistTitle;
+        if (ytActivePlaylistCount) ytActivePlaylistCount.textContent = 'Завантаження пісень...';
+        ytTracksListContainer.innerHTML = '<div style="font-size: 12px; color: var(--text-muted); padding: 14px; text-align: center;">⏳ Отримання списку пісень...</div>';
+
+        ytTrackViewerCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+        fetch(`/api/ytmusic/playlist/${playlistId}/tracks`)
+            .then(res => res.json())
+            .then(data => {
+                if (data.success && data.tracks && data.tracks.length > 0) {
+                    ytActivePlaylistData.tracks = data.tracks;
+                    if (ytActivePlaylistCount) ytActivePlaylistCount.textContent = `${data.tracks.length} пісень`;
+                    renderYTTracks(data.tracks);
+                } else {
+                    ytTracksListContainer.innerHTML = '<div style="font-size: 12px; color: var(--text-muted); padding: 14px; text-align: center;">Не знайдено пісень у цьому плейлисті</div>';
+                    if (ytActivePlaylistCount) ytActivePlaylistCount.textContent = '0 пісень';
+                }
+            })
+            .catch(err => {
+                ytTracksListContainer.innerHTML = `<div style="font-size: 12px; color: #ff0055; padding: 14px; text-align: center;">Помилка завантаження пісень: ${err.message}</div>`;
+            });
+    }
+
+    function formatDuration(sec) {
+        if (!sec || isNaN(sec)) return '';
+        const m = Math.floor(sec / 60);
+        const s = Math.floor(sec % 60);
+        return `${m}:${s < 10 ? '0' : ''}${s}`;
+    }
+
+    function renderYTTracks(tracks, filterText = '') {
+        if (!ytTracksListContainer) return;
+        ytTracksListContainer.innerHTML = '';
+
+        const q = filterText.toLowerCase();
+        const filtered = tracks.filter(t => 
+            t.title.toLowerCase().includes(q) || 
+            (t.uploader && t.uploader.toLowerCase().includes(q))
+        );
+
+        if (filtered.length === 0) {
+            ytTracksListContainer.innerHTML = '<div style="font-size: 12px; color: var(--text-muted); padding: 12px; text-align: center;">Пісень за запитом не знайдено</div>';
+            return;
+        }
+
+        filtered.forEach((tr, index) => {
+            const row = document.createElement('div');
+            row.className = 'yt-track-row';
+
+            const durStr = formatDuration(tr.duration);
+
+            row.innerHTML = `
+                <div class="yt-track-main">
+                    <span class="yt-track-idx">${index + 1}</span>
+                    <button type="button" class="yt-track-playbtn" title="Відтворити трек" aria-label="Відтворити ${tr.title}">▶</button>
+                    <div class="yt-track-meta">
+                        <span class="yt-track-title" title="${tr.title}">${tr.title}</span>
+                        ${tr.uploader ? `<span class="yt-track-artist">${tr.uploader}</span>` : ''}
+                    </div>
+                </div>
+                ${durStr ? `<span class="yt-track-time">${durStr}</span>` : ''}
+            `;
+
+            row.addEventListener('click', () => {
+                playYTTrack(ytActivePlaylistData.id, tr.id, tr.title, tr.uploader);
+                document.querySelectorAll('.yt-track-row').forEach(r => r.classList.remove('playing'));
+                row.classList.add('playing');
+            });
+
+            ytTracksListContainer.appendChild(row);
+        });
+    }
+
+    function playYTTrack(playlistId, trackId, trackTitle, uploader) {
+        appendEntry('system', `▶ Запуск треку '${trackTitle}' на колонці...`);
+
+        fetch('/api/ytmusic/play', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                playlist_id: playlistId,
+                track_id: trackId,
+                track_title: trackTitle,
+                uploader: uploader
+            })
+        })
+        .then(res => res.json())
+        .then(data => {
+            appendEntry('system', data.response || `Грає: ${trackTitle}`);
+            updateSpeakerStatus();
+        })
+        .catch(err => {
+            appendEntry('system', `Помилка запуску треку: ${err.message}`);
+        });
+    }
+
+    if (btnYtPlayLiked) {
+        btnYtPlayLiked.addEventListener('click', () => {
+            playYTPlaylist('LM', false, 'Улюблені пісні');
+        });
+    }
+
+    if (btnYtShuffleLiked) {
+        btnYtShuffleLiked.addEventListener('click', () => {
+            playYTPlaylist('LM', true, 'Улюблені пісні');
+        });
+    }
+
+    if (btnYtBrowseLiked) {
+        btnYtBrowseLiked.addEventListener('click', () => {
+            openYTPlaylistTracks('LM', 'Улюблені пісні (Liked Music)');
+        });
+    }
+
+    if (btnYtRefreshPlaylists) {
+        btnYtRefreshPlaylists.addEventListener('click', () => {
+            loadYTMusicPlaylists(true);
+        });
+    }
+
+    if (ytPlaylistsSearch) {
+        ytPlaylistsSearch.addEventListener('input', () => {
+            renderYTPlaylists(ytPlaylistsCache, ytPlaylistsSearch.value.trim());
+        });
+    }
+
+    if (btnYtCloseTracks && ytTrackViewerCard) {
+        btnYtCloseTracks.addEventListener('click', () => {
+            ytTrackViewerCard.style.display = 'none';
+        });
+    }
+
+    if (btnYtPlayCurrentAll) {
+        btnYtPlayCurrentAll.addEventListener('click', () => {
+            playYTPlaylist(ytActivePlaylistData.id, false, ytActivePlaylistData.title);
+        });
+    }
+
+    if (btnYtShuffleCurrentAll) {
+        btnYtShuffleCurrentAll.addEventListener('click', () => {
+            playYTPlaylist(ytActivePlaylistData.id, true, ytActivePlaylistData.title);
+        });
+    }
+
+    if (ytTrackSearchInput) {
+        ytTrackSearchInput.addEventListener('input', () => {
+            renderYTTracks(ytActivePlaylistData.tracks, ytTrackSearchInput.value.trim());
         });
     }
 

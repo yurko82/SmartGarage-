@@ -54,6 +54,39 @@ GARAGE_TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "play_user_playlist",
+            "description": "Відтворення треків з особистих плейлистів або списку Улюблених (Liked Music) користувача в YouTube Music на Bluetooth-колонці. Використовуй, коли Юрій просить 'включи мої улюблені', 'включи плейлист рок', 'включи плейлист dnb' тощо.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "playlist": {
+                        "type": "string",
+                        "description": "Назва або ключове слово плейлиста (наприклад: 'улюблені', 'рок', 'dnb') або 'LM' для Улюблених."
+                    },
+                    "speaker": {
+                        "type": "string",
+                        "enum": ["jbl", "jx-bt"],
+                        "description": "Опціонально: цільова колонка ('jbl' у гаражі або 'jx-bt' на 1-му поверсі)."
+                    }
+                },
+                "required": ["playlist"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_user_playlists",
+            "description": "Отримання списку збережених плейлистів та улюблених списків відтворення користувача в YouTube Music.",
+            "parameters": {
+                "type": "object",
+                "properties": {}
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "play_media",
             "description": "Трансляція відео, фільмів чи кліпів на великий екран проектора HY350MAX у гаражі. Для відтворення пісень чи звичайного аудіо використовуй play_song (YouTube Music на Bluetooth-колонці).",
             "parameters": {
@@ -223,6 +256,14 @@ class ToolDispatcher:
                 query = str(arguments.get("query") or "").strip()
                 spk = str(arguments.get("speaker") or "").lower()
                 return self._play_song(query, spk)
+
+            elif tool_name == "play_user_playlist":
+                pl = str(arguments.get("playlist") or "LM").strip()
+                spk = str(arguments.get("speaker") or "").lower()
+                return self._play_user_playlist(pl, spk)
+
+            elif tool_name == "list_user_playlists":
+                return self._list_user_playlists()
 
             elif tool_name == "play_media":
                 query = arguments.get("query", "")
@@ -449,4 +490,32 @@ class ToolDispatcher:
             if not self.garage.speaker.is_connected():
                 return {"success": False, "error": f"⚠️ Не вдалося відтворити на YouTube Music: колонка {spk_name} не підключена по Bluetooth або вимкнена."}
             return {"success": False, "error": f"Не вдалося запустити відтворення на YouTube Music ({spk_name}) для '{q}'"}
+
+    def _play_user_playlist(self, playlist_name: str, speaker_target: str = "") -> Dict[str, Any]:
+        if not hasattr(self.garage, "speaker") or not self.garage.speaker:
+            return {"success": False, "error": "Контролер колонки недоступний"}
+
+        if speaker_target in ("jx-bt", "jxbt", "floor1", "1 поверх"):
+            self.garage.speaker.set_active_speaker("41:42:62:69:51:9B", "JX-BT (1-й поверх)")
+        elif speaker_target in ("jbl", "garage", "гараж"):
+            self.garage.speaker.set_active_speaker("F8:5C:7E:EE:7D:CC", "Юрій: JBL Clip 5")
+
+        # Stop projector video if active
+        if hasattr(self.garage, "projector") and self.garage.projector:
+            try:
+                self.garage.projector.stop_video()
+            except Exception:
+                pass
+
+        ok, p_title, t_title = self.garage.speaker.play_playlist(playlist_name, shuffle=True)
+        spk_name = self.garage.speaker.name or "Bluetooth-колонці"
+        if ok:
+            return {"success": True, "message": f"🔊 Відтворюю з '{p_title}' на YouTube Music ({spk_name}): {t_title}"}
+        return {"success": False, "error": f"Не вдалося знайти або відтворити плейлист '{playlist_name}' на {spk_name}"}
+
+    def _list_user_playlists(self) -> Dict[str, Any]:
+        from server.services.ytmusic_service import ytmusic_service
+        pls = ytmusic_service.get_user_playlists()
+        return {"success": True, "playlists": pls}
+
 

@@ -1381,3 +1381,67 @@ body {
     box-shadow: 0 0 10px rgba(0, 240, 255, 0.25);
 }
 
+/* Dashboard YouTube Music Controls */
+.dash-audio-tab-btn {
+    transition: all 0.2s ease;
+}
+
+.dash-audio-tab-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: #fff;
+}
+
+.dash-audio-tab-btn.active {
+    background: rgba(255, 0, 85, 0.2) !important;
+    border-color: var(--accent-pink, #ff0055) !important;
+    color: #fff !important;
+    box-shadow: 0 0 10px rgba(255, 0, 85, 0.25);
+}
+
+.dash-yt-liked-btn {
+    transition: all 0.2s ease;
+}
+
+.dash-yt-liked-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 14px rgba(255, 0, 85, 0.35);
+    border-color: #ff0055;
+}
+
+.yt-dash-chip {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: #f1f5f9;
+    border-radius: 8px;
+    padding: 6px 10px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.2s ease;
+}
+
+.yt-dash-chip:hover {
+    background: rgba(255, 0, 85, 0.15);
+    border-color: #ff0055;
+    color: #fff;
+    transform: translateY(-1px);
+}
+
+.yt-dash-chip.active {
+    background: rgba(255, 0, 85, 0.25);
+    border-color: #ff0055;
+    color: #ff3377;
+    box-shadow: 0 0 10px rgba(255, 0, 85, 0.25);
+}
+
+.yt-dash-chip .dash-chip-badge {
+    font-size: 0.68rem;
+    background: rgba(0, 240, 255, 0.12);
+    color: var(--accent-cyan);
+    padding: 1px 5px;
+    border-radius: 6px;
+}
+

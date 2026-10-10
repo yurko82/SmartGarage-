@@ -549,7 +549,7 @@ class BluetoothSpeakerController:
             self.logger.error(f"Error starting radio stream '{title}': {e}")
             return False
 
-    def play_youtube(self, query: str) -> bool:
+    def play_youtube(self, query: str, track_title: Optional[str] = None, force_stream: bool = False) -> bool:
         """Search and play a track from YouTube or local media cache."""
         target = query.strip()
         if not target:
@@ -577,12 +577,33 @@ class BluetoothSpeakerController:
             self.logger.warning(f"Blocked Russian media playback query: '{target}' (Hard taboo policy)")
             return False
 
+        display_title = track_title or target
+
+        search_target = target if (target.startswith("http://") or target.startswith("https://")) else f"ytsearch1:{target}"
+
+        if force_stream:
+            try:
+                cmd_g = [
+                    "/home/yurko/AI/OpenInterpreter/venv/bin/yt-dlp",
+                    "--extractor-args", "youtube:player_client=android,web",
+                    "-f", "18/bestaudio/best",
+                    "-g",
+                    search_target
+                ]
+                res_g = subprocess.run(cmd_g, capture_output=True, text=True, timeout=10)
+                if res_g.returncode == 0 and res_g.stdout.strip():
+                    direct_url = res_g.stdout.strip().split("\n")[-1]
+                    if direct_url.startswith("http"):
+                        return self.play_stream(direct_url, track_title=display_title)
+            except Exception as e:
+                self.logger.error(f"Instant stream URL extraction failed: {e}")
+
         # Check direct file path match first
         target_path = Path(target)
         if target_path.exists() and target_path.is_file():
-            return self.play_file(str(target_path))
+            return self.play_file(str(target_path), track_title=display_title)
         if (self.media_dir / target).exists():
-            return self.play_file(str(self.media_dir / target))
+            return self.play_file(str(self.media_dir / target), track_title=display_title)
 
         # Check local media matches by name
         UA_LAT_TABLE = {
@@ -617,11 +638,11 @@ class BluetoothSpeakerController:
                     or any(w in clean_name for w in t_words if len(w) > 3)
                     or any(w in clean_name for w in words if len(w) > 3)
                 ):
-                    return self.play_file(str(f), track_title=f.stem.replace("_", " ").title())
+                    return self.play_file(str(f), track_title=display_title or f.stem.replace("_", " ").title())
 
             # If user explicitly asked for local song from laptop without specific name
             if is_laptop_local_query and local_candidates:
-                return self.play_file(str(local_candidates[0]), track_title=local_candidates[0].stem.replace("_", " ").title())
+                return self.play_file(str(local_candidates[0]), track_title=display_title or local_candidates[0].stem.replace("_", " ").title())
 
         # If not found locally, download/stream via yt-dlp
         import hashlib
@@ -629,7 +650,7 @@ class BluetoothSpeakerController:
         cached_file = self.media_dir / f"stream_{hash_name}.mp4"
 
         if cached_file.exists() and cached_file.stat().st_size > 100000:
-            return self.play_file(str(cached_file), track_title=target)
+            return self.play_file(str(cached_file), track_title=display_title)
 
         search_target = target if (target.startswith("http://") or target.startswith("https://")) else f"ytsearch1:{target}"
         ffmpeg_bin = "/home/yurko/AI/OpenInterpreter/venv/lib/python3.12/site-packages/imageio_ffmpeg/binaries/ffmpeg-linux-x86_64-v7.0.2"
@@ -637,14 +658,25 @@ class BluetoothSpeakerController:
         cmd_dl = [
             "/home/yurko/AI/OpenInterpreter/venv/bin/yt-dlp",
             "--ffmpeg-location", ffmpeg_bin,
+            "--extractor-args", "youtube:player_client=android,web",
             "-f", "18/best[ext=mp4][height<=720]/136+140/best/bestaudio",
             "--no-playlist",
             "-o", str(cached_file),
             search_target
         ]
+        if not os.environ.get("TESTING"):
+            cmd_dl_cookies = list(cmd_dl)
+            cmd_dl_cookies.insert(3, "--cookies-from-browser")
+            cmd_dl_cookies.insert(4, "firefox")
+        else:
+            cmd_dl_cookies = cmd_dl
 
         try:
-            subprocess.run(cmd_dl, capture_output=True, text=True, timeout=60)
+            subprocess.run(cmd_dl_cookies, capture_output=True, text=True, timeout=60)
+            if not cached_file.exists() or cached_file.stat().st_size <= 10000:
+                if cmd_dl_cookies != cmd_dl:
+                    subprocess.run(cmd_dl, capture_output=True, text=True, timeout=60)
+
             if cached_file.exists() and cached_file.stat().st_size > 10000:
                 try:
                     all_streams = sorted([f for f in self.media_dir.glob("stream_*.mp4") if f.is_file()], key=lambda x: x.stat().st_mtime)
@@ -653,11 +685,67 @@ class BluetoothSpeakerController:
                             old_st.unlink(missing_ok=True)
                 except Exception:
                     pass
-                return self.play_file(str(cached_file), track_title=target)
+                return self.play_file(str(cached_file), track_title=display_title)
         except Exception as e:
             self.logger.error(f"Error downloading audio for JBL: {e}")
 
+        # Fallback: instant direct streaming via yt-dlp -g for long mixes or failed downloads
+        try:
+            cmd_g = [
+                "/home/yurko/AI/OpenInterpreter/venv/bin/yt-dlp",
+                "--extractor-args", "youtube:player_client=android,web",
+                "-f", "18/bestaudio/best",
+                "-g",
+                search_target
+            ]
+            res_g = subprocess.run(cmd_g, capture_output=True, text=True, timeout=10)
+            if res_g.returncode == 0 and res_g.stdout.strip():
+                direct_url = res_g.stdout.strip().split("\n")[-1]
+                if direct_url.startswith("http"):
+                    return self.play_stream(direct_url, track_title=display_title)
+        except Exception as e:
+            self.logger.error(f"Instant stream URL extraction failed: {e}")
+
         return False
+
+    def play_playlist(self, playlist_name_or_id: str = "LM", shuffle: bool = True):
+        """Play a track from user's YouTube Music playlist or Liked Songs."""
+        try:
+            from server.services.ytmusic_service import ytmusic_service
+            track = ytmusic_service.get_track_to_play(playlist_name_or_id, shuffle=shuffle)
+            if not track:
+                return False, None, None
+
+            p_title = track.get("playlist_title", "Плейлист")
+            t_title = track.get("title", "")
+            uploader = track.get("uploader", "")
+            if uploader.endswith(" - Topic"):
+                uploader = uploader[:-8]
+            target_query = f"{t_title} {uploader}".strip() if uploader else t_title
+            duration = track.get("duration", 0)
+            force_stream = bool(duration and duration > 600)
+            ok = self.play_youtube(target_query, track_title=t_title, force_stream=force_stream)
+            if ok:
+                with self._lock:
+                    self._current_track = f"🎵 {t_title}"
+            return ok, p_title, t_title
+        except Exception as e:
+            self.logger.error(f"Error playing playlist '{playlist_name_or_id}': {e}")
+            return False, None, None
+
+    def play_liked(self, shuffle: bool = True):
+        """Play a track from user's Liked Music (Улюблені)."""
+        return self.play_playlist("LM", shuffle=shuffle)
+
+    def play_next(self, shuffle: bool = True):
+        """Play next track from current YouTube Music playlist."""
+        try:
+            from server.services.ytmusic_service import ytmusic_service
+            p_id = ytmusic_service.current_playlist_id or "LM"
+            return self.play_playlist(p_id, shuffle=shuffle)
+        except Exception as e:
+            self.logger.error(f"Error playing next track: {e}")
+            return False, None, None
 
     def get_status(self) -> Dict[str, Any]:
         """Get comprehensive speaker status."""

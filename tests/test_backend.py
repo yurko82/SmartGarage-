@@ -5,7 +5,7 @@ import tempfile
 import time
 from pathlib import Path
 import json
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from server.memory.memory import Memory
 from server.commands.processor import CommandProcessor
@@ -199,6 +199,28 @@ class TestCommandProcessor(unittest.TestCase):
             handled, resp = self.processor.execute("просто включи музику")
             self.assertTrue(handled)
             self.assertIn("YouTube Music", resp)
+
+    def test_youtube_music_playlist_commands(self):
+        import unittest.mock
+        # 1. Inquiry for playlists
+        handled, resp = self.processor.execute("мої плейлисти")
+        self.assertTrue(handled)
+        self.assertIn("Ваші плейлисти", resp)
+
+        # 2. Play liked songs
+        with unittest.mock.patch.object(self.processor.speaker, "play_liked", return_value=(True, "Улюблені пісні", "TUMAN")) as mock_liked:
+            handled, resp = self.processor.execute("включи мої улюблені")
+            self.assertTrue(handled)
+            self.assertIn("Улюблені пісні", resp)
+            self.assertIn("TUMAN", resp)
+            mock_liked.assert_called_with(shuffle=True)
+
+        # 3. Play specific playlist
+        with unittest.mock.patch.object(self.processor.speaker, "play_playlist", return_value=(True, "Український рок: драйв та емоції", "Пригадай")) as mock_pl:
+            handled, resp = self.processor.execute("включи плейлист рок")
+            self.assertTrue(handled)
+            self.assertIn("Український рок", resp)
+            self.assertIn("Пригадай", resp)
 
     def test_unknown_command(self):
         handled, response = self.processor.execute("What is the weather outside?")
@@ -1270,6 +1292,100 @@ class TestMQTTBridge(unittest.TestCase):
                 mock_pf.assert_called_with(str(test_file), track_title=clean_target)
         finally:
             test_file.unlink(missing_ok=True)
+
+        # 4. Playlist tools check
+        self.assertIn("play_user_playlist", tool_names)
+        self.assertIn("list_user_playlists", tool_names)
+        garage.speaker.play_playlist.return_value = (True, "Український рок", "Пригадай")
+        res_pl = dispatcher.execute("play_user_playlist", {"playlist": "рок"})
+        self.assertTrue(res_pl["success"])
+        self.assertIn("Український рок", res_pl["message"])
+
+
+class TestYTMusicWebAPI(unittest.TestCase):
+
+    def setUp(self):
+        self.client = app.test_client()
+
+    @patch("server.webapp.ytmusic_service")
+    def test_api_ytmusic_playlists(self, mock_yt):
+        mock_yt.get_user_playlists.return_value = [
+            {"id": "LM", "title": "Улюблені пісні", "is_liked": True, "track_count": 116},
+            {"id": "PL123", "title": "Український рок", "is_liked": False, "track_count": 50}
+        ]
+        mock_yt.current_playlist_id = "LM"
+
+        res = self.client.get("/api/ytmusic/playlists")
+        self.assertEqual(res.status_code, 200)
+        data = res.get_json()
+        self.assertTrue(data["success"])
+        self.assertEqual(len(data["playlists"]), 2)
+        self.assertEqual(data["playlists"][0]["id"], "LM")
+
+    @patch("server.webapp.ytmusic_service")
+    def test_api_ytmusic_playlist_tracks(self, mock_yt):
+        mock_yt.get_playlist_tracks.return_value = [
+            {"id": "trk1", "title": "Червона рута", "uploader": "ВІА Смерічка", "duration": 180}
+        ]
+
+        res = self.client.get("/api/ytmusic/playlist/PL123/tracks")
+        self.assertEqual(res.status_code, 200)
+        data = res.get_json()
+        self.assertTrue(data["success"])
+        self.assertEqual(data["playlist_id"], "PL123")
+        self.assertEqual(len(data["tracks"]), 1)
+        self.assertEqual(data["tracks"][0]["title"], "Червона рута")
+
+    @patch("server.webapp.garage")
+    def test_api_ytmusic_play_playlist(self, mock_garage):
+        mock_garage.speaker.play_playlist.return_value = (True, "Український рок", "Океан Ельзи - Майже весна")
+        mock_garage.speaker.is_playing.return_value = True
+        mock_garage.speaker.name = "JX-BT"
+
+        res = self.client.post("/api/ytmusic/play", json={"playlist_id": "PL123", "shuffle": True})
+        self.assertEqual(res.status_code, 200)
+        data = res.get_json()
+        self.assertTrue(data["success"])
+        self.assertTrue(data["playing"])
+        self.assertEqual(data["track_title"], "Океан Ельзи - Майже весна")
+        mock_garage.speaker.play_playlist.assert_called_with("PL123", shuffle=True)
+
+    @patch("server.webapp.garage")
+    def test_api_ytmusic_play_specific_track(self, mock_garage):
+        mock_garage.speaker.play_youtube.return_value = True
+        mock_garage.speaker.is_playing.return_value = True
+        mock_garage.speaker.name = "JBL Clip 5"
+
+        res = self.client.post("/api/ytmusic/play", json={
+            "track_id": "xyz123",
+            "track_title": "Човен",
+            "uploader": "Один в каное"
+        })
+        self.assertEqual(res.status_code, 200)
+        data = res.get_json()
+        self.assertTrue(data["success"])
+        self.assertEqual(data["track_title"], "Човен")
+        mock_garage.speaker.play_youtube.assert_called_with("Човен Один в каное", track_title="Човен")
+
+    @patch("server.webapp.garage")
+    def test_api_ytmusic_next(self, mock_garage):
+        mock_garage.speaker.play_next.return_value = (True, "Український рок", "Бумбокс - Люди")
+        mock_garage.speaker.is_playing.return_value = True
+        mock_garage.speaker.name = "JX-BT"
+
+        res = self.client.post("/api/ytmusic/next", json={"shuffle": True})
+        self.assertEqual(res.status_code, 200)
+        data = res.get_json()
+        self.assertTrue(data["success"])
+        self.assertEqual(data["track_title"], "Бумбокс - Люди")
+        mock_garage.speaker.play_next.assert_called_with(shuffle=True)
+
+    def test_api_ytmusic_status(self):
+        res = self.client.get("/api/ytmusic/status")
+        self.assertEqual(res.status_code, 200)
+        data = res.get_json()
+        self.assertTrue(data["success"])
+        self.assertIn("speaker", data)
 
 
 if __name__ == "__main__":

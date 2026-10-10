@@ -11,6 +11,7 @@ from .devices.projector import get_local_ip
 from server.config import config
 from server.services.radio_service import radio_service
 from server.services.neural_tts import neural_tts, clean_text_for_tts
+from server.services.ytmusic_service import ytmusic_service
 
 
 class TelemetryHistory:
@@ -1072,6 +1073,116 @@ def radio_play():
         "success": ok,
         "playing": garage.speaker.is_playing(),
         "response": f"Трансляція {name} на {spk_name}" if ok else f"Не вдалося підключити {spk_name} (пристрій не відповідає)"
+    })
+
+
+# --- YOUTUBE MUSIC API ---
+@app.route("/api/ytmusic/playlists", methods=["GET"])
+def ytmusic_playlists():
+    refresh = request.args.get("refresh", default="0").lower() in ("1", "true", "yes")
+    playlists = ytmusic_service.get_user_playlists(force_refresh=refresh)
+    return jsonify({
+        "success": True,
+        "playlists": playlists,
+        "current_playlist_id": ytmusic_service.current_playlist_id
+    })
+
+
+@app.route("/api/ytmusic/playlist/<playlist_id>/tracks", methods=["GET"])
+def ytmusic_playlist_tracks(playlist_id):
+    refresh = request.args.get("refresh", default="0").lower() in ("1", "true", "yes")
+    tracks = ytmusic_service.get_playlist_tracks(playlist_id, force_refresh=refresh)
+    return jsonify({
+        "success": True,
+        "playlist_id": playlist_id,
+        "count": len(tracks),
+        "tracks": tracks
+    })
+
+
+@app.route("/api/ytmusic/play", methods=["POST"])
+def ytmusic_play():
+    data = request.get_json(silent=True) or {}
+    mac = data.get("mac")
+    if mac and hasattr(garage, "speaker"):
+        garage.speaker.set_active_speaker(mac)
+
+    playlist_id = data.get("playlist_id")
+    track_id = data.get("track_id")
+    track_title = data.get("track_title")
+    uploader = data.get("uploader", "")
+    query = data.get("query", "").strip()
+    shuffle = data.get("shuffle", True)
+
+    spk_name = garage.speaker.name if hasattr(garage, "speaker") else "колонці"
+
+    # Specific track requested
+    if track_title or query or track_id:
+        if track_title:
+            target_query = f"{track_title} {uploader}".strip() if uploader else track_title
+            if target_query.endswith(" - Topic"):
+                target_query = target_query[:-8]
+            t_display = track_title
+        elif query:
+            target_query = query
+            t_display = query
+        else:
+            target_query = f"https://www.youtube.com/watch?v={track_id}"
+            t_display = track_id
+
+        if playlist_id:
+            ytmusic_service.current_playlist_id = playlist_id
+
+        ok = garage.speaker.play_youtube(target_query, track_title=t_display)
+        return jsonify({
+            "success": ok,
+            "playing": garage.speaker.is_playing() if hasattr(garage, "speaker") else False,
+            "track_title": t_display,
+            "response": f"Грає '{t_display}' на {spk_name}" if ok else f"Не вдалося запустити на {spk_name}"
+        })
+
+    # Playlist or Liked songs requested
+    target_pl = playlist_id or "LM"
+    ok, p_title, t_title = garage.speaker.play_playlist(target_pl, shuffle=shuffle)
+    return jsonify({
+        "success": ok,
+        "playing": garage.speaker.is_playing() if hasattr(garage, "speaker") else False,
+        "playlist_id": target_pl,
+        "playlist_title": p_title,
+        "track_title": t_title,
+        "response": f"Грає '{t_title}' з '{p_title}' на {spk_name}" if ok else f"Не вдалося запустити плейлист на {spk_name}"
+    })
+
+
+@app.route("/api/ytmusic/next", methods=["POST"])
+def ytmusic_next():
+    data = request.get_json(silent=True) or {}
+    mac = data.get("mac")
+    if mac and hasattr(garage, "speaker"):
+        garage.speaker.set_active_speaker(mac)
+    shuffle = data.get("shuffle", True)
+
+    ok, p_title, t_title = garage.speaker.play_next(shuffle=shuffle)
+    spk_name = garage.speaker.name if hasattr(garage, "speaker") else "колонці"
+    return jsonify({
+        "success": ok,
+        "playing": garage.speaker.is_playing() if hasattr(garage, "speaker") else False,
+        "playlist_title": p_title,
+        "track_title": t_title,
+        "response": f"Наступний трек: '{t_title}' на {spk_name}" if ok else f"Не вдалося перемкнути трек на {spk_name}"
+    })
+
+
+@app.route("/api/ytmusic/status", methods=["GET"])
+def ytmusic_status():
+    spk_status = garage.speaker.get_status() if hasattr(garage, "speaker") else {}
+    return jsonify({
+        "success": True,
+        "current_playlist_id": ytmusic_service.current_playlist_id,
+        "current_playlist_title": ytmusic_service.current_playlist_title,
+        "current_track": spk_status.get("current_track"),
+        "playing": garage.speaker.is_playing() if hasattr(garage, "speaker") else False,
+        "speaker": spk_status
     })
 
 

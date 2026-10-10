@@ -369,6 +369,7 @@
                 <div class="media-controls-row" style="margin-bottom: 12px;">
                     <button class="btn-media" id="btnJblPause" aria-label="Пауза аудіо на колонці">⏸ Пауза</button>
                     <button class="btn-media" id="btnJblResume" aria-label="Продовжити аудіо на колонці">▶ Продовжити</button>
+                    <button class="btn-media" id="btnJblNext" style="color: var(--accent-cyan); border-color: rgba(0, 240, 255, 0.3);" aria-label="Наступний трек">⏭ Наступний</button>
                     <button class="btn-media danger" id="btnJblStop" aria-label="Зупинити відтворення на колонці">⏹ Зупинити</button>
                 </div>
 
@@ -380,53 +381,91 @@
                     </button>
                 </form>
 
-                <!-- 6.1 INTERNET RADIO (RADIO BROWSER) -->
+                <!-- 6.1 AUDIO SOURCE SELECTOR (YOUTUBE MUSIC / RADIO) -->
                 <div style="margin-top: 14px; padding-top: 12px; border-top: 1px solid rgba(255, 255, 255, 0.08);">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                        <div style="font-size: 0.85rem; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 6px;">
-                            <span>📻</span> Інтернет-радіо
+                    <div class="dash-audio-tabs" style="display: flex; gap: 8px; margin-bottom: 10px;">
+                        <button type="button" class="dash-audio-tab-btn active" id="btnDashTabYtmusic" style="flex: 1; padding: 7px 12px; font-size: 0.82rem; font-weight: 700; border-radius: 8px; border: 1px solid var(--accent-pink, #ff0055); background: rgba(255, 0, 85, 0.15); color: #fff; cursor: pointer;" aria-label="Джерело: YouTube Music">
+                            🎵 YouTube Music
+                        </button>
+                        <button type="button" class="dash-audio-tab-btn" id="btnDashTabRadio" style="flex: 1; padding: 7px 12px; font-size: 0.82rem; font-weight: 600; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.1); background: rgba(255, 255, 255, 0.04); color: var(--text-muted); cursor: pointer;" aria-label="Джерело: Інтернет-радіо">
+                            📻 Інтернет-радіо
+                        </button>
+                    </div>
+
+                    <!-- YouTube Music Subpanel -->
+                    <div id="dashYtmusicPanel">
+                        <!-- Liked Songs Quick Action -->
+                        <div style="display: flex; gap: 8px; margin-bottom: 8px;">
+                            <button type="button" class="dash-yt-liked-btn" id="btnDashYtLiked" style="flex: 1; display: flex; align-items: center; justify-content: space-between; padding: 9px 14px; border-radius: 8px; background: linear-gradient(135deg, rgba(255, 0, 85, 0.25) 0%, rgba(255, 42, 85, 0.1) 100%); border: 1px solid rgba(255, 0, 85, 0.4); color: #fff; font-size: 0.84rem; font-weight: 700; cursor: pointer;" aria-label="Слухати улюблені пісні">
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <span style="font-size: 1.1rem;">❤️</span>
+                                    <span>Улюблені пісні</span>
+                                </div>
+                                <span id="dashYtLikedBadge" style="font-size: 0.72rem; background: rgba(255, 255, 255, 0.15); padding: 2px 7px; border-radius: 10px;">116+ треків</span>
+                            </button>
+                            <button type="button" id="btnDashYtShuffleLiked" class="btn-pill" style="background: rgba(255, 255, 255, 0.08); color: #fff; cursor: pointer; padding: 0 12px;" title="Випадковий порядок" aria-label="Улюблені у випадковому порядку">
+                                🔀
+                            </button>
                         </div>
-                        <span style="font-size: 0.7rem; color: var(--accent-cyan); background: rgba(0, 240, 255, 0.1); padding: 2px 8px; border-radius: 6px;">Миттєве перемикання</span>
+
+                        <!-- Playlists Chips on Dashboard -->
+                        <div style="font-size: 0.78rem; color: var(--text-muted); margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center;">
+                            <span>📑 Ваші плейлисти:</span>
+                            <button type="button" id="btnDashRefreshPlaylists" style="background: none; border: none; color: var(--accent-cyan); font-size: 0.75rem; cursor: pointer;" aria-label="Оновити плейлисти">🔄 Оновити</button>
+                        </div>
+                        <div class="dash-yt-playlists-chips" id="dashYtPlaylistsContainer" style="display: flex; flex-wrap: wrap; gap: 6px; max-height: 140px; overflow-y: auto;">
+                            <div style="font-size: 0.75rem; color: var(--text-muted); padding: 4px;">Завантаження плейлистів...</div>
+                        </div>
                     </div>
 
-                    <!-- Quick-Picks Top Ukrainian Stations -->
-                    <div class="radio-quick-picks" id="radioQuickPicks">
-                        <button type="button" class="radio-quick-btn" data-url="https://online.kissfm.ua/KissFM" data-name="Kiss FM">
-                            <span>⚡</span> Kiss FM
-                        </button>
-                        <button type="button" class="radio-quick-btn" data-url="https://online.hitfm.ua/HitFM" data-name="Hit FM">
-                            <span>🔥</span> Hit FM
-                        </button>
-                        <button type="button" class="radio-quick-btn" data-url="https://online.radioroks.ua/RadioROKS" data-name="Radio ROKS">
-                            <span>🎸</span> Radio ROKS
-                        </button>
-                        <button type="button" class="radio-quick-btn" data-url="https://online.loungefm.ua/LoungeFM" data-name="Lounge FM">
-                            <span>☕</span> Lounge FM
-                        </button>
-                        <button type="button" class="radio-quick-btn" data-url="https://online.radiobayraktar.com.ua/RadioBayraktar" data-name="Радіо Байрактар">
-                            <span>🇺🇦</span> Байрактар
-                        </button>
-                        <button type="button" class="radio-quick-btn" data-url="http://lux.radio.tvstitch.com/kyiv/lux_audio_128k" data-name="Люкс FM">
-                            <span>✨</span> Люкс FM
-                        </button>
-                        <button type="button" class="radio-quick-btn" data-url="https://online.radiorelax.ua/RadioRelax" data-name="Радіо Relax">
-                            <span>🍃</span> Relax
-                        </button>
-                        <button type="button" class="radio-quick-btn" data-url="https://online.radiojazz.ua/RadioJazz" data-name="Radio Jazz">
-                            <span>🎷</span> Jazz
-                        </button>
-                    </div>
+                    <!-- Radio Subpanel -->
+                    <div id="dashRadioPanel" style="display: none;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                            <div style="font-size: 0.85rem; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 6px;">
+                                <span>📻</span> Інтернет-радіо
+                            </div>
+                            <span style="font-size: 0.7rem; color: var(--accent-cyan); background: rgba(0, 240, 255, 0.1); padding: 2px 8px; border-radius: 6px;">Миттєве перемикання</span>
+                        </div>
 
-                    <!-- Search Input -->
-                    <div style="display: flex; gap: 6px; margin-bottom: 8px;">
-                        <input type="text" id="radioSearchInput" class="media-stream-input" placeholder="🔍 Пошук радіо (рок, лаундж, назва...)" aria-label="Пошук інтернет-радіостанції" style="font-size: 0.82rem; padding: 6px 10px;">
-                        <button type="button" id="btnRadioSearch" class="btn-pill" style="padding: 0 12px; background: rgba(0, 240, 255, 0.15); color: var(--accent-cyan); cursor: pointer;" aria-label="Знайти радіостанцію">Знайти</button>
-                        <button type="button" id="btnRadioReset" class="btn-pill" style="padding: 0 8px; background: rgba(255, 255, 255, 0.06); color: var(--text-muted); cursor: pointer;" title="Популярні станції України" aria-label="Показати популярні станції України">🇺🇦 Топ</button>
-                    </div>
+                        <!-- Quick-Picks Top Ukrainian Stations -->
+                        <div class="radio-quick-picks" id="radioQuickPicks">
+                            <button type="button" class="radio-quick-btn" data-url="https://online.kissfm.ua/KissFM" data-name="Kiss FM">
+                                <span>⚡</span> Kiss FM
+                            </button>
+                            <button type="button" class="radio-quick-btn" data-url="https://online.hitfm.ua/HitFM" data-name="Hit FM">
+                                <span>🔥</span> Hit FM
+                            </button>
+                            <button type="button" class="radio-quick-btn" data-url="https://online.radioroks.ua/RadioROKS" data-name="Radio ROKS">
+                                <span>🎸</span> Radio ROKS
+                            </button>
+                            <button type="button" class="radio-quick-btn" data-url="https://online.loungefm.ua/LoungeFM" data-name="Lounge FM">
+                                <span>☕</span> Lounge FM
+                            </button>
+                            <button type="button" class="radio-quick-btn" data-url="https://online.radiobayraktar.com.ua/RadioBayraktar" data-name="Радіо Байрактар">
+                                <span>🇺🇦</span> Байрактар
+                            </button>
+                            <button type="button" class="radio-quick-btn" data-url="http://lux.radio.tvstitch.com/kyiv/lux_audio_128k" data-name="Люкс FM">
+                                <span>✨</span> Люкс FM
+                            </button>
+                            <button type="button" class="radio-quick-btn" data-url="https://online.radiorelax.ua/RadioRelax" data-name="Радіо Relax">
+                                <span>🍃</span> Relax
+                            </button>
+                            <button type="button" class="radio-quick-btn" data-url="https://online.radiojazz.ua/RadioJazz" data-name="Radio Jazz">
+                                <span>🎷</span> Jazz
+                            </button>
+                        </div>
 
-                    <!-- Station Chips / Grid -->
-                    <div id="radioStationsContainer" style="display: flex; flex-wrap: wrap; gap: 6px; max-height: 160px; overflow-y: auto; padding-right: 2px;">
-                        <div style="font-size: 0.75rem; color: var(--text-muted); padding: 4px;">Завантаження популярних станцій...</div>
+                        <!-- Search Input -->
+                        <div style="display: flex; gap: 6px; margin-bottom: 8px;">
+                            <input type="text" id="radioSearchInput" class="media-stream-input" placeholder="🔍 Пошук радіо (рок, лаундж, назва...)" aria-label="Пошук інтернет-радіостанції" style="font-size: 0.82rem; padding: 6px 10px;">
+                            <button type="button" id="btnRadioSearch" class="btn-pill" style="padding: 0 12px; background: rgba(0, 240, 255, 0.15); color: var(--accent-cyan); cursor: pointer;" aria-label="Знайти радіостанцію">Знайти</button>
+                            <button type="button" id="btnRadioReset" class="btn-pill" style="padding: 0 8px; background: rgba(255, 255, 255, 0.06); color: var(--text-muted); cursor: pointer;" title="Популярні станції України" aria-label="Показати популярні станції України">🇺🇦 Топ</button>
+                        </div>
+
+                        <!-- Station Chips / Grid -->
+                        <div id="radioStationsContainer" style="display: flex; flex-wrap: wrap; gap: 6px; max-height: 160px; overflow-y: auto; padding-right: 2px;">
+                            <div style="font-size: 0.75rem; color: var(--text-muted); padding: 4px;">Завантаження популярних станцій...</div>
+                        </div>
                     </div>
                 </div>
             </section>

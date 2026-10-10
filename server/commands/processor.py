@@ -435,6 +435,98 @@ class CommandProcessor:
                     return True, f"Не вдалося запустити радіо '{st['name']}' {spk_loc}."
             return True, f"Радіостанцію за запитом '{station_query}' не знайдено в каталозі."
 
+        # -----------------------
+        # YOUTUBE MUSIC PLAYLISTS & FAVORITES
+        # -----------------------
+        is_playlist_list_inquiry = any(cmd == p or cmd.startswith(p + " ") for p in (
+            "мої плейлисти", "список моїх плейлистів", "список плейлистів",
+            "покажи мої плейлисти", "покажи плейлисти", "які мої плейлисти",
+            "які є мої плейлисти", "які є плейлисти", "плейлисти youtube music"
+        ))
+        if is_playlist_list_inquiry:
+            from server.services.ytmusic_service import ytmusic_service
+            pls = ytmusic_service.get_user_playlists()
+            if not pls:
+                return True, "Плейлистів у вашому профілі YouTube Music не знайдено або доступ тимчасово обмежено."
+            res_lines = ["🎵 Ваші плейлисти YouTube Music:"]
+            for idx, pl in enumerate(pls, 1):
+                count_str = f" ({pl['track_count']} треків)" if pl.get('track_count') else ""
+                res_lines.append(f"{idx}. {pl['title']}{count_str}")
+            res_lines.append("\nЩоб увімкнути, скажіть: 'Включи плейлист <назва>' або 'Включи мої улюблені'.")
+            return True, "\n".join(res_lines)
+
+        is_liked_play = not is_inquiry_or_question and (
+            any(cmd.startswith(f"{v} {n}") or cmd.startswith(f"{v} мої {n}") for v in (
+                "включи", "увімкни", "відтвори", "запусти", "постав", "грай", "програй", "пусти", "вруби", "play"
+            ) for n in ("улюблені", "улюблене", "улюблені пісні", "улюблені треки", "лайки", "сподобалось", "мої пісні"))
+            or cmd in ("улюблені", "улюблене", "улюблені пісні", "мої улюблені", "улюблені треки")
+        )
+        if is_liked_play:
+            is_floor1_target = any(k in cmd for k in (
+                "на 1 поверсі", "на 1 поверх", "на першому поверсі", "1 поверх", "1-й поверх", "перший поверх",
+                "jx-bt", "jxbt", "xt-bt", "xtbt", "на jx-bt", "на jxbt", "на xt-bt", "на xtbt"
+            ))
+            is_jbl_target = any(k in cmd for k in (
+                "на jbl", "jbl", "оид", "на оид", "на колонку jbl", "на колонки jbl", "колонку jbl", "колонки jbl",
+                "колонці jbl", "колонках jbl", "на кліп", "clip 5"
+            ))
+            if is_floor1_target:
+                self.speaker.set_active_speaker("41:42:62:69:51:9B", "JX-BT (1-й поверх)")
+            elif is_jbl_target:
+                self.speaker.set_active_speaker("F8:5C:7E:EE:7D:CC", "Юрій: JBL Clip 5")
+
+            spk_loc = self._format_speaker_location(locative=True)
+            ok, p_title, t_title = self.speaker.play_liked(shuffle=True)
+            if ok:
+                return True, f"🔊 Відтворюю з '{p_title}' на YouTube Music {spk_loc}: {t_title}"
+            if not self.speaker.is_connected():
+                return True, f"⚠️ Не вдалося відтворити Улюблені {spk_loc}: колонка не підключена по Bluetooth або вимкнена."
+            return True, f"Не вдалося запустити відтворення з Улюблених {spk_loc}."
+
+        is_playlist_play = not is_inquiry_or_question and any(
+            cmd.startswith(f"{v} плейлист") or cmd.startswith(f"{v} мій плейлист")
+            for v in ("включи", "увімкни", "відтвори", "запусти", "постав", "грай", "програй", "пусти", "вруби", "play")
+        )
+        if is_playlist_play:
+            is_floor1_target = any(k in cmd for k in (
+                "на 1 поверсі", "на 1 поверх", "на першому поверсі", "1 поверх", "1-й поверх", "перший поверх",
+                "jx-bt", "jxbt", "xt-bt", "xtbt", "на jx-bt", "на jxbt", "на xt-bt", "на xtbt"
+            ))
+            is_jbl_target = any(k in cmd for k in (
+                "на jbl", "jbl", "оид", "на оид", "на колонку jbl", "на колонки jbl", "колонку jbl", "колонки jbl",
+                "колонці jbl", "колонках jbl", "на кліп", "clip 5"
+            ))
+            if is_floor1_target:
+                self.speaker.set_active_speaker("41:42:62:69:51:9B", "JX-BT (1-й поверх)")
+            elif is_jbl_target:
+                self.speaker.set_active_speaker("F8:5C:7E:EE:7D:CC", "Юрій: JBL Clip 5")
+
+            import re
+            target_name = cmd
+            for pfx in ("включи мій плейлист", "увімкни мій плейлист", "включи плейлист", "увімкни плейлист",
+                        "постав мій плейлист", "постав плейлист", "запусти плейлист", "відтвори плейлист",
+                        "грай плейлист", "програй плейлист", "play playlist"):
+                if target_name.startswith(pfx):
+                    target_name = target_name[len(pfx):].strip()
+                    break
+
+            for tp in (
+                r"\bна перший поверх\b", r"\bна першому поверсі\b", r"\bна 1 поверх\b", r"\bна 1 поверсі\b",
+                r"\bна jx-bt\b", r"\bна jbl\b", r"\bна youtube music\b", r"\bна ютуб мюзік\b"
+            ):
+                target_name = re.sub(tp, "", target_name, flags=re.IGNORECASE).strip()
+
+            from server.services.ytmusic_service import ytmusic_service
+            pl = ytmusic_service.find_playlist(target_name)
+            if pl:
+                spk_loc = self._format_speaker_location(locative=True)
+                ok, p_title, t_title = self.speaker.play_playlist(pl["id"], shuffle=True)
+                if ok:
+                    return True, f"🔊 Відтворюю з плейлиста '{p_title}' на YouTube Music {spk_loc}: {t_title}"
+                return True, f"Не вдалося запустити відтворення з плейлиста '{p_title}' {spk_loc}."
+            else:
+                return True, f"Плейлист за запитом '{target_name}' не знайдено у вашому YouTube Music."
+
         # 2. Comprehensive Media Verbs & Nouns
         media_verbs = (
             "включи", "включити", "увімкни", "увімкнути", "відтвори", "відтворити",

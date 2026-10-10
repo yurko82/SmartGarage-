@@ -284,89 +284,234 @@
                 </div>
             </div>
 
-            <!-- TAB 3: Media Hub & Projector & JBL -->
+            <!-- TAB 3: Media Hub & Projector & YouTube Music -->
             <div class="tab-pane" id="mediaTab">
                 <div class="media-wrapper">
-                    <!-- Bluetooth Speaker Control Bar -->
-                    <div class="projector-control-card" style="border-left: 4px solid var(--accent-cyan, #00f0ff); margin-bottom: 16px;">
-                        <div class="proj-info">
-                            <div class="proj-badge" id="jblOnlineBadge">● Bluetooth Колонка</div>
-                            <span class="proj-ip" id="jblStatusText">Статус: Відключено</span>
-                        </div>
-                        <div class="proj-actions">
-                            <button class="btn-ctrl" id="jblConnectBtn" aria-label="Підключити аудіоколонку">🔗 Підключити</button>
-                            <button class="btn-ctrl" id="jblPauseBtn" aria-label="Пауза відтворення">⏸ Пауза</button>
-                            <button class="btn-ctrl" id="jblResumeBtn" aria-label="Продовжити відтворення">▶ Продовжити</button>
-                            <button class="btn-ctrl btn-danger-sm" id="jblStopBtn" aria-label="Зупинити відтворення">⏹ Зупинити</button>
-                        </div>
-                    </div>
-
-                    <!-- Internet Radio Card (Radio Browser) -->
-                    <div class="projector-control-card" style="border-left: 4px solid #ff0055; margin-bottom: 16px; flex-direction: column; align-items: stretch; gap: 12px;">
-                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <!-- Bluetooth Speaker Universal Control Deck -->
+                    <div class="projector-control-card media-speaker-deck" style="border-left: 4px solid var(--accent-cyan, #00f0ff); margin-bottom: 16px; flex-direction: column; align-items: stretch; gap: 12px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
                             <div class="proj-info">
-                                <div class="proj-badge" style="background: rgba(255, 0, 85, 0.15); color: #ff0055;">📻 Інтернет-радіо</div>
-                                <span class="proj-ip" id="fullRadioStatusText">Трансляція інтернет-радіо на колонку</span>
+                                <div class="proj-badge" id="jblOnlineBadge">● Bluetooth Колонка</div>
+                                <span class="proj-ip" id="jblStatusText">Статус: Очікування</span>
                             </div>
-                            <span style="font-size: 11px; color: var(--accent-cyan); background: rgba(0, 240, 255, 0.1); padding: 3px 8px; border-radius: 6px;">Radio Browser API</span>
+                            <!-- Speaker Selector Switcher (JX-BT vs JBL Clip 5) -->
+                            <div class="speaker-quick-switch" style="display: flex; gap: 6px;">
+                                <button type="button" class="btn-ctrl active" id="fullSpeakerBtnJxbt" data-mac="41:42:62:69:51:9B" title="JX-BT 1-й поверх" aria-label="Перемкнути на аудіо 1-й поверх JX-BT">
+                                    📻 JX-BT (1-й поверх)
+                                </button>
+                                <button type="button" class="btn-ctrl" id="fullSpeakerBtnJbl" data-mac="F8:5C:7E:EE:7D:CC" title="JBL Clip 5 у гаражі" aria-label="Перемкнути на аудіо Гараж JBL Clip 5">
+                                    🔊 JBL Clip 5 (Гараж)
+                                </button>
+                            </div>
                         </div>
 
-                        <!-- Radio Search -->
-                        <div style="display: flex; gap: 8px;">
-                            <input type="text" id="fullRadioSearchInput" placeholder="🔍 Пошук станції або жанру (рок, хіт, лаундж, jazz...)" aria-label="Пошук радіостанції або жанру" style="flex: 1; padding: 8px 14px; font-size: 13px; background: var(--bg-main); border: 1px solid var(--border-color); border-radius: var(--radius-md); color: var(--text-primary); outline: none;">
-                            <button type="button" id="fullBtnRadioSearch" class="btn-ctrl" style="padding: 0 14px;" aria-label="Знайти станцію">Знайти</button>
-                            <button type="button" id="fullBtnRadioReset" class="btn-ctrl" style="padding: 0 10px;" title="Популярні українські станції" aria-label="Показати популярні українські станції">🇺🇦 Топ</button>
-                        </div>
-
-                        <!-- Radio Stations Container -->
-                        <div id="fullRadioStationsContainer" style="display: flex; flex-wrap: wrap; gap: 8px; max-height: 180px; overflow-y: auto; padding: 4px 2px;">
-                            <div style="font-size: 12px; color: var(--text-muted);">Завантаження станцій...</div>
-                        </div>
-                    </div>
-
-                    <!-- Projector Control Bar -->
-                    <div class="projector-control-card">
-                        <div class="proj-info">
-                            <div class="proj-badge" id="projOnlineBadge">● Проектор HY350MAX</div>
-                            <span class="proj-ip" id="projIpText">IP: 10.228.30.59</span>
-                        </div>
-                        <div class="proj-actions">
-                            <button class="btn-ctrl" id="projPauseBtn" aria-label="Пауза відео на проекторі">⏸ Пауза</button>
-                            <button class="btn-ctrl" id="projResumeBtn" aria-label="Продовжити відео на проекторі">▶ Продовжити</button>
-                            <button class="btn-ctrl btn-danger-sm" id="projStopBtn" aria-label="Зупинити відео на проекторі">⏹ Зупинити</button>
-                            <button class="btn-ctrl" id="projMirrorBtn" aria-label="Трансляція екрану на проектор">🖥️ Трансляція екрану</button>
-                        </div>
-                    </div>
-
-                    <!-- Online Stream Box -->
-                    <div class="stream-box">
-                        <h3>🌐 Онлайн стрімінг (YouTube / Пряме посилання)</h3>
-                        <form id="streamForm" class="stream-form">
-                            <input type="text" id="streamInput" placeholder="Введіть назву відео або посилання на YouTube..." aria-label="Посилання на YouTube або назва відео" required>
-                            <button type="submit" class="btn-primary" aria-label="Стрімити на проектор">
-                                <span>▶ Стрімити на проектор</span>
-                            </button>
-                        </form>
-                    </div>
-
-                    <!-- Local Media Gallery -->
-                    <div class="media-gallery-section">
-                        <div class="gallery-header" style="flex-wrap: wrap; gap: 10px;">
-                            <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
-                                <h3>📁 Локальна медіатека (<code>media/</code>)</h3>
-                                <div class="media-filter-tabs" style="display: flex; gap: 6px;">
-                                    <button class="btn-sm active" id="filterAllMediaBtn" aria-label="Фільтр: Всі файли та стріми">Всі</button>
-                                    <button class="btn-sm" id="filterFilesBtn" aria-label="Фільтр: Лише локальні файли">Файли</button>
-                                    <button class="btn-sm" id="filterStreamsBtn" aria-label="Фільтр: Лише збережені стріми">Стріми</button>
+                        <!-- Current Track & Playback Controls Bar -->
+                        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; background: rgba(255, 255, 255, 0.03); padding: 10px 14px; border-radius: var(--radius-md); border: 1px solid var(--border-color);">
+                            <div style="display: flex; align-items: center; gap: 10px; min-width: 220px; flex: 1;">
+                                <span style="font-size: 1.1rem; animation: pulse 2s infinite;">🎵</span>
+                                <div style="display: flex; flex-direction: column; overflow: hidden;">
+                                    <span style="font-size: 11px; color: var(--text-muted);">Зараз відтворюється:</span>
+                                    <span id="fullJblNowPlaying" style="font-size: 13px; font-weight: 600; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 380px;">Немає активного відтворення</span>
                                 </div>
                             </div>
-                            <div style="display: flex; gap: 8px;">
-                                <button class="btn-sm btn-danger-sm" id="cleanupStreamsBtn" title="Видалити всі тимчасові кешовані стріми YouTube" aria-label="Видалити всі тимчасові кешовані стріми YouTube">🧹 Очистити стріми</button>
-                                <button class="btn-sm" id="refreshMediaBtn" aria-label="Оновити список медіа">🔄 Оновити</button>
+
+                            <!-- Playback Action Buttons -->
+                            <div class="proj-actions" style="align-items: center;">
+                                <button class="btn-ctrl" id="jblConnectBtn" aria-label="Підключити аудіоколонку">🔗 З'єднати</button>
+                                <button class="btn-ctrl" id="jblPauseBtn" aria-label="Пауза відтворення">⏸ Пауза</button>
+                                <button class="btn-ctrl" id="jblResumeBtn" aria-label="Продовжити відтворення">▶ Продовжити</button>
+                                <button class="btn-ctrl" id="jblNextBtn" style="color: var(--accent-cyan); border-color: rgba(0, 240, 255, 0.3);" aria-label="Наступний трек">⏭ Наступний</button>
+                                <button class="btn-ctrl btn-danger-sm" id="jblStopBtn" aria-label="Зупинити відтворення">⏹ Стоп</button>
+                            </div>
+
+                            <!-- Volume Control -->
+                            <div style="display: flex; align-items: center; gap: 8px; min-width: 150px;">
+                                <span style="font-size: 12px; color: var(--text-muted);">🎚️</span>
+                                <input type="range" min="0" max="100" value="33" id="fullJblVolumeSlider" style="width: 80px; accent-color: var(--accent-cyan); cursor: pointer;" aria-label="Гучність">
+                                <span id="fullJblVolumeVal" style="font-size: 12px; font-weight: 700; color: var(--accent-cyan); min-width: 32px;">33%</span>
                             </div>
                         </div>
-                        <div class="media-grid" id="mediaGrid">
-                            <div class="media-placeholder">Завантаження списку файлів...</div>
+                    </div>
+
+                    <!-- Media Hub Sub-Tabs Navigation -->
+                    <div class="media-subtabs-nav" role="tablist">
+                        <button type="button" class="media-subtab-btn active" data-target="mediaSubtabYtmusic" id="btnSubtabYtmusic" role="tab" aria-selected="true" aria-controls="mediaSubtabYtmusic">
+                            <span class="subtab-icon">🎵</span>
+                            <span class="subtab-text">YouTube Music</span>
+                            <span class="subtab-pill">Плейлисти & Улюблені</span>
+                        </button>
+                        <button type="button" class="media-subtab-btn" data-target="mediaSubtabRadio" id="btnSubtabRadio" role="tab" aria-selected="false" aria-controls="mediaSubtabRadio">
+                            <span class="subtab-icon">📻</span>
+                            <span class="subtab-text">Інтернет-радіо</span>
+                        </button>
+                        <button type="button" class="media-subtab-btn" data-target="mediaSubtabProjector" id="btnSubtabProjector" role="tab" aria-selected="false" aria-controls="mediaSubtabProjector">
+                            <span class="subtab-icon">🎬</span>
+                            <span class="subtab-text">Проектор & Стріми</span>
+                        </button>
+                        <button type="button" class="media-subtab-btn" data-target="mediaSubtabGallery" id="btnSubtabGallery" role="tab" aria-selected="false" aria-controls="mediaSubtabGallery">
+                            <span class="subtab-icon">📁</span>
+                            <span class="subtab-text">Локальні файли</span>
+                        </button>
+                    </div>
+
+                    <!-- 1. SUB-TAB: YOUTUBE MUSIC -->
+                    <div class="media-subtab-pane active" id="mediaSubtabYtmusic" role="tabpanel">
+                        <!-- Hero Card: Liked Music (Улюблені пісні) -->
+                        <div class="ytmusic-hero-card">
+                            <div class="ytmusic-hero-content">
+                                <div class="ytmusic-hero-badge">
+                                    <span class="yt-dot"></span>
+                                    <span>YOUTUBE MUSIC • ФОНОТЕКА</span>
+                                </div>
+                                <h3 class="ytmusic-hero-title">❤️ Улюблені пісні (Liked Music)</h3>
+                                <p class="ytmusic-hero-subtitle">
+                                    Ваша персональна добірка збережених пісень з YouTube Music. Миттєвий запуск на вибраній Bluetooth-колонці.
+                                </p>
+                                <div class="ytmusic-hero-actions">
+                                    <button type="button" class="btn-yt-primary" id="btnYtPlayLiked" aria-label="Слухати улюблені пісні">
+                                        <span>▶</span> Слухати улюблені
+                                    </button>
+                                    <button type="button" class="btn-yt-secondary" id="btnYtShuffleLiked" aria-label="Слухати улюблені у випадковому порядку">
+                                        <span>🔀</span> Випадково (Shuffle)
+                                    </button>
+                                    <button type="button" class="btn-yt-outline" id="btnYtBrowseLiked" aria-label="Переглянути список улюблених пісень">
+                                        <span>📋</span> Переглянути треки
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="ytmusic-hero-stat">
+                                <div class="stat-number" id="ytLikedCountBadge">116+</div>
+                                <div class="stat-label">треків у фонотеці</div>
+                            </div>
+                        </div>
+
+                        <!-- User Playlists Header -->
+                        <div class="yt-section-header">
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <h3 style="font-size: 15px; font-weight: 700; color: #fff;">📑 Ваші плейлисти YouTube Music</h3>
+                                <span class="badge" id="ytPlaylistsCountBadge" style="background: rgba(0, 240, 255, 0.1); color: var(--accent-cyan); font-size: 11px; padding: 2px 8px; border-radius: 10px;">0 списків</span>
+                            </div>
+                            <div style="display: flex; gap: 8px; align-items: center;">
+                                <input type="text" id="ytPlaylistsSearch" placeholder="🔍 Фільтр плейлистів..." aria-label="Фільтр плейлистів за назвою" style="padding: 6px 12px; font-size: 12px; background: var(--bg-surface); border: 1px solid var(--border-color); border-radius: var(--radius-md); color: #fff; outline: none; width: 180px;">
+                                <button type="button" id="btnYtRefreshPlaylists" class="btn-ctrl" title="Оновити список плейлистів з YouTube Music" aria-label="Оновити плейлисти">
+                                    🔄 Оновити
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Playlists Grid -->
+                        <div class="yt-playlists-grid" id="ytPlaylistsContainer">
+                            <div style="grid-column: 1 / -1; font-size: 13px; color: var(--text-muted); padding: 16px; text-align: center;">
+                                ⏳ Завантаження плейлистів YouTube Music...
+                            </div>
+                        </div>
+
+                        <!-- Track Browser Drawer (Expandable / Modal) -->
+                        <div class="yt-track-drawer" id="ytTrackViewerCard" style="display: none;">
+                            <div class="yt-drawer-header">
+                                <div style="display: flex; align-items: center; gap: 10px;">
+                                    <span style="font-size: 1.2rem;">🎵</span>
+                                    <div>
+                                        <h4 id="ytActivePlaylistTitle" style="font-size: 14px; font-weight: 700; color: #fff; margin: 0;">Назва плейлиста</h4>
+                                        <span id="ytActivePlaylistCount" style="font-size: 11px; color: var(--text-muted);">0 пісень</span>
+                                    </div>
+                                </div>
+                                <div style="display: flex; gap: 8px; align-items: center;">
+                                    <button type="button" class="btn-ctrl" id="btnYtPlayCurrentAll" aria-label="Відтворити всі треки плейлиста">
+                                        ▶ Відтворити всі
+                                    </button>
+                                    <button type="button" class="btn-ctrl" id="btnYtShuffleCurrentAll" aria-label="Відтворити випадково">
+                                        🔀 Shuffle
+                                    </button>
+                                    <button type="button" class="btn-ctrl btn-danger-sm" id="btnYtCloseTracks" aria-label="Закрити список треків">
+                                        ✕ Закрити
+                                    </button>
+                                </div>
+                            </div>
+                            <!-- Search in Tracks -->
+                            <div style="padding: 10px 16px; border-bottom: 1px solid rgba(255, 255, 255, 0.06);">
+                                <input type="text" id="ytTrackSearchInput" placeholder="🔍 Пошук треку або виконавця у цьому плейлисті..." aria-label="Пошук треку у списку" style="width: 100%; padding: 8px 14px; font-size: 13px; background: var(--bg-main); border: 1px solid var(--border-color); border-radius: var(--radius-md); color: #fff; outline: none;">
+                            </div>
+                            <!-- Tracks Container -->
+                            <div class="yt-tracks-list" id="ytTracksListContainer">
+                                <div style="font-size: 12px; color: var(--text-muted); padding: 12px;">Виберіть плейлист для перегляду пісень</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 2. SUB-TAB: INTERNET RADIO -->
+                    <div class="media-subtab-pane" id="mediaSubtabRadio" role="tabpanel">
+                        <div class="projector-control-card" style="border-left: 4px solid #ff0055; flex-direction: column; align-items: stretch; gap: 12px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <div class="proj-info">
+                                    <div class="proj-badge" style="background: rgba(255, 0, 85, 0.15); color: #ff0055;">📻 Інтернет-радіо</div>
+                                    <span class="proj-ip" id="fullRadioStatusText">Трансляція інтернет-радіо на колонку</span>
+                                </div>
+                                <span style="font-size: 11px; color: var(--accent-cyan); background: rgba(0, 240, 255, 0.1); padding: 3px 8px; border-radius: 6px;">Radio Browser API</span>
+                            </div>
+
+                            <!-- Radio Search -->
+                            <div style="display: flex; gap: 8px;">
+                                <input type="text" id="fullRadioSearchInput" placeholder="🔍 Пошук станції або жанру (рок, хіт, лаундж, jazz...)" aria-label="Пошук радіостанції або жанру" style="flex: 1; padding: 8px 14px; font-size: 13px; background: var(--bg-main); border: 1px solid var(--border-color); border-radius: var(--radius-md); color: var(--text-primary); outline: none;">
+                                <button type="button" id="fullBtnRadioSearch" class="btn-ctrl" style="padding: 0 14px;" aria-label="Знайти станцію">Знайти</button>
+                                <button type="button" id="fullBtnRadioReset" class="btn-ctrl" style="padding: 0 10px;" title="Популярні українські станції" aria-label="Показати популярні українські станції">🇺🇦 Топ</button>
+                            </div>
+
+                            <!-- Radio Stations Container -->
+                            <div id="fullRadioStationsContainer" style="display: flex; flex-wrap: wrap; gap: 8px; max-height: 280px; overflow-y: auto; padding: 4px 2px;">
+                                <div style="font-size: 12px; color: var(--text-muted);">Завантаження станцій...</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 3. SUB-TAB: PROJECTOR & STREAMS -->
+                    <div class="media-subtab-pane" id="mediaSubtabProjector" role="tabpanel">
+                        <!-- Projector Control Bar -->
+                        <div class="projector-control-card" style="margin-bottom: 16px;">
+                            <div class="proj-info">
+                                <div class="proj-badge" id="projOnlineBadge">● Проектор HY350MAX</div>
+                                <span class="proj-ip" id="projIpText">IP: 10.228.30.59</span>
+                            </div>
+                            <div class="proj-actions">
+                                <button class="btn-ctrl" id="projPauseBtn" aria-label="Пауза відео на проекторі">⏸ Пауза</button>
+                                <button class="btn-ctrl" id="projResumeBtn" aria-label="Продовжити відео на проекторі">▶ Продовжити</button>
+                                <button class="btn-ctrl btn-danger-sm" id="projStopBtn" aria-label="Зупинити відео на проекторі">⏹ Зупинити</button>
+                                <button class="btn-ctrl" id="projMirrorBtn" aria-label="Трансляція екрану на проектор">🖥️ Трансляція екрану</button>
+                            </div>
+                        </div>
+
+                        <!-- Online Stream Box -->
+                        <div class="stream-box">
+                            <h3>🌐 Онлайн стрімінг (YouTube / Пряме посилання)</h3>
+                            <form id="streamForm" class="stream-form">
+                                <input type="text" id="streamInput" placeholder="Введіть назву відео або посилання на YouTube..." aria-label="Посилання на YouTube або назва відео" required>
+                                <button type="submit" class="btn-primary" aria-label="Стрімити на проектор">
+                                    <span>▶ Стрімити на проектор</span>
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+
+                    <!-- 4. SUB-TAB: LOCAL GALLERY -->
+                    <div class="media-subtab-pane" id="mediaSubtabGallery" role="tabpanel">
+                        <div class="media-gallery-section">
+                            <div class="gallery-header" style="flex-wrap: wrap; gap: 10px;">
+                                <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                                    <h3>📁 Локальна медіатека (<code>media/</code>)</h3>
+                                    <div class="media-filter-tabs" style="display: flex; gap: 6px;">
+                                        <button class="btn-sm active" id="filterAllMediaBtn" aria-label="Фільтр: Всі файли та стріми">Всі</button>
+                                        <button class="btn-sm" id="filterFilesBtn" aria-label="Фільтр: Лише локальні файли">Файли</button>
+                                        <button class="btn-sm" id="filterStreamsBtn" aria-label="Фільтр: Лише збережені стріми">Стріми</button>
+                                    </div>
+                                </div>
+                                <div style="display: flex; gap: 8px;">
+                                    <button class="btn-sm btn-danger-sm" id="cleanupStreamsBtn" title="Видалити всі тимчасові кешовані стріми YouTube" aria-label="Видалити всі тимчасові кешовані стріми YouTube">🧹 Очистити стріми</button>
+                                    <button class="btn-sm" id="refreshMediaBtn" aria-label="Оновити список медіа">🔄 Оновити</button>
+                                </div>
+                            </div>
+                            <div class="media-grid" id="mediaGrid">
+                                <div class="media-placeholder">Завантаження списку файлів...</div>
+                            </div>
                         </div>
                     </div>
                 </div>
