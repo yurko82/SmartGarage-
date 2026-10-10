@@ -32,14 +32,36 @@ GARAGE_TOOLS = [
     {
         "type": "function",
         "function": {
-            "name": "play_media",
-            "description": "Трансляція музики, відео, кліпів чи фільмів на проектор HY350MAX у гаражі.",
+            "name": "play_song",
+            "description": "Відтворення пісні або музики через YouTube Music на активній Bluetooth-колонці (JBL Clip 5 у гаражі або JX-BT на 1-му поверсі). Використовуй цей інструмент завжди, коли Юрій просить 'включи пісню', 'просто включи пісню', 'увімкни музику', 'включи трек', або називає виконавця чи пісню на YouTube Music.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "query": {
                         "type": "string",
-                        "description": "Пошуковий запит YouTube, назва пісні, виконавця, кліпу або URL."
+                        "description": "Назва пісні, виконавець або пошуковий запит YouTube Music. Якщо Юрій просто сказав 'включи пісню' чи 'просто включи пісню' без назви, передай за замовчуванням 'Українські хіти' або 'ADAM - Сильно Сильно'."
+                    },
+                    "speaker": {
+                        "type": "string",
+                        "enum": ["jbl", "jx-bt"],
+                        "description": "Опціонально: цільова Bluetooth-колонка: 'jbl' (JBL Clip 5 у гаражі) або 'jx-bt' (JX-BT на 1-му поверсі). За замовчуванням грає на поточній активній."
+                    }
+                },
+                "required": ["query"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "play_media",
+            "description": "Трансляція відео, фільмів чи кліпів на великий екран проектора HY350MAX у гаражі. Для відтворення пісень чи звичайного аудіо використовуй play_song (YouTube Music на Bluetooth-колонці).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Пошуковий запит YouTube, назва відео, кліпу або URL для проектора."
                     }
                 },
                 "required": ["query"]
@@ -197,17 +219,25 @@ class ToolDispatcher:
                 action = arguments.get("action")
                 return self._control_device(device, action)
 
+            elif tool_name == "play_song":
+                query = str(arguments.get("query") or "").strip()
+                spk = str(arguments.get("speaker") or "").lower()
+                return self._play_song(query, spk)
+
             elif tool_name == "play_media":
                 query = arguments.get("query", "")
                 if not query:
                     return {"success": False, "error": "Порожній пошуковий запит"}
-                if hasattr(self.garage, "projector") and self.garage.projector:
-                    ok = self.garage.projector.stream_online_video(query)
+                if hasattr(self.garage, "projector") and self.garage.projector and self.garage.projector.is_reachable():
+                    ok, _ = self.garage.projector.stream_online_video(query)
                     return {
-                        "success": ok,
-                        "message": f"Трансляцію '{query}' надіслано на проектор" if ok else f"Не вдалося запустити трансляцію '{query}' на проекторі"
+                        "success": bool(ok),
+                        "message": f"🎬 Трансляцію '{query}' надіслано на проектор" if ok else f"Не вдалося запустити трансляцію '{query}' на проекторі"
                     }
-                return {"success": False, "error": "Контролер проектора недоступний"}
+                # Fallback to Bluetooth speaker YouTube Music if projector is offline
+                if hasattr(self.garage, "speaker") and self.garage.speaker:
+                    return self._play_song(query)
+                return {"success": False, "error": "Проектор HY350MAX офлайн, а аудіосистема недоступна"}
 
             elif tool_name == "stop_media":
                 if hasattr(self.garage, "projector") and self.garage.projector:
@@ -390,3 +420,33 @@ class ToolDispatcher:
             else:
                 return {"success": False, "error": f"Не вдалося запустити радіо '{st['name']}' на {spk_name} (перевірте підключення)"}
         return {"success": False, "error": f"Радіостанцію '{station}' не знайдено"}
+
+    def _play_song(self, query: str, speaker_target: str = "") -> Dict[str, Any]:
+        if not hasattr(self.garage, "speaker") or not self.garage.speaker:
+            return {"success": False, "error": "Контролер колонки недоступний"}
+
+        if speaker_target in ("jx-bt", "jxbt", "floor1", "1 поверх"):
+            self.garage.speaker.set_active_speaker("41:42:62:69:51:9B", "JX-BT (1-й поверх)")
+        elif speaker_target in ("jbl", "garage", "гараж"):
+            self.garage.speaker.set_active_speaker("F8:5C:7E:EE:7D:CC", "Юрій: JBL Clip 5")
+
+        q = query.strip()
+        if not q or q.lower() in ("пісню", "пісня", "музику", "музика", "музон", "трек", "song", "music", "якусь пісню", "просто пісню"):
+            q = "ADAM - Сильно Сильно"
+
+        # Stop projector video if active
+        if hasattr(self.garage, "projector") and self.garage.projector:
+            try:
+                self.garage.projector.stop_video()
+            except Exception:
+                pass
+
+        ok = self.garage.speaker.play_youtube(q)
+        spk_name = self.garage.speaker.name or "Bluetooth-колонці"
+        if ok:
+            return {"success": True, "message": f"🔊 Відтворюю на YouTube Music ({spk_name}): {q}"}
+        else:
+            if not self.garage.speaker.is_connected():
+                return {"success": False, "error": f"⚠️ Не вдалося відтворити на YouTube Music: колонка {spk_name} не підключена по Bluetooth або вимкнена."}
+            return {"success": False, "error": f"Не вдалося запустити відтворення на YouTube Music ({spk_name}) для '{q}'"}
+

@@ -169,6 +169,37 @@ class TestCommandProcessor(unittest.TestCase):
         self.assertTrue(handled)
         self.assertIn("Доступні сценарії", resp)
 
+    def test_youtube_music_song_commands(self):
+        import unittest.mock
+        with unittest.mock.patch.object(self.processor.speaker, "play_youtube", return_value=True) as mock_play:
+            handled, resp = self.processor.execute("включи пісню")
+            self.assertTrue(handled)
+            self.assertIn("YouTube Music", resp)
+            mock_play.assert_called_with("ADAM - Сильно Сильно")
+
+        with unittest.mock.patch.object(self.processor.speaker, "play_youtube", return_value=True) as mock_play:
+            handled, resp = self.processor.execute("просто включи пісню")
+            self.assertTrue(handled)
+            self.assertIn("YouTube Music", resp)
+            mock_play.assert_called_with("ADAM - Сильно Сильно")
+
+        with unittest.mock.patch.object(self.processor.speaker, "play_youtube", return_value=True) as mock_play:
+            handled, resp = self.processor.execute("включи пісню на ютуб мюзік")
+            self.assertTrue(handled)
+            self.assertIn("YouTube Music", resp)
+            mock_play.assert_called_with("ADAM - Сильно Сильно")
+
+        with unittest.mock.patch.object(self.processor.speaker, "play_youtube", return_value=True) as mock_play:
+            handled, resp = self.processor.execute("включи пісню adam сильно-сильно на youtube music")
+            self.assertTrue(handled)
+            self.assertIn("YouTube Music", resp)
+            mock_play.assert_called_with("adam сильно-сильно")
+
+        with unittest.mock.patch.object(self.processor.speaker, "play_youtube", return_value=True) as mock_play:
+            handled, resp = self.processor.execute("просто включи музику")
+            self.assertTrue(handled)
+            self.assertIn("YouTube Music", resp)
+
     def test_unknown_command(self):
         handled, response = self.processor.execute("What is the weather outside?")
         self.assertFalse(handled)
@@ -1198,6 +1229,47 @@ class TestMQTTBridge(unittest.TestCase):
         from server.devices.bluetooth_speaker import BluetoothSpeakerController
         spk = BluetoothSpeakerController()
         self.assertFalse(spk.play_youtube("русская песня"))
+
+    def test_play_song_tool_and_speaker(self):
+        from unittest.mock import MagicMock, patch
+        from server.ai.tools import ToolDispatcher, GARAGE_TOOLS
+
+        # Check tool declaration
+        tool_names = [t["function"]["name"] for t in GARAGE_TOOLS]
+        self.assertIn("play_song", tool_names)
+
+        garage = MagicMock()
+        garage.speaker.is_connected.return_value = True
+        garage.speaker.play_youtube.return_value = True
+        garage.speaker.name = "Юрій: JBL Clip 5"
+        dispatcher = ToolDispatcher(garage=garage)
+
+        # 1. Standard query
+        res = dispatcher.execute("play_song", {"query": "Океан Ельзи"})
+        self.assertTrue(res["success"])
+        self.assertIn("YouTube Music", res["message"])
+        garage.speaker.play_youtube.assert_called_with("Океан Ельзи")
+
+        # 2. Generic query fallback
+        res2 = dispatcher.execute("play_song", {"query": "включи пісню"})
+        self.assertTrue(res2["success"])
+        self.assertIn("YouTube Music", res2["message"])
+
+        # 3. Bluetooth speaker suffix stripping
+        import hashlib
+        from server.devices.bluetooth_speaker import BluetoothSpeakerController
+        spk = BluetoothSpeakerController()
+        clean_target = "Океан Ельзи"
+        hash_name = hashlib.md5(clean_target.encode("utf-8")).hexdigest()[:10]
+        test_file = spk.media_dir / f"stream_{hash_name}.mp4"
+        test_file.write_bytes(b"0" * 100001)
+        try:
+            with patch.object(spk, "play_file", return_value=True) as mock_pf:
+                ok = spk.play_youtube("Океан Ельзи на youtube music")
+                self.assertTrue(ok)
+                mock_pf.assert_called_with(str(test_file), track_title=clean_target)
+        finally:
+            test_file.unlink(missing_ok=True)
 
 
 if __name__ == "__main__":

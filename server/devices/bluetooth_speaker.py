@@ -343,7 +343,11 @@ class BluetoothSpeakerController:
             if self._player_proc:
                 try:
                     import signal
-                    os.killpg(os.getpgid(self._player_proc.pid), signal.SIGKILL)
+                    pgid = os.getpgid(self._player_proc.pid)
+                    if pgid != os.getpgrp():
+                        os.killpg(pgid, signal.SIGKILL)
+                    else:
+                        self._player_proc.kill()
                 except Exception:
                     try:
                         self._player_proc.kill()
@@ -461,7 +465,8 @@ class BluetoothSpeakerController:
                 self._player_proc = subprocess.Popen(
                     cmd,
                     stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL
+                    stderr=subprocess.DEVNULL,
+                    preexec_fn=os.setsid
                 )
                 self._current_track = title
                 self._playback_start_time = time.time()
@@ -549,6 +554,22 @@ class BluetoothSpeakerController:
         target = query.strip()
         if not target:
             return False
+
+        # Clean YouTube / YouTube Music platform suffixes and prefixes
+        import re
+        clean_target = re.sub(
+            r"(?i)\s*(?:на\s+|в\s+|з\s+|через\s+)?(?:youtube\s+music|ютуб\s+м[ью]з[іе]к|ютуб\s+музика|youtube|ютуб|ютубі)\b",
+            "",
+            target,
+        ).strip(" \"'.,:;-")
+        if clean_target:
+            target = clean_target
+
+        if not target or target.lower() in (
+            "пісню", "пісня", "музику", "музика", "музон", "трек",
+            "якусь пісню", "просто пісню", "якусь музику", "щось", "що-небудь"
+        ):
+            target = "ADAM - Сильно Сильно"
 
         # ЖОРСТКЕ ТАБУ НА РОСІЙСЬКУ МУЗИКУ ТА КОНТЕНТ
         RUSSIAN_CHARS = set("ёъыэЁЪЫЭ")

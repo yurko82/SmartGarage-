@@ -122,6 +122,17 @@ class CommandProcessor:
                     if sub_handled:
                         return True, sub_resp
 
+        # Strip conversational filler words / polite prefixes
+        filler_match = re.match(
+            r'^(?:просто|будь ласка|будь-ласка|будьласка|давай|ану|а ну|ну|слухай|швидко)\s*[,:;!?-]*\s+',
+            command,
+            flags=re.IGNORECASE
+        )
+        if filler_match:
+            sub_candidate = command[filler_match.end():].strip()
+            if sub_candidate:
+                command = sub_candidate
+
         cmd = command.lower().rstrip("?!.,; ")
 
         # -----------------------
@@ -440,13 +451,16 @@ class CommandProcessor:
         for v in media_verbs + ("покажи", "показати", "show"):
             for n in media_nouns:
                 prefixes_to_check.append(f"{v} {n} ")
+                prefixes_to_check.append(f"{v} {n}")
                 prefixes_to_check.append(f"{v} будь ласка {n} ")
+                prefixes_to_check.append(f"{v} будь ласка {n}")
                 prefixes_to_check.append(f"{v} на проектор {n} ")
                 prefixes_to_check.append(f"{v} на проекторі {n} ")
                 prefixes_to_check.append(f"{v} на екран {n} ")
                 prefixes_to_check.append(f"{v} на екрані {n} ")
         for n in media_nouns:
             prefixes_to_check.append(f"{n} ")
+            prefixes_to_check.append(f"{n}")
         for v in media_verbs:
             prefixes_to_check.append(f"{v} ")
             prefixes_to_check.append(f"{v} на проектор ")
@@ -496,16 +510,16 @@ class CommandProcessor:
             # 3. Keyword matching if not matched by prefix
             if not matched_media:
                 for kw in ("кліп", "пісню", "пісня", "трек", "музику", "відео"):
-                    if f" {kw} " in f" {cmd} ":
+                    if f" {kw} " in f" {cmd} " or f" {kw}" in f" {cmd}" or f"{kw} " in f"{cmd} ":
                         import re
                         parts = re.split(rf"\b{kw}\b", command, flags=re.IGNORECASE)
-                        candidate = parts[-1].strip() if len(parts) > 1 and parts[-1].strip() else command
+                        candidate = parts[-1].strip() if len(parts) > 1 and parts[-1].strip() else ""
                         matched_media = True
                         media_query = candidate
                         break
 
-        if matched_media and media_query:
-            query = media_query
+        if matched_media:
+            query = media_query or ""
             is_floor1_target = any(k in cmd for k in (
                 "на 1 поверсі", "на 1 поверх", "на першому поверсі", "1 поверх", "1-й поверх", "перший поверх",
                 "jx-bt", "jxbt", "xt-bt", "xtbt", "на jx-bt", "на jxbt", "на xt-bt", "на xtbt"
@@ -534,6 +548,7 @@ class CommandProcessor:
             elif is_jbl_target:
                 self.speaker.set_active_speaker("F8:5C:7E:EE:7D:CC", "Юрій: JBL Clip 5")
 
+            # Remove speaker/projector destination suffixes
             for suffix in (
                 " на перший поверх", " на першому поверсі", " на 1 поверх", " на 1 поверсі",
                 " перший поверх", " 1 поверх", " на jx-bt", " на jxbt", " на xt-bt", " на xtbt", " jx-bt", " jxbt", " xt-bt", " xtbt",
@@ -549,13 +564,28 @@ class CommandProcessor:
                 if query.lower().startswith(suffix.strip()):
                     query = query[len(suffix.strip()):].strip()
 
+            # Remove YouTube Music / YouTube platform suffixes and prefixes
+            for yt_suf in (
+                " на youtube music", " на youtube мюзік", " на ютуб мюзік", " на ютуб мьюзік", " на ютуб музік",
+                " в youtube music", " в ютуб мюзік", " з youtube music", " з ютуб мюзік",
+                " через youtube music", " через ютуб мюзік",
+                " на youtube", " на ютуб", " на ютубі", " в youtube", " в ютуб", " з youtube", " з ютубу",
+                " youtube music", " ютуб мюзік", " ютуб мьюзік", " ютуб музік", " youtube", " ютуб"
+            ):
+                if query.lower().endswith(yt_suf):
+                    query = query[:-len(yt_suf)].strip()
+                if query.lower().startswith(yt_suf.strip()):
+                    query = query[len(yt_suf.strip()):].strip()
+
             # Clean leading polite words or quotes
             query = query.strip(" \"'.,:;-")
 
-            # If user just said "play music" or "play clip" without specifying track, choose default media
-            cleaned_lower = query.lower()
+            # Clean leading verbs/nouns to detect generic song/music requests
+            cleaned_lower = query.lower().strip(" \"'.,:;-")
             for v in media_verbs + ("покажи", "показати", "show"):
-                if cleaned_lower.startswith(f"{v} "):
+                if cleaned_lower == v:
+                    cleaned_lower = ""
+                elif cleaned_lower.startswith(f"{v} "):
                     cleaned_lower = cleaned_lower[len(v) + 1:].strip()
             for n in media_nouns:
                 if cleaned_lower == n:
@@ -571,22 +601,44 @@ class CommandProcessor:
                 if local_kw in cleaned_lower:
                     cleaned_lower = cleaned_lower.replace(local_kw, "").strip()
 
-            if not query or not cleaned_lower or cleaned_lower in (
-                "музику", "музика", "музон", "пісню", "пісня", "трек", "кліп", "відео",
-                "щось", "що-небудь", "шось", "music", "song", "clip", "video"
-            ):
-                query = getattr(self, "last_media_query", None) or "Скрябін - Друг"
+            DEFAULT_UKRAINIAN_HITS = (
+                "ADAM - Сильно Сильно",
+                "Океан Ельзи - Той день",
+                "Бумбокс - Люди",
+                "Антитіла - Фортеця Бахмут",
+                "Kalush - Стефанія",
+                "KAZKA - Свята",
+                "Скрябін - Спи собі сама",
+                "Chico & Qatoshi - Допоможе ЗСУ"
+            )
+
+            GENERIC_MEDIA_REQUESTS = {
+                "музику", "музика", "музон", "пісню", "пісня", "пісь", "пісю", "трек", "кліп", "відео",
+                "щось", "що-небудь", "шось", "music", "song", "clip", "video",
+                "якусь пісню", "якусь", "якийсь трек", "якусь музику", "будь-яку пісню", "будь яку пісню",
+                "гарну пісню", "класну пісню", "щось класне", "щось гарне", "просто пісню", "просто музику",
+                "українську пісню", "українські хіти", "пісні", "музичка", "на youtube music", "на ютуб мюзік"
+            }
+
+            if not query or not cleaned_lower or cleaned_lower in GENERIC_MEDIA_REQUESTS:
+                last_q = getattr(self, "last_media_query", None)
+                if last_q and last_q.lower().strip() not in GENERIC_MEDIA_REQUESTS and not any(last_q.lower().startswith(p) for p in ("просто ", "включи ", "увімкни ")):
+                    query = last_q
+                else:
+                    query = DEFAULT_UKRAINIAN_HITS[0]
             elif cleaned_lower in (
                 "цю пісню", "цей кліп", "цю музику", "цей трек", "ту саму пісню", "цю ж пісню",
                 "це ж саме", "цю", "цей", "це", "ту саму", "той самий", "this song", "this", "this track"
             ):
-                query = getattr(self, "last_media_query", None) or "Скрябін - Друг"
+                last_q = getattr(self, "last_media_query", None)
+                query = last_q if (last_q and last_q.lower() not in GENERIC_MEDIA_REQUESTS) else DEFAULT_UKRAINIAN_HITS[0]
             elif cleaned_lower:
-                query = cleaned_lower
+                query = query.strip(" \"'.,:;-")
 
             self.last_media_query = query
 
             spk_name = self.speaker.name or "аудіосистемі"
+            spk_loc = self._format_speaker_location(locative=True)
             if is_speaker_target:
                 # Stop projector video if active to avoid dual audio
                 try:
@@ -595,16 +647,16 @@ class CommandProcessor:
                     pass
                 success = self.speaker.play_youtube(query)
                 if success:
-                    return True, f"🔊 Відтворюю на {spk_name}: {query}"
+                    return True, f"🔊 Відтворюю на YouTube Music {spk_loc}: {query}"
                 if not self.speaker.is_connected():
-                    return True, f"⚠️ Не вдалося запустити відтворення на {spk_name}: колонка не підключена по Bluetooth або вимкнена. Увімкніть живлення/перепідключіть приймач."
-                return True, f"Не вдалося запустити відтворення на {spk_name} для '{query}'."
+                    return True, f"⚠️ Не вдалося запустити відтворення на YouTube Music {spk_loc}: колонка не підключена по Bluetooth або вимкнена. Увімкніть живлення/перепідключіть приймач."
+                return True, f"Не вдалося запустити відтворення на YouTube Music {spk_loc} для '{query}'."
 
             if not self.projector.is_reachable():
                 # Fallback to speaker if projector is offline!
                 success = self.speaker.play_youtube(query)
                 if success:
-                    return True, f"🔊 Проектор офлайн, перенаправлено на {spk_name}: {query}"
+                    return True, f"🔊 Проектор офлайн, перенаправлено на YouTube Music {spk_loc}: {query}"
                 if not self.speaker.is_connected():
                     return True, f"⚠️ Проектор HY350MAX офлайн, а {spk_name} не підключена по Bluetooth або вимкнена."
                 return True, f"Проектор HY350MAX офлайн, а на {spk_name} не вдалося запустити '{query}'."
