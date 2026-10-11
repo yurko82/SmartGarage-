@@ -1094,7 +1094,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const res = await fetch('/api/ytmusic/next', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ shuffle: true })
+                    body: JSON.stringify({})
                 });
                 const data = await res.json();
                 if (data.success && data.track_title && jblNowPlaying) {
@@ -1334,7 +1334,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    async function playDashYTPlaylist(playlistId, shuffle = true, title = '') {
+    async function playDashYTPlaylist(playlistId, shuffle = false, title = '') {
         hapticFeedback();
         const displayTitle = title || (playlistId === 'LM' ? 'Улюблені пісні' : 'Плейлист');
         if (voiceStatusText) {
@@ -1420,7 +1420,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     chip.addEventListener('click', () => {
                         document.querySelectorAll('.yt-dash-chip').forEach(c => c.classList.remove('active'));
                         chip.classList.add('active');
-                        playDashYTPlaylist(pl.id, true, pl.title);
+                        playDashYTPlaylist(pl.id, false, pl.title);
                     });
                     dashYtPlaylistsContainer.appendChild(chip);
                 });

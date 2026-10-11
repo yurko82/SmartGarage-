@@ -1112,11 +1112,34 @@ def ytmusic_play():
     track_title = data.get("track_title")
     uploader = data.get("uploader", "")
     query = data.get("query", "").strip()
-    shuffle = data.get("shuffle", True)
+    shuffle = data.get("shuffle", False)
 
     spk_name = garage.speaker.name if hasattr(garage, "speaker") else "колонці"
 
-    # Specific track requested
+    # Track from a playlist requested
+    if playlist_id:
+        target_pl = playlist_id
+        if track_id:
+            ok, p_title, t_title = garage.speaker.play_playlist(target_pl, shuffle=shuffle, track_id=track_id)
+        else:
+            ok, p_title, t_title = garage.speaker.play_playlist(target_pl, shuffle=shuffle)
+        if not ok and (track_title or track_id):
+            t_display = track_title or track_id
+            target_query = f"{track_title} {uploader}".strip() if uploader else track_title if track_title else f"https://www.youtube.com/watch?v={track_id}"
+            ok = garage.speaker.play_youtube(target_query, track_title=t_display)
+            p_title = target_pl
+            t_title = t_display
+
+        return jsonify({
+            "success": ok,
+            "playing": garage.speaker.is_playing() if hasattr(garage, "speaker") else False,
+            "playlist_id": target_pl,
+            "playlist_title": p_title,
+            "track_title": t_title,
+            "response": f"Грає '{t_title}' з '{p_title}' на {spk_name}" if ok else f"Не вдалося запустити трек на {spk_name}"
+        })
+
+    # Specific track requested without playlist
     if track_title or query or track_id:
         if track_title:
             target_query = f"{track_title} {uploader}".strip() if uploader else track_title
@@ -1130,9 +1153,6 @@ def ytmusic_play():
             target_query = f"https://www.youtube.com/watch?v={track_id}"
             t_display = track_id
 
-        if playlist_id:
-            ytmusic_service.current_playlist_id = playlist_id
-
         ok = garage.speaker.play_youtube(target_query, track_title=t_display)
         return jsonify({
             "success": ok,
@@ -1141,8 +1161,8 @@ def ytmusic_play():
             "response": f"Грає '{t_display}' на {spk_name}" if ok else f"Не вдалося запустити на {spk_name}"
         })
 
-    # Playlist or Liked songs requested
-    target_pl = playlist_id or "LM"
+    # Liked songs or playlist fallback
+    target_pl = "LM"
     ok, p_title, t_title = garage.speaker.play_playlist(target_pl, shuffle=shuffle)
     return jsonify({
         "success": ok,
@@ -1160,7 +1180,7 @@ def ytmusic_next():
     mac = data.get("mac")
     if mac and hasattr(garage, "speaker"):
         garage.speaker.set_active_speaker(mac)
-    shuffle = data.get("shuffle", True)
+    shuffle = data.get("shuffle")
 
     ok, p_title, t_title = garage.speaker.play_next(shuffle=shuffle)
     spk_name = garage.speaker.name if hasattr(garage, "speaker") else "колонці"
@@ -1176,12 +1196,14 @@ def ytmusic_next():
 @app.route("/api/ytmusic/status", methods=["GET"])
 def ytmusic_status():
     spk_status = garage.speaker.get_status() if hasattr(garage, "speaker") else {}
+    autoplay = getattr(garage.speaker, "_playlist_autoplay", False) if hasattr(garage, "speaker") else False
     return jsonify({
         "success": True,
         "current_playlist_id": ytmusic_service.current_playlist_id,
         "current_playlist_title": ytmusic_service.current_playlist_title,
         "current_track": spk_status.get("current_track"),
         "playing": garage.speaker.is_playing() if hasattr(garage, "speaker") else False,
+        "autoplay": autoplay,
         "speaker": spk_status
     })
 

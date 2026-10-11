@@ -491,7 +491,7 @@ class ToolDispatcher:
                 return {"success": False, "error": f"⚠️ Не вдалося відтворити на YouTube Music: колонка {spk_name} не підключена по Bluetooth або вимкнена."}
             return {"success": False, "error": f"Не вдалося запустити відтворення на YouTube Music ({spk_name}) для '{q}'"}
 
-    def _play_user_playlist(self, playlist_name: str, speaker_target: str = "") -> Dict[str, Any]:
+    def _play_user_playlist(self, playlist_name: str, speaker_target: str = "", shuffle: bool = False) -> Dict[str, Any]:
         if not hasattr(self.garage, "speaker") or not self.garage.speaker:
             return {"success": False, "error": "Контролер колонки недоступний"}
 
@@ -507,7 +507,7 @@ class ToolDispatcher:
             except Exception:
                 pass
 
-        ok, p_title, t_title = self.garage.speaker.play_playlist(playlist_name, shuffle=True)
+        ok, p_title, t_title = self.garage.speaker.play_playlist(playlist_name, shuffle=shuffle)
         spk_name = self.garage.speaker.name or "Bluetooth-колонці"
         if ok:
             return {"success": True, "message": f"🔊 Відтворюю з '{p_title}' на YouTube Music ({spk_name}): {t_title}"}

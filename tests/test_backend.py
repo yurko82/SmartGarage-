@@ -207,12 +207,16 @@ class TestCommandProcessor(unittest.TestCase):
         self.assertTrue(handled)
         self.assertIn("Ваші плейлисти", resp)
 
-        # 2. Play liked songs
+        # 2. Play liked songs (sequential by default)
         with unittest.mock.patch.object(self.processor.speaker, "play_liked", return_value=(True, "Улюблені пісні", "TUMAN")) as mock_liked:
             handled, resp = self.processor.execute("включи мої улюблені")
             self.assertTrue(handled)
             self.assertIn("Улюблені пісні", resp)
             self.assertIn("TUMAN", resp)
+            mock_liked.assert_called_with(shuffle=False)
+
+            handled, resp = self.processor.execute("включи мої улюблені перемішай")
+            self.assertTrue(handled)
             mock_liked.assert_called_with(shuffle=True)
 
         # 3. Play specific playlist
@@ -221,6 +225,13 @@ class TestCommandProcessor(unittest.TestCase):
             self.assertTrue(handled)
             self.assertIn("Український рок", resp)
             self.assertIn("Пригадай", resp)
+
+        # 4. Next song voice command
+        with unittest.mock.patch.object(self.processor.speaker, "play_next", return_value=(True, "Плейлист", "Бумбокс")) as mock_next:
+            handled, resp = self.processor.execute("наступна пісня")
+            self.assertTrue(handled)
+            self.assertIn("Бумбокс", resp)
+            mock_next.assert_called_once()
 
     def test_unknown_command(self):
         handled, response = self.processor.execute("What is the weather outside?")
@@ -1012,6 +1023,7 @@ class TestPresenceGreetingDebounce(unittest.TestCase):
         garage = SmartGarage(start_workers=False)
         garage.telegram.notify_admin = MagicMock()
         garage.ai.chat = MagicMock(return_value="Привіт, Юрію!")
+        garage.get_context_snapshot = MagicMock(return_value="Контекст гаража")
         garage.telegram.notify_admin.reset_mock()
 
         cb = garage.presence.event_callback
@@ -1386,6 +1398,64 @@ class TestYTMusicWebAPI(unittest.TestCase):
         data = res.get_json()
         self.assertTrue(data["success"])
         self.assertIn("speaker", data)
+
+    def test_ytmusic_service_sequential_autoplay(self):
+        """Test that songs in a playlist play one after another sequentially ('одна за одною по черзі')."""
+        from server.services.ytmusic_service import YTMusicService
+        yt = YTMusicService()
+        mock_tracks = [
+            {"id": "t1", "title": "Пісня 1", "uploader": "Виконавець 1", "duration": 180},
+            {"id": "t2", "title": "Пісня 2", "uploader": "Виконавець 2", "duration": 200},
+            {"id": "t3", "title": "Пісня 3", "uploader": "Виконавець 3", "duration": 220},
+        ]
+        with patch.object(yt, "get_playlist_tracks", return_value=mock_tracks):
+            # 1. Starting playlist sequentially should pick track 0
+            t0 = yt.get_track_to_play("test_pl", shuffle=False)
+            self.assertEqual(t0["id"], "t1")
+            self.assertEqual(t0["track_index"], 0)
+
+            # 2. Next track should be track 1
+            t1 = yt.get_next_track_to_play("test_pl", shuffle=False)
+            self.assertEqual(t1["id"], "t2")
+            self.assertEqual(t1["track_index"], 1)
+
+            # 3. Next track should be track 2
+            t2 = yt.get_next_track_to_play("test_pl", shuffle=False)
+            self.assertEqual(t2["id"], "t3")
+            self.assertEqual(t2["track_index"], 2)
+
+            # 4. Next track should loop back to track 0
+            t3 = yt.get_next_track_to_play("test_pl", shuffle=False)
+            self.assertEqual(t3["id"], "t1")
+            self.assertEqual(t3["track_index"], 0)
+
+            # 5. Selecting a specific track by ID should set index and play next in order
+            tspec = yt.get_track_to_play("test_pl", shuffle=False, track_id="t2")
+            self.assertEqual(tspec["id"], "t2")
+            self.assertEqual(tspec["track_index"], 1)
+
+            tnext = yt.get_next_track_to_play("test_pl", shuffle=False)
+            self.assertEqual(tnext["id"], "t3")
+            self.assertEqual(tnext["track_index"], 2)
+
+    def test_speaker_autoplay_flag_and_stop(self):
+        """Test speaker autoplay flag is set on play_playlist and cleared on manual stop."""
+        from server.devices.bluetooth_speaker import BluetoothSpeakerController
+        from unittest.mock import MagicMock
+        spk = BluetoothSpeakerController(mac="AA:BB:CC:DD:EE:FF", name="Test Speaker")
+        spk.play_youtube = MagicMock(return_value=True)
+
+        mock_track = {"id": "t1", "title": "Пісня", "uploader": "Артист", "duration": 180, "playlist_id": "LM", "playlist_title": "Улюблені"}
+        with patch("server.services.ytmusic_service.ytmusic_service.get_track_to_play", return_value=mock_track):
+            ok, p_title, t_title = spk.play_playlist("LM", shuffle=False)
+            self.assertTrue(ok)
+            self.assertTrue(spk._playlist_autoplay)
+            self.assertEqual(spk._playlist_id, "LM")
+            self.assertFalse(spk._playlist_shuffle)
+
+        # Manual stop must cancel autoplay
+        spk.stop(manual=True)
+        self.assertFalse(spk._playlist_autoplay)
 
 
 if __name__ == "__main__":

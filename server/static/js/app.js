@@ -492,7 +492,7 @@ document.addEventListener('DOMContentLoaded', () => {
             fetch('/api/ytmusic/next', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ shuffle: true })
+                body: JSON.stringify({})
             })
             .then(res => res.json())
             .then(data => {
@@ -950,7 +950,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    function playYTPlaylist(playlistId, shuffle = true, playlistTitle = '') {
+    function playYTPlaylist(playlistId, shuffle = false, playlistTitle = '') {
         const title = playlistTitle || (playlistId === 'LM' ? 'Улюблені пісні' : 'Плейлист');
         appendEntry('system', `🎵 Запуск ${shuffle ? 'випадкового порядку ' : ''}з '${title}' на Bluetooth-колонку...`);
 
@@ -1063,7 +1063,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 playlist_id: playlistId,
                 track_id: trackId,
                 track_title: trackTitle,
-                uploader: uploader
+                uploader: uploader,
+                shuffle: false
             })
         })
         .then(res => res.json())

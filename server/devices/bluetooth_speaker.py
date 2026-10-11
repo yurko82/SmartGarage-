@@ -37,11 +37,20 @@ class BluetoothSpeakerController:
         self._last_stream_url: Optional[str] = None
         self._last_stream_title: Optional[str] = None
 
+        self._playlist_autoplay = False
+        self._playlist_id: Optional[str] = None
+        self._playlist_shuffle = False
+        self._is_loading_next_track = False
+        self._current_track_id: Optional[str] = None
+
         self._auto_detect_active_speaker()
 
         self._stop_watchdog = False
         self._watchdog_thread = threading.Thread(target=self._watchdog_loop, daemon=True, name="SpeakerWatchdog")
         self._watchdog_thread.start()
+
+        self._playlist_monitor_thread = threading.Thread(target=self._playlist_monitor_loop, daemon=True, name="PlaylistMonitor")
+        self._playlist_monitor_thread.start()
 
     def _auto_detect_active_speaker(self):
         """Auto-detect which configured speaker is currently connected."""
@@ -99,6 +108,78 @@ class BluetoothSpeakerController:
         url = self._last_stream_url
         title = self._last_stream_title
         self.play_stream(url, track_title=title, is_recovery=True)
+
+    def _playlist_monitor_loop(self):
+        """Monitors track playback and automatically advances to next song in playlist when finished."""
+        while not getattr(self, "_stop_watchdog", False):
+            try:
+                time.sleep(0.5)
+
+                if not getattr(self, "_playlist_autoplay", False):
+                    continue
+
+                if getattr(self, "_is_paused", False) or getattr(self, "_is_loading_next_track", False):
+                    continue
+
+                # Check if current player process has completed
+                proc = None
+                with self._lock:
+                    proc = self._player_proc
+
+                if proc is None:
+                    continue
+
+                # If process has exited (poll() is not None)
+                if proc.poll() is not None:
+                    start_time = getattr(self, "_playback_start_time", None)
+                    played_secs = (time.time() - start_time) if start_time else 0
+                    self.logger.info(f"[AutoPlay] Track '{self._current_track}' ended (played {int(played_secs)}s). Auto-advancing to next song...")
+                    self._play_next_in_playlist()
+
+            except Exception as e:
+                self.logger.error(f"[AutoPlay] Error in playlist monitor loop: {e}")
+                time.sleep(1.0)
+
+    def _play_next_in_playlist(self) -> bool:
+        """Advance to next track in active playlist and play it."""
+        if getattr(self, "_is_loading_next_track", False):
+            return False
+        self._is_loading_next_track = True
+        try:
+            from server.services.ytmusic_service import ytmusic_service
+            p_id = getattr(self, "_playlist_id", None) or ytmusic_service.current_playlist_id or "LM"
+            shuffle = getattr(self, "_playlist_shuffle", False)
+
+            track = ytmusic_service.get_next_track_to_play(p_id, shuffle=shuffle)
+            if not track:
+                self.logger.warning(f"[AutoPlay] No next track available in playlist '{p_id}'. Stopping autoplay.")
+                self._playlist_autoplay = False
+                return False
+
+            p_title = track.get("playlist_title", "Плейлист")
+            t_title = track.get("title", "")
+            uploader = track.get("uploader", "")
+            if uploader.endswith(" - Topic"):
+                uploader = uploader[:-8]
+            target_query = f"{t_title} {uploader}".strip() if uploader else t_title
+            duration = track.get("duration", 0)
+            force_stream = bool(duration and duration > 600)
+
+            self.logger.info(f"[AutoPlay] Playing next track: '{t_title}' from '{p_title}'...")
+            ok = self.play_youtube(target_query, track_title=t_title, force_stream=force_stream)
+            if ok:
+                with self._lock:
+                    self._current_track = f"🎵 {t_title}"
+                    self._current_track_id = track.get("id")
+            else:
+                self.logger.warning(f"[AutoPlay] Failed to start '{t_title}'. Will retry next track shortly.")
+                time.sleep(1.5)
+            return ok
+        except Exception as e:
+            self.logger.error(f"[AutoPlay] Exception advancing to next track: {e}")
+            return False
+        finally:
+            self._is_loading_next_track = False
 
     def _maintain_microphone_state(self):
         """Maintain ALC256 internal mic routed to physical pin 0x1b and unmuted in PipeWire."""
@@ -340,6 +421,7 @@ class BluetoothSpeakerController:
         with self._lock:
             if manual:
                 self._active_stream = False
+                self._playlist_autoplay = False
             if self._player_proc:
                 try:
                     import signal
@@ -499,6 +581,7 @@ class BluetoothSpeakerController:
                 return False
 
         self.stop(manual=False)
+        self._playlist_autoplay = False
         time.sleep(0.2)
 
         # Ensure volume is audible (at least 33% by default)
@@ -708,11 +791,53 @@ class BluetoothSpeakerController:
 
         return False
 
-    def play_playlist(self, playlist_name_or_id: str = "LM", shuffle: bool = True):
-        """Play a track from user's YouTube Music playlist or Liked Songs."""
+    def play_playlist(self, playlist_name_or_id: str = "LM", shuffle: bool = False, track_id: Optional[str] = None):
+        """Play a track from user's YouTube Music playlist or Liked Songs with continuous auto-advance."""
         try:
             from server.services.ytmusic_service import ytmusic_service
-            track = ytmusic_service.get_track_to_play(playlist_name_or_id, shuffle=shuffle)
+            track = ytmusic_service.get_track_to_play(playlist_name_or_id, shuffle=shuffle, track_id=track_id)
+            if not track:
+                return False, None, None
+
+            p_id = track.get("playlist_id", playlist_name_or_id)
+            p_title = track.get("playlist_title", "Плейлист")
+            t_title = track.get("title", "")
+            uploader = track.get("uploader", "")
+            if uploader.endswith(" - Topic"):
+                uploader = uploader[:-8]
+            target_query = f"{t_title} {uploader}".strip() if uploader else t_title
+            duration = track.get("duration", 0)
+            force_stream = bool(duration and duration > 600)
+
+            # Enable auto-play queue for continuous playback
+            self._playlist_autoplay = True
+            self._playlist_id = p_id
+            self._playlist_shuffle = shuffle
+
+            ok = self.play_youtube(target_query, track_title=t_title, force_stream=force_stream)
+            if ok:
+                with self._lock:
+                    self._current_track = f"🎵 {t_title}"
+                    self._current_track_id = track.get("id")
+            return ok, p_title, t_title
+        except Exception as e:
+            self.logger.error(f"Error playing playlist '{playlist_name_or_id}': {e}")
+            return False, None, None
+
+    def play_liked(self, shuffle: bool = False):
+        """Play a track from user's Liked Music (Улюблені)."""
+        return self.play_playlist("LM", shuffle=shuffle)
+
+    def play_next(self, shuffle: Optional[bool] = None):
+        """Play next track from current YouTube Music playlist."""
+        try:
+            from server.services.ytmusic_service import ytmusic_service
+            p_id = getattr(self, "_playlist_id", None) or ytmusic_service.current_playlist_id or "LM"
+            if shuffle is not None:
+                self._playlist_shuffle = shuffle
+            self._playlist_autoplay = True
+            self._playlist_id = p_id
+            track = ytmusic_service.get_next_track_to_play(p_id, shuffle=self._playlist_shuffle)
             if not track:
                 return False, None, None
 
@@ -724,25 +849,13 @@ class BluetoothSpeakerController:
             target_query = f"{t_title} {uploader}".strip() if uploader else t_title
             duration = track.get("duration", 0)
             force_stream = bool(duration and duration > 600)
+
             ok = self.play_youtube(target_query, track_title=t_title, force_stream=force_stream)
             if ok:
                 with self._lock:
                     self._current_track = f"🎵 {t_title}"
+                    self._current_track_id = track.get("id")
             return ok, p_title, t_title
-        except Exception as e:
-            self.logger.error(f"Error playing playlist '{playlist_name_or_id}': {e}")
-            return False, None, None
-
-    def play_liked(self, shuffle: bool = True):
-        """Play a track from user's Liked Music (Улюблені)."""
-        return self.play_playlist("LM", shuffle=shuffle)
-
-    def play_next(self, shuffle: bool = True):
-        """Play next track from current YouTube Music playlist."""
-        try:
-            from server.services.ytmusic_service import ytmusic_service
-            p_id = ytmusic_service.current_playlist_id or "LM"
-            return self.play_playlist(p_id, shuffle=shuffle)
         except Exception as e:
             self.logger.error(f"Error playing next track: {e}")
             return False, None, None

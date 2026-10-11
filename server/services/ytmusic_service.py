@@ -42,6 +42,8 @@ class YTMusicService:
 
         self.current_playlist_id: Optional[str] = None
         self.current_playlist_title: Optional[str] = None
+        self.current_track_index: int = -1
+        self.current_shuffle_mode: bool = False
         self._last_played_tracks: List[str] = []
 
         self._load_cached_playlists()
@@ -249,8 +251,14 @@ class YTMusicService:
 
         return None
 
-    def get_track_to_play(self, playlist_id_or_name: str, shuffle: bool = True) -> Optional[Dict[str, Any]]:
-        """Get a track to play from specified playlist."""
+    def get_track_to_play(
+        self,
+        playlist_id_or_name: str,
+        shuffle: bool = False,
+        track_id: Optional[str] = None,
+        track_title: Optional[str] = None
+    ) -> Optional[Dict[str, Any]]:
+        """Get a track to play from specified playlist (sequential by default or shuffle)."""
         pl = self.find_playlist(playlist_id_or_name)
         if pl:
             p_id = pl["id"]
@@ -263,24 +271,115 @@ class YTMusicService:
         if not tracks:
             return None
 
+        # Reset or update playlist tracking if new playlist
+        if self.current_playlist_id != p_id:
+            self.current_playlist_id = p_id
+            self.current_playlist_title = p_title
+            self.current_track_index = -1
+            self._last_played_tracks.clear()
+
+        self.current_shuffle_mode = shuffle
+
+        # 1. User requested a specific track from playlist
+        if track_id or track_title:
+            found_idx = -1
+            for idx, t in enumerate(tracks):
+                if track_id and t.get("id") == track_id:
+                    found_idx = idx
+                    break
+                if track_title and t.get("title") and t.get("title").lower() == track_title.lower():
+                    found_idx = idx
+                    break
+            if found_idx != -1:
+                self.current_track_index = found_idx
+                chosen = tracks[found_idx]
+                if chosen["id"] not in self._last_played_tracks:
+                    self._last_played_tracks.append(chosen["id"])
+                chosen_copy = dict(chosen)
+                chosen_copy["playlist_id"] = p_id
+                chosen_copy["playlist_title"] = p_title
+                chosen_copy["total_tracks"] = len(tracks)
+                chosen_copy["track_index"] = found_idx
+                return chosen_copy
+
+        # 2. Shuffle mode
+        if shuffle:
+            available = [t for t in tracks if t["id"] not in self._last_played_tracks]
+            if not available:
+                self._last_played_tracks.clear()
+                available = tracks
+            chosen = random.choice(available)
+            try:
+                self.current_track_index = tracks.index(chosen)
+            except ValueError:
+                self.current_track_index = 0
+            self._last_played_tracks.append(chosen["id"])
+            if len(self._last_played_tracks) > 50:
+                self._last_played_tracks.pop(0)
+            chosen_copy = dict(chosen)
+            chosen_copy["playlist_id"] = p_id
+            chosen_copy["playlist_title"] = p_title
+            chosen_copy["total_tracks"] = len(tracks)
+            chosen_copy["track_index"] = self.current_track_index
+            return chosen_copy
+
+        # 3. Sequential mode ("одна за одною по черзі")
+        if self.current_track_index < 0:
+            self.current_track_index = 0
+        else:
+            self.current_track_index = self.current_track_index % len(tracks)
+
+        chosen = tracks[self.current_track_index]
+        if chosen["id"] not in self._last_played_tracks:
+            self._last_played_tracks.append(chosen["id"])
+        chosen_copy = dict(chosen)
+        chosen_copy["playlist_id"] = p_id
+        chosen_copy["playlist_title"] = p_title
+        chosen_copy["total_tracks"] = len(tracks)
+        chosen_copy["track_index"] = self.current_track_index
+        return chosen_copy
+
+    def get_next_track_to_play(
+        self,
+        playlist_id_or_name: Optional[str] = None,
+        shuffle: Optional[bool] = None
+    ) -> Optional[Dict[str, Any]]:
+        """Get the next track in order or shuffle for auto-advancing."""
+        p_id = playlist_id_or_name or self.current_playlist_id or "LM"
+        pl = self.find_playlist(p_id)
+        if pl:
+            p_id = pl["id"]
+            p_title = pl["title"]
+        else:
+            p_title = p_id
+
+        tracks = self.get_playlist_tracks(p_id)
+        if not tracks:
+            return None
+
         self.current_playlist_id = p_id
         self.current_playlist_title = p_title
 
-        # Filter out recently played tracks if possible
-        available = [t for t in tracks if t["id"] not in self._last_played_tracks]
-        if not available:
-            self._last_played_tracks.clear()
-            available = tracks
+        is_shuffle = shuffle if shuffle is not None else self.current_shuffle_mode
 
-        chosen = random.choice(available) if shuffle else available[0]
-        self._last_played_tracks.append(chosen["id"])
-        if len(self._last_played_tracks) > 25:
-            self._last_played_tracks.pop(0)
+        if is_shuffle:
+            return self.get_track_to_play(p_id, shuffle=True)
 
-        chosen["playlist_id"] = p_id
-        chosen["playlist_title"] = p_title
-        chosen["total_tracks"] = len(tracks)
-        return chosen
+        # Advance to next sequential index ("одна за одною по черзі")
+        if self.current_track_index < 0:
+            self.current_track_index = 0
+        else:
+            self.current_track_index = (self.current_track_index + 1) % len(tracks)
+
+        chosen = tracks[self.current_track_index]
+        if chosen["id"] not in self._last_played_tracks:
+            self._last_played_tracks.append(chosen["id"])
+        chosen_copy = dict(chosen)
+        chosen_copy["playlist_id"] = p_id
+        chosen_copy["playlist_title"] = p_title
+        chosen_copy["total_tracks"] = len(tracks)
+        chosen_copy["track_index"] = self.current_track_index
+        return chosen_copy
 
 
 ytmusic_service = YTMusicService()

@@ -267,6 +267,16 @@ class CommandProcessor:
             self.speaker.resume()
             return True, "▶️ Музику продовжено."
 
+        if any(cmd.startswith(k) or cmd == k for k in (
+            "наступна пісня", "наступний трек", "наступну пісню", "наступний",
+            "перемкни пісню", "перемкни трек", "пропусти пісню", "пропусти трек",
+            "next song", "next track"
+        )):
+            ok, p_title, t_title = self.speaker.play_next()
+            if ok:
+                return True, f"⏭️ Наступний трек: {t_title}"
+            return True, "Не вдалося перемкнути трек на колонці."
+
         if cmd.startswith("колонка гучність ") or cmd.startswith("speaker volume "):
             val_str = cmd.split()[-1].replace("%", "").strip()
             if val_str.isdigit():
@@ -476,7 +486,8 @@ class CommandProcessor:
                 self.speaker.set_active_speaker("F8:5C:7E:EE:7D:CC", "Юрій: JBL Clip 5")
 
             spk_loc = self._format_speaker_location(locative=True)
-            ok, p_title, t_title = self.speaker.play_liked(shuffle=True)
+            is_shuffle = any(w in cmd for w in ("перемішай", "рандом", "випадков", "shuffle"))
+            ok, p_title, t_title = self.speaker.play_liked(shuffle=is_shuffle)
             if ok:
                 return True, f"🔊 Відтворюю з '{p_title}' на YouTube Music {spk_loc}: {t_title}"
             if not self.speaker.is_connected():
@@ -520,7 +531,8 @@ class CommandProcessor:
             pl = ytmusic_service.find_playlist(target_name)
             if pl:
                 spk_loc = self._format_speaker_location(locative=True)
-                ok, p_title, t_title = self.speaker.play_playlist(pl["id"], shuffle=True)
+                is_shuffle = any(w in cmd for w in ("перемішай", "рандом", "випадков", "shuffle"))
+                ok, p_title, t_title = self.speaker.play_playlist(pl["id"], shuffle=is_shuffle)
                 if ok:
                     return True, f"🔊 Відтворюю з плейлиста '{p_title}' на YouTube Music {spk_loc}: {t_title}"
                 return True, f"Не вдалося запустити відтворення з плейлиста '{p_title}' {spk_loc}."
