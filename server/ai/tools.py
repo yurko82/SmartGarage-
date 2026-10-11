@@ -87,6 +87,17 @@ GARAGE_TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "next_music_track",
+            "description": "Перемикання на наступний трек у поточному плейлісті або списку Улюблених (Liked Music) в YouTube Music на Bluetooth-колонці. Використовуй, коли користувач просить 'наступна пісня', 'пропусти трек', 'перемкни пісню', 'наступний' тощо.",
+            "parameters": {
+                "type": "object",
+                "properties": {}
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "play_media",
             "description": "Трансляція відео, фільмів чи кліпів на великий екран проектора HY350MAX у гаражі. Для відтворення пісень чи звичайного аудіо використовуй play_song (YouTube Music на Bluetooth-колонці).",
             "parameters": {
@@ -264,6 +275,9 @@ class ToolDispatcher:
 
             elif tool_name == "list_user_playlists":
                 return self._list_user_playlists()
+
+            elif tool_name == "next_music_track":
+                return self._next_music_track()
 
             elif tool_name == "play_media":
                 query = arguments.get("query", "")
@@ -517,5 +531,14 @@ class ToolDispatcher:
         from server.services.ytmusic_service import ytmusic_service
         pls = ytmusic_service.get_user_playlists()
         return {"success": True, "playlists": pls}
+
+    def _next_music_track(self) -> Dict[str, Any]:
+        if not hasattr(self.garage, "speaker") or not self.garage.speaker:
+            return {"success": False, "error": "Контролер колонки недоступний"}
+        ok, p_title, t_title = self.garage.speaker.play_next()
+        spk_name = self.garage.speaker.name or "Bluetooth-колонці"
+        if ok:
+            return {"success": True, "message": f"⏭️ Наступний трек на YouTube Music ({spk_name}): {t_title} (з '{p_title}')"}
+        return {"success": False, "error": f"Не вдалося перемкнути на наступний трек на {spk_name}"}
 
 

@@ -1457,6 +1457,45 @@ class TestYTMusicWebAPI(unittest.TestCase):
         spk.stop(manual=True)
         self.assertFalse(spk._playlist_autoplay)
 
+    def test_play_file_preserves_playlist_autoplay(self):
+        """Ensure play_file (internal track start) does NOT clear _playlist_autoplay."""
+        from server.devices.bluetooth_speaker import BluetoothSpeakerController
+        spk = BluetoothSpeakerController(mac="AA:BB:CC:DD:EE:FF", name="Test Speaker")
+        spk._playlist_autoplay = True
+        spk.is_connected = MagicMock(return_value=True)
+
+        with patch("subprocess.Popen") as mock_popen:
+            mock_proc = MagicMock()
+            mock_proc.poll.return_value = None
+            mock_popen.return_value = mock_proc
+
+            ok = spk.play_file("https://example.com/stream.mp4", track_title="Тестовий трек")
+            self.assertTrue(ok)
+            # Autoplay flag MUST remain True for continuous playlist playback
+            self.assertTrue(spk._playlist_autoplay)
+
+    def test_processor_next_song_phrases(self):
+        """Test processor recognizes Ukrainian phrases for skipping/next song."""
+        from server.commands.processor import CommandProcessor
+        cp = CommandProcessor(DummyLogger(), memory=Memory(os.path.join(tempfile.gettempdir(), 'mem_next.json')))
+        with patch.object(cp.speaker, "play_next", return_value=(True, "Улюблені", "Стефанія")) as mock_next:
+            for phrase in ("включи наступну пісню", "увімкни наступний трек", "наступну пісню", "пропусти пісню", "грай далі"):
+                handled, res = cp.execute(phrase)
+                self.assertTrue(handled, f"Phrase '{phrase}' was not handled")
+                self.assertIn("Стефанія", res)
+            self.assertEqual(mock_next.call_count, 5)
+
+    def test_ai_tools_next_music_track(self):
+        """Test AI tools execute_tool dispatches next_music_track correctly."""
+        from server.ai.tools import ToolDispatcher
+        garage_mock = MagicMock()
+        garage_mock.speaker.play_next.return_value = (True, "Улюблені", "ADAM - Танцюй")
+        garage_mock.speaker.name = "JX-BT"
+        td = ToolDispatcher(garage_mock)
+        res = td.execute("next_music_track", {})
+        self.assertTrue(res.get("success"))
+        self.assertIn("ADAM - Танцюй", res.get("message", ""))
+
 
 if __name__ == "__main__":
     unittest.main()
