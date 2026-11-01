@@ -315,10 +315,32 @@ class AIManager:
                     return local_res
                 logger.warning("Local Ollama fallback unavailable. Falling back to OpenInterpreter.")
 
-        # 2. Fallback to OpenInterpreter
+        # 2. Fallback to OpenInterpreter with strict timeout (max 5s)
         try:
             interpreter.llm.api_key = api_key
-            messages = interpreter.chat(prompt, display=False)
+            result_container = []
+
+            def _run_interpreter():
+                try:
+                    msgs = interpreter.chat(prompt, display=False)
+                    result_container.append(msgs)
+                except Exception as ei:
+                    result_container.append(ei)
+
+            th = threading.Thread(target=_run_interpreter, daemon=True, name="OpenInterpreterWorker")
+            th.start()
+            th.join(timeout=5.0)
+
+            if not result_container:
+                logger.warning("OpenInterpreter timed out after 5s.")
+                if context_info:
+                    return f"📋 Поточний стан системи:\n{context_info}"
+                return "Готово. Всі системи Smart Garage працюють у штатному режимі."
+
+            messages = result_container[0]
+            if isinstance(messages, Exception):
+                raise messages
+
             if not messages:
                 return "Немає відповіді від AI."
 

@@ -193,9 +193,14 @@ class PresenceManager:
 
         if self.event_callback and callable(self.event_callback):
             try:
-                self.event_callback(entry)
+                threading.Thread(
+                    target=self.event_callback,
+                    args=(dict(entry),),
+                    daemon=True,
+                    name="PresenceCbWorker"
+                ).start()
             except Exception as e:
-                self.logger.error(f"Error in presence event callback: {e}")
+                self.logger.error(f"Error dispatching presence event callback: {e}")
 
     def record_sighting(self, mac: str, name: str = "", rssi: Optional[int] = None,
                         service_uuids: Optional[List[str]] = None, source: str = "esp32_ble") -> Optional[Dict[str, Any]]:

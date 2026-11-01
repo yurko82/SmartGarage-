@@ -32,7 +32,7 @@ class BluetoothSensorManager:
 
         self.telemetry_db = telemetry_db or TelemetryDB()
         self.cache_path = self.config_path.parent / "sensor_cache.json"
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._running = False
         self._thread: Optional[threading.Thread] = None
 

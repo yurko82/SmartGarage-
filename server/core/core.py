@@ -40,7 +40,7 @@ class SmartGarage:
         _last_owner_departure_ts = 0.0
         _presence_lock = threading.Lock()
 
-        def _on_presence_event(entry):
+        def _handle_presence_event_async(entry):
             nonlocal _last_owner_greeting_ts, _last_owner_departure_ts
             event = entry.get("event")
             name = entry.get("person_name") or entry.get("device_name") or "Пристрій"
@@ -108,6 +108,18 @@ class SmartGarage:
                     else:
                         self.telegram.notify_admin("🚗 *Smart Garage:* Власник залишив зону гаража. Безпека в нормі.")
 
+        def _on_presence_event(entry):
+            # Dispatch to background thread so presence monitor and locks are NEVER blocked
+            try:
+                threading.Thread(
+                    target=_handle_presence_event_async,
+                    args=(dict(entry),),
+                    daemon=True,
+                    name="PresenceEventHandler"
+                ).start()
+            except Exception as e:
+                self.logger.error(f"Error starting presence event handler thread: {e}")
+
         if hasattr(self.presence, "set_event_callback"):
             self.presence.set_event_callback(_on_presence_event)
         elif hasattr(self.presence, "_event_cb"):
@@ -141,7 +153,7 @@ class SmartGarage:
                                 s["battery"] = fval["battery"]
                             s["online"] = fval.get("online", True)
                             s["last_updated"] = time.time()
-                    self.bt_sensors._save_cache()
+                self.bt_sensors._save_cache()
             if hasattr(self, "telemetry_db") and self.telemetry_db and "floors" in data:
                 for fk, fval in data["floors"].items():
                     if isinstance(fval, dict) and fval.get("temperature") is not None:

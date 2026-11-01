@@ -305,31 +305,75 @@
                             </div>
                         </div>
 
-                        <!-- Current Track & Playback Controls Bar -->
-                        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; background: rgba(255, 255, 255, 0.03); padding: 10px 14px; border-radius: var(--radius-md); border: 1px solid var(--border-color);">
-                            <div style="display: flex; align-items: center; gap: 10px; min-width: 220px; flex: 1;">
-                                <span style="font-size: 1.1rem; animation: pulse 2s infinite;">🎵</span>
-                                <div style="display: flex; flex-direction: column; overflow: hidden;">
-                                    <span style="font-size: 11px; color: var(--text-muted);">Зараз відтворюється:</span>
-                                    <span id="fullJblNowPlaying" style="font-size: 13px; font-weight: 600; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 380px;">Немає активного відтворення</span>
+                        <!-- Current Track & Upcoming Song Card -->
+                        <div class="media-player-trackbox" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; background: rgba(255, 255, 255, 0.03); padding: 12px 16px; border-radius: var(--radius-md); border: 1px solid var(--border-color);">
+                            <!-- Left: Active & Upcoming Song Info -->
+                            <div style="display: flex; flex-direction: column; gap: 6px; min-width: 240px; flex: 1;">
+                                <div style="display: flex; align-items: center; gap: 10px;">
+                                    <span style="font-size: 1.2rem; animation: pulse 2s infinite;">🎵</span>
+                                    <div style="display: flex; flex-direction: column; overflow: hidden;">
+                                        <span style="font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px;">Зараз відтворюється:</span>
+                                        <span id="fullJblNowPlaying" style="font-size: 14px; font-weight: 700; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 460px;">Немає активного відтворення</span>
+                                    </div>
+                                </div>
+                                <!-- Upcoming / Next Track Peek -->
+                                <div id="fullJblUpcomingContainer" style="display: none; align-items: center; gap: 8px; margin-left: 28px; background: rgba(0, 240, 255, 0.07); padding: 4px 10px; border-radius: 6px; border: 1px solid rgba(0, 240, 255, 0.2); width: fit-content; max-width: 100%;">
+                                    <span style="font-size: 11px; font-weight: 700; color: var(--accent-cyan); white-space: nowrap;">⏭ Наступна:</span>
+                                    <span id="fullJblUpcomingTrack" style="font-size: 12px; color: #e2e8f0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 380px;">Очікування...</span>
                                 </div>
                             </div>
 
-                            <!-- Playback Action Buttons -->
-                            <div class="proj-actions" style="align-items: center;">
-                                <button class="btn-ctrl" id="jblConnectBtn" aria-label="Підключити аудіоколонку">🔗 З'єднати</button>
-                                <button class="btn-ctrl" id="jblPauseBtn" aria-label="Пауза відтворення">⏸ Пауза</button>
-                                <button class="btn-ctrl" id="jblResumeBtn" aria-label="Продовжити відтворення">▶ Продовжити</button>
-                                <button class="btn-ctrl" id="jblNextBtn" style="color: var(--accent-cyan); border-color: rgba(0, 240, 255, 0.3);" aria-label="Наступний трек">⏭ Наступний</button>
-                                <button class="btn-ctrl btn-danger-sm" id="jblStopBtn" aria-label="Зупинити відтворення">⏹ Стоп</button>
+                            <!-- Right: Volume Slider -->
+                            <div style="display: flex; align-items: center; gap: 8px; min-width: 150px;">
+                                <span style="font-size: 13px; color: var(--text-muted);">🎚️</span>
+                                <input type="range" min="0" max="100" value="33" id="fullJblVolumeSlider" style="width: 85px; accent-color: var(--accent-cyan); cursor: pointer;" aria-label="Гучність">
+                                <span id="fullJblVolumeVal" style="font-size: 12px; font-weight: 700; color: var(--accent-cyan); min-width: 34px;">33%</span>
+                            </div>
+                        </div>
+
+                        <!-- Timeline & Scrubber Progress Bar -->
+                        <div class="media-timeline-deck" style="background: rgba(255, 255, 255, 0.02); padding: 8px 14px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.05); display: flex; flex-direction: column; gap: 4px;">
+                            <div style="display: flex; align-items: center; gap: 12px;">
+                                <span id="mediaTimeElapsed" style="font-size: 11px; font-weight: 600; color: var(--accent-cyan); min-width: 38px; text-align: right; font-variant-numeric: tabular-nums;">00:00</span>
+                                <div style="position: relative; flex: 1; display: flex; align-items: center; height: 18px;">
+                                    <div id="mediaProgressTrack" style="position: absolute; left: 0; right: 0; height: 6px; background: rgba(255, 255, 255, 0.1); border-radius: 3px; overflow: hidden; pointer-events: none;">
+                                        <div id="mediaProgressBar" style="width: 0%; height: 100%; background: linear-gradient(90deg, var(--accent-cyan, #00f0ff) 0%, #38bdf8 100%); transition: width 0.3s ease;"></div>
+                                    </div>
+                                    <input type="range" min="0" max="100" value="0" step="1" id="mediaTimelineSlider" aria-label="Перемотування треку" style="position: relative; width: 100%; height: 18px; margin: 0; opacity: 0; cursor: pointer; z-index: 2;">
+                                </div>
+                                <span id="mediaTimeDuration" style="font-size: 11px; font-weight: 600; color: var(--text-muted); min-width: 38px; font-variant-numeric: tabular-nums;">--:--</span>
+                            </div>
+                        </div>
+
+                        <!-- Playback Action Buttons (Prev, -10s, Pause, Resume, +10s, Next, Stop) -->
+                        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+                            <div style="display: flex; gap: 6px; flex-wrap: wrap; align-items: center;">
+                                <button type="button" class="btn-ctrl" id="jblPrevBtn" title="Попередня пісня" aria-label="Попередній трек" style="font-weight: 600;">
+                                    ⏮ Попередній
+                                </button>
+                                <button type="button" class="btn-ctrl" id="jblRewind10Btn" title="Перемотати назад на 10 секунд" aria-label="Перемотати назад на 10 секунд">
+                                    ⏪ -10с
+                                </button>
+                                <button type="button" class="btn-ctrl" id="jblPauseBtn" aria-label="Пауза відтворення">
+                                    ⏸ Пауза
+                                </button>
+                                <button type="button" class="btn-ctrl" id="jblResumeBtn" aria-label="Продовжити відтворення">
+                                    ▶ Грати
+                                </button>
+                                <button type="button" class="btn-ctrl" id="jblForward10Btn" title="Перемотати вперед на 10 секунд" aria-label="Перемотати вперед на 10 секунд">
+                                    +10с ⏩
+                                </button>
+                                <button type="button" class="btn-ctrl" id="jblNextBtn" title="Наступна пісня" style="color: var(--accent-cyan); border-color: rgba(0, 240, 255, 0.4); font-weight: 600;" aria-label="Наступний трек">
+                                    ⏭ Наступний
+                                </button>
+                                <button type="button" class="btn-ctrl btn-danger-sm" id="jblStopBtn" aria-label="Зупинити відтворення">
+                                    ⏹ Стоп
+                                </button>
                             </div>
 
-                            <!-- Volume Control -->
-                            <div style="display: flex; align-items: center; gap: 8px; min-width: 150px;">
-                                <span style="font-size: 12px; color: var(--text-muted);">🎚️</span>
-                                <input type="range" min="0" max="100" value="33" id="fullJblVolumeSlider" style="width: 80px; accent-color: var(--accent-cyan); cursor: pointer;" aria-label="Гучність">
-                                <span id="fullJblVolumeVal" style="font-size: 12px; font-weight: 700; color: var(--accent-cyan); min-width: 32px;">33%</span>
-                            </div>
+                            <button type="button" class="btn-ctrl" id="jblConnectBtn" aria-label="Підключити або відключити аудіоколонку" style="font-size: 11px;">
+                                🔗 З'єднати
+                            </button>
                         </div>
                     </div>
 
@@ -700,7 +744,7 @@
         </main>
     </div>
 
-    <script src="/static/js/app.js?v=0.4.1"></script>
+    <script src="/static/js/app.js?v=0.4.3"></script>
 </body>
 </html>
 

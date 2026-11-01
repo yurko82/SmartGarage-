@@ -30,7 +30,12 @@ class BluetoothSpeakerController:
 
         self._player_proc: Optional[subprocess.Popen] = None
         self._current_track: Optional[str] = None
+        self._current_track_duration: int = 0
         self._playback_start_time: Optional[float] = None
+        self._playback_offset: int = 0
+        self._pause_time: Optional[float] = None
+        self._last_played_file: Optional[str] = None
+        self._last_played_title: Optional[str] = None
         self._is_paused = False
         self._active_stream = False
         self._cached_volume = 33
@@ -173,11 +178,12 @@ class BluetoothSpeakerController:
                 force_stream = bool(duration and duration > 600)
 
                 self.logger.info(f"[AutoPlay] Playing next track ({attempt + 1}/3): '{t_title}' from '{p_title}'...")
-                ok = self.play_youtube(target_query, track_title=t_title, force_stream=force_stream, keep_autoplay=True)
+                ok = self.play_youtube(target_query, track_title=t_title, force_stream=force_stream, keep_autoplay=True, duration=duration)
                 if ok:
                     with self._lock:
                         self._current_track = f"🎵 {t_title}"
                         self._current_track_id = track.get("id")
+                        self._current_track_duration = duration
                     return True
                 else:
                     self.logger.warning(f"[AutoPlay] Failed to start '{t_title}'. Retrying with next track...")
@@ -304,6 +310,10 @@ class BluetoothSpeakerController:
 
         self.logger.info(f"Connecting to Bluetooth speaker {self.name} ({self.mac})...")
         try:
+            # Автоматичне зняття блокування rfkill та увімкнення контролера Bluetooth
+            subprocess.run(["rfkill", "unblock", "bluetooth"], capture_output=True, timeout=2.0)
+            subprocess.run(["bluetoothctl", "power", "on"], capture_output=True, timeout=3.0)
+
             res = subprocess.run(
                 ["bluetoothctl", "connect", self.mac],
                 capture_output=True,
@@ -436,11 +446,16 @@ class BluetoothSpeakerController:
                 self._player_proc = None
             try:
                 subprocess.run(["pkill", "-9", "-f", "gst-launch-1.0"], capture_output=True, timeout=2.0)
+                subprocess.run(["pkill", "-9", "-f", "gst-play-1.0"], capture_output=True, timeout=2.0)
             except Exception:
                 pass
             if manual:
                 self._current_track = None
+                self._current_track_duration = 0
+                self._playback_offset = 0
+                self._last_played_file = None
             self._playback_start_time = None
+            self._pause_time = None
             self._is_paused = False
             time.sleep(0.2)
         return True
@@ -491,6 +506,7 @@ class BluetoothSpeakerController:
                     import signal
                     os.killpg(os.getpgid(self._player_proc.pid), signal.SIGSTOP)
                     self._is_paused = True
+                    self._pause_time = time.time()
                     return True
                 except Exception as e:
                     self.logger.error(f"Error pausing audio: {e}")
@@ -504,12 +520,50 @@ class BluetoothSpeakerController:
                     import signal
                     os.killpg(os.getpgid(self._player_proc.pid), signal.SIGCONT)
                     self._is_paused = False
+                    if self._pause_time and self._playback_start_time:
+                        self._playback_start_time += (time.time() - self._pause_time)
+                    self._pause_time = None
                     return True
                 except Exception as e:
                     self.logger.error(f"Error resuming audio: {e}")
         return False
 
-    def play_file(self, filepath: str, track_title: Optional[str] = None) -> bool:
+    def _detect_duration(self, filepath: str) -> int:
+        """Detect duration of audio file in seconds via gst-discoverer-1.0."""
+        try:
+            res = subprocess.run(["gst-discoverer-1.0", filepath], capture_output=True, text=True, timeout=2.0)
+            if res.returncode == 0:
+                import re
+                m = re.search(r"Duration:\s*(\d+):(\d+):(\d+)", res.stdout)
+                if m:
+                    h, m_val, s = int(m.group(1)), int(m.group(2)), int(m.group(3))
+                    return h * 3600 + m_val * 60 + s
+        except Exception:
+            pass
+        return 0
+
+    def seek(self, position_seconds: int) -> bool:
+        """Seek to specific position in currently playing track."""
+        with self._lock:
+            target_file = getattr(self, "_last_played_file", None)
+            target_title = getattr(self, "_last_played_title", None) or self._current_track
+            dur = getattr(self, "_current_track_duration", 0)
+            was_paused = self._is_paused
+            is_active = self.is_playing() or was_paused
+
+            if not target_file or not is_active:
+                return False
+
+            pos = max(0, int(position_seconds))
+            if dur > 0 and pos >= dur:
+                pos = max(0, dur - 2)
+
+        ok = self.play_file(target_file, track_title=target_title, start_pos=pos, duration=dur)
+        if ok and was_paused:
+            self.pause()
+        return ok
+
+    def play_file(self, filepath: str, track_title: Optional[str] = None, start_pos: int = 0, duration: int = 0) -> bool:
         """Play a local media file or direct stream URL strictly on the active Bluetooth speaker."""
         if filepath.startswith("http://") or filepath.startswith("https://"):
             file_uri = filepath
@@ -535,13 +589,25 @@ class BluetoothSpeakerController:
 
         self.stop(manual=False)
         sink_arg = f"pipewiresink target-object={self.sink_name}" if self.is_connected() else "pipewiresink"
-        cmd = [
-            "gst-launch-1.0",
-            "playbin",
-            f"uri={file_uri}",
-            "video-sink=fakesink",
-            f"audio-sink={sink_arg}"
-        ]
+
+        start_secs = max(0, int(start_pos))
+        if start_secs > 0:
+            cmd = [
+                "gst-play-1.0",
+                f"--audiosink={sink_arg}",
+                "--videosink=fakesink",
+                "--no-interactive",
+                f"-s={start_secs}",
+                file_uri
+            ]
+        else:
+            cmd = [
+                "gst-launch-1.0",
+                "playbin",
+                f"uri={file_uri}",
+                "video-sink=fakesink",
+                f"audio-sink={sink_arg}"
+            ]
 
         try:
             with self._lock:
@@ -552,9 +618,17 @@ class BluetoothSpeakerController:
                     preexec_fn=os.setsid
                 )
                 self._current_track = title
+                self._last_played_file = filepath
+                self._last_played_title = title
+                self._playback_offset = start_secs
                 self._playback_start_time = time.time()
                 self._is_paused = False
-            self.logger.info(f"Playing '{title}' on {self.name} ({self.sink_name}).")
+                self._pause_time = None
+                if duration > 0:
+                    self._current_track_duration = duration
+                elif not filepath.startswith("http") and not getattr(self, "_current_track_duration", 0):
+                    self._current_track_duration = self._detect_duration(str(p if 'p' in locals() else filepath))
+            self.logger.info(f"Playing '{title}' (offset {start_secs}s) on {self.name} ({self.sink_name}).")
             return True
         except Exception as e:
             self.logger.error(f"Error starting playback: {e}")
@@ -633,7 +707,7 @@ class BluetoothSpeakerController:
             self.logger.error(f"Error starting radio stream '{title}': {e}")
             return False
 
-    def play_youtube(self, query: str, track_title: Optional[str] = None, force_stream: bool = False, keep_autoplay: bool = False) -> bool:
+    def play_youtube(self, query: str, track_title: Optional[str] = None, force_stream: bool = False, keep_autoplay: bool = False, duration: int = 0) -> bool:
         """Search and play a track from YouTube or local media cache."""
         if not keep_autoplay:
             self._playlist_autoplay = False
@@ -737,7 +811,7 @@ class BluetoothSpeakerController:
         cached_file = self.media_dir / f"stream_{hash_name}.mp4"
 
         if cached_file.exists() and cached_file.stat().st_size > 100000:
-            return self.play_file(str(cached_file), track_title=display_title)
+            return self.play_file(str(cached_file), track_title=display_title, duration=duration)
 
         search_target = target if (target.startswith("http://") or target.startswith("https://")) else f"ytsearch1:{target}"
         ffmpeg_bin = "/home/yurko/AI/OpenInterpreter/venv/lib/python3.12/site-packages/imageio_ffmpeg/binaries/ffmpeg-linux-x86_64-v7.0.2"
@@ -772,7 +846,7 @@ class BluetoothSpeakerController:
                             old_st.unlink(missing_ok=True)
                 except Exception:
                     pass
-                return self.play_file(str(cached_file), track_title=display_title)
+                return self.play_file(str(cached_file), track_title=display_title, duration=duration)
         except Exception as e:
             self.logger.error(f"Error downloading audio for JBL: {e}")
 
@@ -818,11 +892,12 @@ class BluetoothSpeakerController:
             self._playlist_id = p_id
             self._playlist_shuffle = shuffle
 
-            ok = self.play_youtube(target_query, track_title=t_title, force_stream=force_stream, keep_autoplay=True)
+            ok = self.play_youtube(target_query, track_title=t_title, force_stream=force_stream, keep_autoplay=True, duration=duration)
             if ok:
                 with self._lock:
                     self._current_track = f"🎵 {t_title}"
                     self._current_track_id = track.get("id")
+                    self._current_track_duration = duration
             return ok, p_title, t_title
         except Exception as e:
             self.logger.error(f"Error playing playlist '{playlist_name_or_id}': {e}")
@@ -854,14 +929,48 @@ class BluetoothSpeakerController:
             duration = track.get("duration", 0)
             force_stream = bool(duration and duration > 600)
 
-            ok = self.play_youtube(target_query, track_title=t_title, force_stream=force_stream, keep_autoplay=True)
+            ok = self.play_youtube(target_query, track_title=t_title, force_stream=force_stream, keep_autoplay=True, duration=duration)
             if ok:
                 with self._lock:
                     self._current_track = f"🎵 {t_title}"
                     self._current_track_id = track.get("id")
+                    self._current_track_duration = duration
             return ok, p_title, t_title
         except Exception as e:
             self.logger.error(f"Error playing next track: {e}")
+            return False, None, None
+
+    def play_prev(self, shuffle: Optional[bool] = None):
+        """Play previous track from current YouTube Music playlist."""
+        try:
+            from server.services.ytmusic_service import ytmusic_service
+            p_id = getattr(self, "_playlist_id", None) or ytmusic_service.current_playlist_id or "LM"
+            if shuffle is not None:
+                self._playlist_shuffle = shuffle
+            self._playlist_autoplay = True
+            self._playlist_id = p_id
+            track = ytmusic_service.get_prev_track_to_play(p_id, shuffle=self._playlist_shuffle)
+            if not track:
+                return False, None, None
+
+            p_title = track.get("playlist_title", "Плейлист")
+            t_title = track.get("title", "")
+            uploader = track.get("uploader", "")
+            if uploader.endswith(" - Topic"):
+                uploader = uploader[:-8]
+            target_query = f"{t_title} {uploader}".strip() if uploader else t_title
+            duration = track.get("duration", 0)
+            force_stream = bool(duration and duration > 600)
+
+            ok = self.play_youtube(target_query, track_title=t_title, force_stream=force_stream, keep_autoplay=True, duration=duration)
+            if ok:
+                with self._lock:
+                    self._current_track = f"🎵 {t_title}"
+                    self._current_track_id = track.get("id")
+                    self._current_track_duration = duration
+            return ok, p_title, t_title
+        except Exception as e:
+            self.logger.error(f"Error playing previous track: {e}")
             return False, None, None
 
     def get_status(self) -> Dict[str, Any]:
@@ -870,15 +979,30 @@ class BluetoothSpeakerController:
         playing = self.is_playing()
         volume = self.get_volume()
 
-
         elapsed = 0
         if playing and self._playback_start_time:
-            elapsed = int(time.time() - self._playback_start_time)
+            offset = getattr(self, "_playback_offset", 0)
+            if self._is_paused and getattr(self, "_pause_time", None):
+                elapsed = int(self._pause_time - self._playback_start_time) + offset
+            else:
+                elapsed = int(time.time() - self._playback_start_time) + offset
+
+        duration = getattr(self, "_current_track_duration", 0) or 0
+        if duration > 0 and elapsed > duration:
+            elapsed = duration
 
         track_title = self._current_track
         if not track_title and playing:
             last_t = getattr(self, "_last_stream_title", None)
             track_title = f"📻 {last_t}" if last_t else "Аудіопотік"
+
+        upcoming = None
+        if getattr(self, "_playlist_autoplay", False) or getattr(self, "_playlist_id", None):
+            try:
+                from server.services.ytmusic_service import ytmusic_service
+                upcoming = ytmusic_service.get_upcoming_track(getattr(self, "_playlist_id", None))
+            except Exception:
+                pass
 
         speaker_items = []
         for s in self.get_configured_speakers():
@@ -899,7 +1023,11 @@ class BluetoothSpeakerController:
             "playing": playing,
             "paused": self._is_paused,
             "current_track": track_title if playing else None,
-            "elapsed_seconds": elapsed,
+            "elapsed_seconds": max(0, elapsed),
+            "duration_seconds": max(0, duration),
+            "upcoming_track": upcoming,
+            "can_seek": bool(duration > 0 and not getattr(self, "_active_stream", False)),
+            "autoplay": getattr(self, "_playlist_autoplay", False),
             "sink_name": self.sink_name,
             "speakers": speaker_items
         }

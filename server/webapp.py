@@ -181,25 +181,37 @@ def garage_state():
     bt_telemetry = garage.bt_sensors.get_telemetry() if hasattr(garage, "bt_sensors") else {}
 
     floors = bt_telemetry.get("floors", {})
-    # If ESP32 reports floors from its BLE reads, merge with higher priority or fallback
     esp_floors = state.get("floors", {})
+    esp_is_online = bool(state.get("online", False))
+    esp_last_seen = state.get("last_seen")
+
+    # If ESP32 reports floors from its BLE reads, merge with higher priority or fallback
     if isinstance(esp_floors, dict):
         for fk, fval in esp_floors.items():
             if isinstance(fval, dict) and fval.get("mac"):
-                is_esp_online = bool(fval.get("online", False))
-                if is_esp_online and fval.get("temperature") is not None:
-                    if fk not in floors:
-                        floors[fk] = dict(fval)
-                    else:
+                # Preserve the real timestamp when sensor was physically read
+                last_read = fval.get("last_read_ts") or fval.get("last_updated") or esp_last_seen
+                # A sensor is online only if ESP32 is online AND reading is fresh (< 20 mins)
+                is_fresh = bool(esp_is_online and fval.get("online", False) and last_read and (time.time() - last_read < 1200))
+
+                if fk not in floors:
+                    floors[fk] = dict(fval)
+                else:
+                    if fval.get("temperature") is not None:
                         floors[fk]["temperature"] = fval["temperature"]
                         floors[fk]["humidity"] = fval.get("humidity", floors[fk].get("humidity"))
                         floors[fk]["battery"] = fval.get("battery", floors[fk].get("battery"))
-                        floors[fk]["online"] = True
-                    floors[fk]["last_updated"] = fval.get("last_updated") or time.time()
-                    floors[fk]["source"] = "esp32"
-                elif not is_esp_online and fk in floors:
-                    # Sensor is confirmed offline by ESP32; ensure online is False
-                    floors[fk]["online"] = False
+                    floors[fk]["mac"] = fval.get("mac")
+                    floors[fk]["name"] = fval.get("name", floors[fk].get("name"))
+
+                floors[fk]["online"] = is_fresh
+                floors[fk]["last_updated"] = last_read
+                floors[fk]["source"] = "esp32"
+                floors[fk]["is_stale"] = bool(not is_fresh if (fval.get("temperature") is not None) else False)
+                floors[fk]["esp_online"] = esp_is_online
+            elif isinstance(fval, dict) and not esp_is_online and fk in floors:
+                floors[fk]["online"] = False
+                floors[fk]["esp_online"] = False
 
     # Mark uninstalled floors clearly (e.g. Floor 1 currently has no physical sensor)
     if "floor1" not in floors or not floors["floor1"].get("mac"):
@@ -211,6 +223,7 @@ def garage_state():
         floors["floor1"]["online"] = False
         floors["floor1"]["battery"] = None
         floors["floor1"]["installed"] = False
+        floors["floor1"]["is_stale"] = False
         floors["floor1"]["status_text"] = "Очікує датчик"
 
     # If any floor has no active temperature, fallback to last known reading from telemetry_db
@@ -223,18 +236,31 @@ def garage_state():
                     floors[fk]["humidity"] = db_val.get("humidity")
                     floors[fk]["battery"] = db_val.get("battery")
                     floors[fk]["last_updated"] = db_val.get("timestamp")
+                    floors[fk]["online"] = False
+                    floors[fk]["is_stale"] = True
         except Exception:
             pass
 
     # Format human-readable update times for all floors
+    from server.devices.esp32 import format_relative_time
     for fk, f in floors.items():
         lu = f.get("last_updated")
         if lu and f.get("temperature") is not None:
             f["last_updated_formatted"] = time.strftime("%H:%M:%S (%d.%m.%Y)", time.localtime(lu))
             f["last_updated_time"] = time.strftime("%H:%M:%S", time.localtime(lu))
+            f["last_updated_relative"] = format_relative_time(lu)
+            if not f.get("online"):
+                if not esp_is_online:
+                    f["status_text"] = f"Застарілі дані (ESP32 офлайн, {f['last_updated_relative']})"
+                else:
+                    f["status_text"] = f"Застарілі дані ({f['last_updated_relative']})"
+            else:
+                f["status_text"] = "В нормі"
         else:
             f["last_updated_formatted"] = "Очікує встановлення" if not f.get("mac") else "Очікується оновлення"
             f["last_updated_time"] = "--:--"
+            f["last_updated_relative"] = "Очікує даних"
+            f["status_text"] = f.get("status_text") or ("Очікує датчик" if not f.get("mac") else "Очікує зв'язку")
 
     # Primary climate resolution: prefer online sensor with temperature, fallback to any with temperature
     primary_temp = None
@@ -272,34 +298,25 @@ def garage_state():
     state["door_installed"] = False
     state["relays_installed"] = False
 
+    is_primary_fresh = bool(primary_temp is not None and primary_lu and (time.time() - primary_lu < 1200) and esp_is_online)
     state["bluetooth_sensors"] = bt_telemetry.get("devices", [])
     state["floors"] = floors
     state["primary_sensor"] = {
         "name": primary_name,
         "temperature": primary_temp,
         "humidity": primary_hum,
-        "online": True if primary_temp is not None else False,
+        "online": is_primary_fresh,
+        "is_stale": bool(primary_temp is not None and not is_primary_fresh),
         "last_updated": primary_lu,
-        "last_updated_formatted": time.strftime("%H:%M:%S (%d.%m.%Y)", time.localtime(primary_lu)) if primary_lu else "--"
+        "last_updated_formatted": time.strftime("%H:%M:%S (%d.%m.%Y)", time.localtime(primary_lu)) if primary_lu else "--",
+        "last_updated_relative": format_relative_time(primary_lu) if primary_lu else "Ніколи"
     }
     state["speaker"] = garage.speaker.get_status() if hasattr(garage, "speaker") else {}
+    state["esp32"] = garage.esp32.get_diagnostics() if hasattr(garage, "esp32") else {}
 
-    # Record point into telemetry history only if real readings exist
-    if primary_temp is not None:
+    # Record point into telemetry history only if real FRESH readings exist
+    if primary_temp is not None and is_primary_fresh:
         telemetry_history.add(temp=primary_temp, hum=primary_hum or 0, door="closed", light=False, car=False)
-
-    # Persist all active floor measurements into SQLite
-    if hasattr(garage, "telemetry_db") and garage.telemetry_db:
-        for fk, fval in floors.items():
-            if isinstance(fval, dict) and fval.get("temperature") is not None and fval.get("online"):
-                garage.telemetry_db.record(
-                    floor=fk,
-                    temperature=fval.get("temperature"),
-                    humidity=fval.get("humidity"),
-                    battery=fval.get("battery"),
-                    mac=fval.get("mac"),
-                    sensor_name=fval.get("name")
-                )
 
     return jsonify({
         "success": True,
@@ -335,12 +352,68 @@ def sensors_floors():
 
 @app.route("/api/sensors/refresh", methods=["POST"])
 def sensors_refresh():
+    data = request.get_json(silent=True) or {}
+    mac = data.get("mac")
+    
+    # 1. Trigger ESP32 BLE climate polling
+    esp_res = {}
+    if hasattr(garage, "esp32") and garage.esp32:
+        try:
+            esp_res = garage.esp32.poll_ble()
+        except Exception as e:
+            esp_res = {"success": False, "error": str(e)}
+
+    # 2. Also trigger Host Bluetooth polling
     if hasattr(garage, "bt_sensors") and garage.bt_sensors:
-        data = request.get_json(silent=True) or {}
-        mac = data.get("mac")
         garage.bt_sensors.poll_on_demand(mac)
-        return jsonify({"success": True, "message": "On-demand sensor polling triggered"})
-    return jsonify({"success": False, "error": "Sensor manager not available"}), 500
+
+    return jsonify({
+        "success": True,
+        "message": "Запит на опитування датчиків надіслано (ESP32 + Bluetooth)",
+        "esp32": esp_res
+    })
+
+
+@app.route("/api/esp32/status", methods=["GET"])
+def esp32_status():
+    if hasattr(garage, "esp32") and garage.esp32:
+        return jsonify({
+            "success": True,
+            "status": garage.esp32.get_diagnostics()
+        })
+    return jsonify({"success": False, "error": "ESP32 не ініціалізовано"}), 500
+
+
+@app.route("/api/esp32/ping", methods=["POST"])
+def esp32_ping():
+    if hasattr(garage, "esp32") and garage.esp32:
+        res = garage.esp32.check_connection(timeout=1.0)
+        return jsonify({
+            "success": True,
+            "result": res,
+            "status": garage.esp32.get_diagnostics()
+        })
+    return jsonify({"success": False, "error": "ESP32 не ініціалізовано"}), 500
+
+
+@app.route("/api/esp32/poll", methods=["POST"])
+def esp32_poll():
+    if hasattr(garage, "esp32") and garage.esp32:
+        res = garage.esp32.poll_ble()
+        return jsonify({
+            "success": True,
+            "result": res,
+            "status": garage.esp32.get_diagnostics()
+        })
+    return jsonify({"success": False, "error": "ESP32 не ініціалізовано"}), 500
+
+
+@app.route("/api/esp32/clear_logs", methods=["POST"])
+def esp32_clear_logs():
+    if hasattr(garage, "esp32") and garage.esp32:
+        garage.esp32.clear_logs()
+        return jsonify({"success": True, "message": "Журнал ESP32 очищено"})
+    return jsonify({"success": False, "error": "ESP32 не ініціалізовано"}), 500
 
 
 @app.route("/api/sensors/bind", methods=["POST"])
@@ -387,7 +460,7 @@ def get_telemetry_history():
 @app.route("/api/esp32/telemetry", methods=["POST"])
 def esp32_telemetry():
     data = request.get_json(silent=True) or {}
-    success = garage.esp32.update_from_webhook(data)
+    success = garage.esp32.update_from_webhook(data, transport="http")
     if success:
         garage.automation.evaluate_telemetry(data)
         # Update cache from ESP32 BLE reading if present
@@ -397,20 +470,21 @@ def esp32_telemetry():
                     mac = fval.get("mac")
                     if mac and mac in garage.bt_sensors.sensors:
                         s = garage.bt_sensors.sensors[mac]
-                        if fval.get("temperature") is not None:
+                        is_sensor_online = bool(fval.get("online", False))
+                        if fval.get("temperature") is not None and is_sensor_online:
                             s["temperature"] = fval["temperature"]
-                        if fval.get("humidity") is not None:
-                            s["humidity"] = fval["humidity"]
-                        if fval.get("battery") is not None:
-                            s["battery"] = fval["battery"]
-                        s["online"] = fval.get("online", True)
-                        s["last_updated"] = time.time()
-                garage.bt_sensors._save_cache()
+                            s["humidity"] = fval.get("humidity")
+                            s["battery"] = fval.get("battery")
+                            s["online"] = True
+                            s["last_updated"] = time.time()
+                        elif not is_sensor_online:
+                            s["online"] = False
+            garage.bt_sensors._save_cache()
 
-            # Record into SQLite TelemetryDB
+            # Record into SQLite TelemetryDB only for online readings
             if hasattr(garage, "telemetry_db") and garage.telemetry_db:
                 for fk, fval in data["floors"].items():
-                    if isinstance(fval, dict) and fval.get("temperature") is not None:
+                    if isinstance(fval, dict) and fval.get("online") and fval.get("temperature") is not None:
                         garage.telemetry_db.record(
                             floor=fk,
                             temperature=fval["temperature"],
@@ -423,8 +497,8 @@ def esp32_telemetry():
         hum = data.get("humidity")
         door = garage.esp32.state.get("door", "closed")
         light = garage.esp32.state.get("light", False)
-        car = data.get("car_present", False)
-        if temp is not None or hum is not None:
+        car = bool(data.get("car_present"))
+        if (temp is not None or hum is not None) and data.get("online"):
             telemetry_history.add(temp=temp, hum=hum, door=door, light=light, car=car)
 
     return jsonify({
@@ -1032,7 +1106,57 @@ def speaker_control():
     elif action == "resume":
         garage.speaker.resume()
         return jsonify({"success": True, "response": "Продовжено"})
+    elif action == "next":
+        ok, p_title, t_title = garage.speaker.play_next()
+        return jsonify({"success": ok, "track_title": t_title, "response": f"Наступний: {t_title}" if ok else "Помилка перемикання"})
+    elif action == "prev":
+        ok, p_title, t_title = garage.speaker.play_prev()
+        return jsonify({"success": ok, "track_title": t_title, "response": f"Попередній: {t_title}" if ok else "Помилка перемикання"})
+    elif action == "seek":
+        pos = data.get("position", 0)
+        ok = garage.speaker.seek(int(pos))
+        return jsonify({"success": ok, "position": pos, "response": f"Перемотано на {pos}с"})
     return jsonify({"success": False, "response": f"Невідома дія: {action}"}), 400
+
+
+@app.route("/api/speaker/seek", methods=["POST"])
+def speaker_seek():
+    data = request.get_json(silent=True) or {}
+    pos = data.get("position")
+    delta = data.get("delta")
+
+    if not hasattr(garage, "speaker") or not garage.speaker:
+        return jsonify({"success": False, "error": "Колонка недоступна"}), 500
+
+    if delta is not None:
+        st = garage.speaker.get_status()
+        current_elapsed = st.get("elapsed_seconds", 0)
+        pos = max(0, current_elapsed + int(delta))
+
+    if pos is None:
+        return jsonify({"success": False, "error": "Не вказано позицію для перемотування"}), 400
+
+    ok = garage.speaker.seek(int(pos))
+    return jsonify({
+        "success": ok,
+        "position": int(pos),
+        "status": garage.speaker.get_status()
+    })
+
+
+@app.route("/api/speaker/prev", methods=["POST"])
+def speaker_prev():
+    if not hasattr(garage, "speaker") or not garage.speaker:
+        return jsonify({"success": False, "error": "Колонка недоступна"}), 500
+    ok, p_title, t_title = garage.speaker.play_prev()
+    return jsonify({
+        "success": ok,
+        "playing": garage.speaker.is_playing(),
+        "playlist_title": p_title,
+        "track_title": t_title,
+        "response": f"⏮ Попередній трек: {t_title}" if ok else "Не вдалося перемкнути на попередній трек"
+    })
+
 
 
 # --- INTERNET RADIO API (Radio Browser) ---
@@ -1193,17 +1317,42 @@ def ytmusic_next():
     })
 
 
+@app.route("/api/ytmusic/prev", methods=["POST"])
+def ytmusic_prev():
+    data = request.get_json(silent=True) or {}
+    mac = data.get("mac")
+    if mac and hasattr(garage, "speaker"):
+        garage.speaker.set_active_speaker(mac)
+    shuffle = data.get("shuffle")
+
+    ok, p_title, t_title = garage.speaker.play_prev(shuffle=shuffle)
+    spk_name = garage.speaker.name if hasattr(garage, "speaker") else "колонці"
+    return jsonify({
+        "success": ok,
+        "playing": garage.speaker.is_playing() if hasattr(garage, "speaker") else False,
+        "playlist_title": p_title,
+        "track_title": t_title,
+        "response": f"Попередній трек: '{t_title}' на {spk_name}" if ok else f"Не вдалося повернутися до попереднього треку на {spk_name}"
+    })
+
+
 @app.route("/api/ytmusic/status", methods=["GET"])
 def ytmusic_status():
     spk_status = garage.speaker.get_status() if hasattr(garage, "speaker") else {}
     autoplay = getattr(garage.speaker, "_playlist_autoplay", False) if hasattr(garage, "speaker") else False
+    p_id = getattr(garage.speaker, "_playlist_id", None) or ytmusic_service.current_playlist_id
+    upcoming = ytmusic_service.get_upcoming_track(p_id) if (autoplay or p_id) else None
     return jsonify({
         "success": True,
         "current_playlist_id": ytmusic_service.current_playlist_id,
         "current_playlist_title": ytmusic_service.current_playlist_title,
         "current_track": spk_status.get("current_track"),
         "playing": garage.speaker.is_playing() if hasattr(garage, "speaker") else False,
+        "paused": spk_status.get("paused", False),
         "autoplay": autoplay,
+        "elapsed_seconds": spk_status.get("elapsed_seconds", 0),
+        "duration_seconds": spk_status.get("duration_seconds", 0),
+        "upcoming_track": upcoming,
         "speaker": spk_status
     })
 

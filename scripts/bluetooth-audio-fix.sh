@@ -51,7 +51,8 @@ sleep 2
 
 # 2. Перепідключення Bluetooth пристрою
 log "2. Перепідключення Bluetooth пристрою ${TARGET_MAC}..."
-# Перевірка живлення адаптера
+# Зняття блокування rfkill та перевірка живлення адаптера
+rfkill unblock bluetooth 2>/dev/null || true
 if command -v bluetoothctl >/dev/null 2>&1; then
     bluetoothctl power on >/dev/null 2>&1 || true
     bluetoothctl disconnect "${TARGET_MAC}" >/dev/null 2>&1 || true

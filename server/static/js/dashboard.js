@@ -30,6 +30,16 @@ document.addEventListener('DOMContentLoaded', () => {
     const pillRam = document.getElementById('pillRam');
     const pillServerBat = document.getElementById('pillServerBat');
     const pillEspStatus = document.getElementById('pillEspStatus');
+    const pillEspContainer = document.getElementById('pillEspContainer');
+    const pillEspDot = document.getElementById('pillEspDot');
+    const esp32GatewayStrip = document.getElementById('esp32GatewayStrip');
+    const esp32StripBadge = document.getElementById('esp32StripBadge');
+    const esp32StripIp = document.getElementById('esp32StripIp');
+    const esp32StripLastSeen = document.getElementById('esp32StripLastSeen');
+    const btnEsp32Ping = document.getElementById('btnEsp32Ping');
+    const btnEsp32Poll = document.getElementById('btnEsp32Poll');
+    const btnEsp32Logs = document.getElementById('btnEsp32Logs');
+    const modalEsp32 = document.getElementById('modalEsp32');
 
     // Touch Tiles
     const tileLight = document.getElementById('tileLight');
@@ -111,9 +121,18 @@ document.addEventListener('DOMContentLoaded', () => {
     const jblVolumeVal = document.getElementById('jblVolumeVal');
     const jblVolumeSlider = document.getElementById('jblVolumeSlider');
     const jblNowPlaying = document.getElementById('jblNowPlaying');
+    const btnJblPrev = document.getElementById('btnJblPrev');
+    const btnJblRewind = document.getElementById('btnJblRewind');
     const btnJblPause = document.getElementById('btnJblPause');
     const btnJblResume = document.getElementById('btnJblResume');
+    const btnJblForward = document.getElementById('btnJblForward');
     const btnJblStop = document.getElementById('btnJblStop');
+    const dashTimelineSlider = document.getElementById('dashTimelineSlider');
+    const dashMediaTimeElapsed = document.getElementById('dashMediaTimeElapsed');
+    const dashMediaTimeDuration = document.getElementById('dashMediaTimeDuration');
+    const dashJblUpcomingContainer = document.getElementById('dashJblUpcomingContainer');
+    const dashJblUpcomingTrack = document.getElementById('dashJblUpcomingTrack');
+    let isDashScrubbing = false;
     const jblPlayForm = document.getElementById('jblPlayForm');
     const jblPlayInput = document.getElementById('jblPlayInput');
 
@@ -1051,6 +1070,55 @@ document.addEventListener('DOMContentLoaded', () => {
         jblVolumeSlider.addEventListener('touchend', () => { isVolumeDragging = false; });
     }
 
+    function formatDashTime(secs) {
+        if (!secs || isNaN(secs) || secs < 0) return '00:00';
+        const m = Math.floor(secs / 60);
+        const s = Math.floor(secs % 60);
+        return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+    }
+
+    if (btnJblPrev) {
+        btnJblPrev.addEventListener('click', async () => {
+            hapticFeedback();
+            if (voiceStatusText) voiceStatusText.textContent = 'Попередній трек...';
+            try {
+                const res = await fetch('/api/ytmusic/prev', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({})
+                });
+                const data = await res.json();
+                if (data.success && data.track_title && jblNowPlaying) {
+                    jblNowPlaying.textContent = `🎵 ${data.track_title}`;
+                }
+                if (voiceStatusText && data.response) {
+                    voiceStatusText.textContent = data.response;
+                    voiceStatusText.style.color = 'var(--accent-cyan)';
+                }
+                fetchTelemetry();
+            } catch (e) {
+                if (voiceStatusText) {
+                    voiceStatusText.textContent = 'Помилка перемикання на попередній трек';
+                    voiceStatusText.style.color = '#ef4444';
+                }
+            }
+        });
+    }
+
+    if (btnJblRewind) {
+        btnJblRewind.addEventListener('click', async () => {
+            hapticFeedback();
+            try {
+                await fetch('/api/speaker/seek', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ delta: -10 })
+                });
+                fetchTelemetry();
+            } catch (e) {}
+        });
+    }
+
     if (btnJblPause) {
         btnJblPause.addEventListener('click', () => {
             hapticFeedback();
@@ -1070,6 +1138,20 @@ document.addEventListener('DOMContentLoaded', () => {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ action: 'resume' })
             });
+        });
+    }
+
+    if (btnJblForward) {
+        btnJblForward.addEventListener('click', async () => {
+            hapticFeedback();
+            try {
+                await fetch('/api/speaker/seek', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ delta: 10 })
+                });
+                fetchTelemetry();
+            } catch (e) {}
         });
     }
 
@@ -1112,6 +1194,34 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }
         });
+    }
+
+    if (dashTimelineSlider) {
+        dashTimelineSlider.addEventListener('input', () => {
+            isDashScrubbing = true;
+            const targetSec = parseInt(dashTimelineSlider.value, 10);
+            if (dashMediaTimeElapsed) dashMediaTimeElapsed.textContent = formatDashTime(targetSec);
+        });
+
+        const commitDashSeek = async () => {
+            if (!isDashScrubbing) return;
+            const targetSec = parseInt(dashTimelineSlider.value, 10);
+            try {
+                await fetch('/api/speaker/seek', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ position: targetSec })
+                });
+            } catch (e) {}
+            setTimeout(() => {
+                isDashScrubbing = false;
+                fetchTelemetry();
+            }, 400);
+        };
+
+        dashTimelineSlider.addEventListener('change', commitDashSeek);
+        dashTimelineSlider.addEventListener('mouseup', commitDashSeek);
+        dashTimelineSlider.addEventListener('touchend', commitDashSeek);
     }
 
     if (jblPlayForm) {
@@ -1536,6 +1646,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 // Floor 2 (LYWSD03MMC BLE)
                 const isOnlineF2 = !!f2.online;
+                const isStaleF2 = !!f2.is_stale;
                 const hasF2 = f2.temperature !== null && f2.temperature !== undefined;
                 const t2 = hasF2 ? Number(f2.temperature).toFixed(1) : '--';
                 const h2 = (hasF2 && f2.humidity !== null && f2.humidity !== undefined) ? Number(f2.humidity).toFixed(0) : '--';
@@ -1551,11 +1662,23 @@ document.addEventListener('DOMContentLoaded', () => {
                     valHumFloor2.textContent = h2;
                     valHumFloor2.title = tip2;
                 }
-                if (subFloor2) subFloor2.textContent = isOnlineF2 ? `Онлайн • ${f2.last_updated_time || '--:--'}` : (hasF2 ? `Офлайн • ${f2.last_updated_time || '--:--'}` : 'Офлайн (немає зв\'язку)');
+                if (floorCard2) {
+                    floorCard2.classList.toggle('is-stale', isStaleF2);
+                }
+                if (subFloor2) {
+                    if (isOnlineF2) {
+                        subFloor2.textContent = `Онлайн • ${f2.last_updated_time || '--:--'}`;
+                    } else if (isStaleF2) {
+                        subFloor2.textContent = `Застарілі дані (${f2.last_updated_relative || f2.last_updated_time})`;
+                    } else {
+                        subFloor2.textContent = hasF2 ? `Офлайн • ${f2.last_updated_time || '--:--'}` : 'Офлайн (немає зв\'язку)';
+                    }
+                }
                 if (batFloor2) batFloor2.textContent = b2;
 
                 // Basement (LYWSD03MMC BLE)
                 const isOnlineFB = !!fb.online;
+                const isStaleFB = !!fb.is_stale;
                 const hasFB = fb.temperature !== null && fb.temperature !== undefined;
                 const tb = hasFB ? Number(fb.temperature).toFixed(1) : '--';
                 const hb = (hasFB && fb.humidity !== null && fb.humidity !== undefined) ? Number(fb.humidity).toFixed(0) : '--';
@@ -1571,7 +1694,18 @@ document.addEventListener('DOMContentLoaded', () => {
                     valHumBasement.textContent = hb;
                     valHumBasement.title = tipB;
                 }
-                if (subBasement) subBasement.textContent = isOnlineFB ? `${getComfort(Number(tb), Number(hb))} • ${fb.last_updated_time || '--:--'}` : (hasFB ? `Офлайн • ${fb.last_updated_time || '--:--'}` : 'Очікує даних');
+                if (floorCardBasement) {
+                    floorCardBasement.classList.toggle('is-stale', isStaleFB);
+                }
+                if (subBasement) {
+                    if (isOnlineFB) {
+                        subBasement.textContent = `${getComfort(Number(tb), Number(hb))} • ${fb.last_updated_time || '--:--'}`;
+                    } else if (isStaleFB) {
+                        subBasement.textContent = `Застарілі дані (${fb.last_updated_relative || fb.last_updated_time})`;
+                    } else {
+                        subBasement.textContent = hasFB ? `Офлайн • ${fb.last_updated_time || '--:--'}` : 'Очікує даних';
+                    }
+                }
                 if (batBasement) batBasement.textContent = bb;
 
                 // BLE sensors summary (Count configured BLE climate sensors)
@@ -1586,7 +1720,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     } else if (activeBleCount === 1) {
                         subBleSensors.textContent = f2.online ? "2-й поверх на зв'язку" : "Підвал на зв'язку";
                     } else {
-                        subBleSensors.textContent = "Очікування сигналів";
+                        subBleSensors.textContent = (isStaleFB || isStaleF2) ? "Дані застарілі (ESP32 офлайн)" : "Очікування сигналів";
                     }
                 }
 
@@ -1619,11 +1753,28 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                 }
 
-                // ESP32 Status Pill
+                // ESP32 Status Pill & Gateway Strip
+                const esp = st.esp32 || {};
+                const espOnline = !!(esp.online !== undefined ? esp.online : (st.online && st.transport !== 'none'));
+                const espHost = esp.host || st.wifi_ip || '192.168.100.114';
+                const espSeenTime = esp.last_seen_time || '--:--';
+                const espSeenRel = esp.last_seen_relative || 'ніколи';
+
+                if (pillEspDot) {
+                    pillEspDot.className = espOnline ? 'status-dot online pulse' : 'status-dot offline';
+                }
                 if (pillEspStatus) {
-                    const online = st.online !== false;
-                    const transport = st.transport || 'Auto';
-                    pillEspStatus.textContent = `ESP32: ${online ? 'Онлайн (' + transport + ')' : 'Очікування'}`;
+                    pillEspStatus.textContent = espOnline ? `ESP32: В мережі (${espHost})` : `ESP32: Офлайн (${espSeenTime})`;
+                }
+                if (esp32StripBadge) {
+                    esp32StripBadge.className = 'esp32-strip-badge ' + (espOnline ? 'online' : 'offline');
+                    esp32StripBadge.textContent = espOnline ? '🟢 ESP32 В мережі' : '🔴 ESP32 Офлайн';
+                }
+                if (esp32StripIp) {
+                    esp32StripIp.textContent = espHost + (esp.ping_ms !== undefined && esp.ping_ms !== null ? ` • ${esp.ping_ms} мс` : '');
+                }
+                if (esp32StripLastSeen) {
+                    esp32StripLastSeen.textContent = `Останній зв'язок: ${espSeenTime} (${espSeenRel})`;
                 }
 
                 // 4. Bluetooth Speakers Switcher & State
@@ -1689,14 +1840,51 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 if (jblNowPlaying) {
                     if (spk.playing && spk.current_track) {
-                        const elapsed = spk.elapsed_seconds ? ` (${spk.elapsed_seconds}с)` : '';
+                        const elapsed = spk.elapsed_seconds ? ` (${formatDashTime(spk.elapsed_seconds)})` : '';
                         jblNowPlaying.textContent = `▶ ${spk.current_track}${elapsed}`;
                         jblNowPlaying.style.color = 'var(--accent-cyan)';
                     } else {
-                        jblNowPlaying.textContent = 'Немає активного відтворення'; ``
+                        jblNowPlaying.textContent = 'Немає активного відтворення';
                         jblNowPlaying.style.color = '#fff';
                     }
                 }
+
+                // Upcoming track preview on tablet dashboard
+                if (dashJblUpcomingContainer && dashJblUpcomingTrack) {
+                    const upcoming = spk.upcoming_track;
+                    if (upcoming && upcoming.title && spk.playing) {
+                        dashJblUpcomingContainer.style.display = 'inline-flex';
+                        const uploaderStr = upcoming.uploader ? ` • ${upcoming.uploader}` : '';
+                        dashJblUpcomingTrack.textContent = `${upcoming.title}${uploaderStr}`;
+                        dashJblUpcomingTrack.title = `Наступна: ${upcoming.title}${uploaderStr}`;
+                    } else {
+                        dashJblUpcomingContainer.style.display = 'none';
+                    }
+                }
+
+                // Scrubber & timeline update on tablet dashboard
+                const dur = spk.duration_seconds || 0;
+                const elap = spk.elapsed_seconds || 0;
+                if (dashMediaTimeDuration) {
+                    dashMediaTimeDuration.textContent = dur > 0 ? formatDashTime(dur) : '--:--';
+                }
+                if (dashTimelineSlider && !isDashScrubbing) {
+                    if (spk.playing && dur > 0) {
+                        dashTimelineSlider.max = dur;
+                        dashTimelineSlider.value = elap;
+                        dashTimelineSlider.disabled = false;
+                        if (dashMediaTimeElapsed) dashMediaTimeElapsed.textContent = formatDashTime(elap);
+                    } else if (spk.playing) {
+                        dashTimelineSlider.value = 0;
+                        dashTimelineSlider.disabled = true;
+                        if (dashMediaTimeElapsed) dashMediaTimeElapsed.textContent = formatDashTime(elap);
+                    } else {
+                        dashTimelineSlider.value = 0;
+                        dashTimelineSlider.disabled = true;
+                        if (dashMediaTimeElapsed) dashMediaTimeElapsed.textContent = '00:00';
+                    }
+                }
+
                 // Highlight active quick radio station button if current_track contains station name
                 if (radioQuickPicks) {
                     const trackLower = (spk.playing && spk.current_track) ? spk.current_track.toLowerCase() : '';
@@ -2109,6 +2297,285 @@ document.addEventListener('DOMContentLoaded', () => {
             const floorKey = card.getAttribute('data-floor');
             openClimateModal(floorKey);
         });
+    });
+
+    // ==========================================
+    // ESP32 DIAGNOSTICS & LOGS MODAL CONTROLLER
+    // ==========================================
+    let esp32ModalInterval = null;
+    let esp32ActiveFilter = 'all';
+    let cachedEsp32Logs = [];
+
+    const modalEsp32Online = document.getElementById('modalEsp32Online');
+    const modalEsp32Transport = document.getElementById('modalEsp32Transport');
+    const modalEsp32Ip = document.getElementById('modalEsp32Ip');
+    const modalEsp32Ping = document.getElementById('modalEsp32Ping');
+    const modalEsp32LastSeenTime = document.getElementById('modalEsp32LastSeenTime');
+    const modalEsp32LastSeenRel = document.getElementById('modalEsp32LastSeenRel');
+    const modalEsp32PollStats = document.getElementById('modalEsp32PollStats');
+    const modalEsp32LastPoll = document.getElementById('modalEsp32LastPoll');
+
+    const badgeSensorBasement = document.getElementById('badgeSensorBasement');
+    const tempSensorBasement = document.getElementById('tempSensorBasement');
+    const humSensorBasement = document.getElementById('humSensorBasement');
+    const batSensorBasement = document.getElementById('batSensorBasement');
+    const readTimeSensorBasement = document.getElementById('readTimeSensorBasement');
+
+    const badgeSensorFloor2 = document.getElementById('badgeSensorFloor2');
+    const tempSensorFloor2 = document.getElementById('tempSensorFloor2');
+    const humSensorFloor2 = document.getElementById('humSensorFloor2');
+    const batSensorFloor2 = document.getElementById('batSensorFloor2');
+    const readTimeSensorFloor2 = document.getElementById('readTimeSensorFloor2');
+
+    const esp32LogsContainer = document.getElementById('esp32LogsContainer');
+    const btnCloseEsp32Modal = document.getElementById('btnCloseEsp32Modal');
+    const btnModalCloseFooter = document.getElementById('btnModalCloseFooter');
+    const btnModalPing = document.getElementById('btnModalPing');
+    const btnModalPoll = document.getElementById('btnModalPoll');
+    const btnModalClearLogs = document.getElementById('btnModalClearLogs');
+
+    function renderEsp32Logs() {
+        if (!esp32LogsContainer) return;
+        const filtered = cachedEsp32Logs.filter(item => {
+            if (esp32ActiveFilter === 'all') return true;
+            if (esp32ActiveFilter === 'sensor_read') return item.type === 'sensor_read';
+            if (esp32ActiveFilter === 'connection') return item.type === 'connection';
+            if (esp32ActiveFilter === 'error') return item.status === 'error' || item.status === 'warning';
+            return true;
+        });
+
+        if (filtered.length === 0) {
+            esp32LogsContainer.innerHTML = '<div class="esp32-empty-logs">📭 Немає записів у цій категорії журналу</div>';
+            return;
+        }
+
+        esp32LogsContainer.innerHTML = filtered.map(item => {
+            let badgeClass = 'badge-status-info';
+            let badgeText = 'ІНФО';
+            if (item.status === 'success') {
+                badgeClass = 'badge-status-success';
+                badgeText = 'УСПІШНО';
+            } else if (item.status === 'warning') {
+                badgeClass = 'badge-status-warning';
+                badgeText = 'УВАГА';
+            } else if (item.status === 'error') {
+                badgeClass = 'badge-status-error';
+                badgeText = 'ПОМИЛКА';
+            }
+
+            return `
+                <div class="esp32-log-item">
+                    <span class="esp32-log-time">${item.time || '--:--:--'}</span>
+                    <span class="esp32-log-badge ${badgeClass}">${badgeText}</span>
+                    <div class="esp32-log-content">
+                        <span class="esp32-log-title">${escapeHtml(item.title || '')}</span>
+                        <span class="esp32-log-msg">${escapeHtml(item.message || '')}</span>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    async function loadEsp32Diagnostics() {
+        try {
+            const res = await fetch('/api/esp32/status');
+            const data = await res.json();
+            if (!data.success || !data.status) return;
+            const st = data.status;
+
+            // Stats grid
+            const isOnline = !!st.online;
+            if (modalEsp32Online) {
+                modalEsp32Online.className = `esp32-tile-val ${isOnline ? 'text-status-online' : 'text-status-offline'}`;
+                modalEsp32Online.textContent = isOnline ? '🟢 В мережі' : '🔴 Офлайн';
+            }
+            if (modalEsp32Transport) {
+                modalEsp32Transport.textContent = `Канал: ${st.transport || 'Немає'}`;
+            }
+            if (modalEsp32Ip) {
+                modalEsp32Ip.textContent = `${st.host || '192.168.100.114'}:${st.port || 80}`;
+            }
+            if (modalEsp32Ping) {
+                modalEsp32Ping.textContent = st.ping_ms !== null && st.ping_ms !== undefined ? `Затримка: ${st.ping_ms} мс` : 'Затримка: немає відповіді';
+            }
+            if (modalEsp32LastSeenTime) {
+                modalEsp32LastSeenTime.textContent = st.last_seen_time || '--:--';
+            }
+            if (modalEsp32LastSeenRel) {
+                modalEsp32LastSeenRel.textContent = st.last_seen_relative || 'Ніколи';
+            }
+            if (modalEsp32PollStats) {
+                const p = st.stats || {};
+                modalEsp32PollStats.textContent = `${p.polls_success || 0} успішних / ${p.polls_total || 0} всього`;
+            }
+            if (modalEsp32LastPoll) {
+                const p = st.stats || {};
+                modalEsp32LastPoll.textContent = p.last_poll_time ? `Останнє: ${new Date(p.last_poll_time * 1000).toLocaleTimeString()}` : 'Останнє: --:--';
+            }
+
+            // Sensors details
+            const sensors = st.sensors || {};
+            const sb = sensors.basement || {};
+            const s2 = sensors.floor2 || {};
+
+            // Basement
+            if (tempSensorBasement) tempSensorBasement.textContent = sb.temperature !== null && sb.temperature !== undefined ? `${Number(sb.temperature).toFixed(1)} °C` : '--';
+            if (humSensorBasement) humSensorBasement.textContent = sb.humidity !== null && sb.humidity !== undefined ? `${Number(sb.humidity).toFixed(0)} %` : '--';
+            if (batSensorBasement) batSensorBasement.textContent = sb.battery !== null && sb.battery !== undefined ? `🔋 ${sb.battery}%` : '🔋 --';
+            if (readTimeSensorBasement) readTimeSensorBasement.textContent = `Останнє зчитування: ${sb.last_read_time || '--:--'} (${sb.last_read_relative || 'немає'})`;
+            if (badgeSensorBasement) {
+                if (sb.online) {
+                    badgeSensorBasement.className = 'sensor-badge badge-online';
+                    badgeSensorBasement.textContent = '🟢 Онлайн';
+                } else if (sb.is_stale) {
+                    badgeSensorBasement.className = 'sensor-badge badge-stale';
+                    badgeSensorBasement.textContent = '⚠️ Застаріло';
+                } else {
+                    badgeSensorBasement.className = 'sensor-badge badge-offline';
+                    badgeSensorBasement.textContent = '🔴 Офлайн';
+                }
+            }
+
+            // Floor 2
+            if (tempSensorFloor2) tempSensorFloor2.textContent = s2.temperature !== null && s2.temperature !== undefined ? `${Number(s2.temperature).toFixed(1)} °C` : '--';
+            if (humSensorFloor2) humSensorFloor2.textContent = s2.humidity !== null && s2.humidity !== undefined ? `${Number(s2.humidity).toFixed(0)} %` : '--';
+            if (batSensorFloor2) batSensorFloor2.textContent = s2.battery !== null && s2.battery !== undefined ? `🔋 ${s2.battery}%` : '🔋 --';
+            if (readTimeSensorFloor2) readTimeSensorFloor2.textContent = `Останнє зчитування: ${s2.last_read_time || '--:--'} (${s2.last_read_relative || 'немає'})`;
+            if (badgeSensorFloor2) {
+                if (s2.online) {
+                    badgeSensorFloor2.className = 'sensor-badge badge-online';
+                    badgeSensorFloor2.textContent = '🟢 Онлайн';
+                } else if (s2.is_stale) {
+                    badgeSensorFloor2.className = 'sensor-badge badge-stale';
+                    badgeSensorFloor2.textContent = '⚠️ Застаріло';
+                } else {
+                    badgeSensorFloor2.className = 'sensor-badge badge-offline';
+                    badgeSensorFloor2.textContent = '🔴 Офлайн';
+                }
+            }
+
+            // Logs
+            cachedEsp32Logs = st.logs || [];
+            renderEsp32Logs();
+        } catch (e) {
+            console.error('Error loading ESP32 diagnostics:', e);
+        }
+    }
+
+    function openEsp32Modal() {
+        if (!modalEsp32) return;
+        hapticFeedback();
+        modalEsp32.classList.add('open');
+        document.body.style.overflow = 'hidden';
+        loadEsp32Diagnostics();
+        if (esp32ModalInterval) clearInterval(esp32ModalInterval);
+        esp32ModalInterval = setInterval(loadEsp32Diagnostics, 3500);
+    }
+
+    function closeEsp32Modal() {
+        if (!modalEsp32) return;
+        hapticFeedback();
+        modalEsp32.classList.remove('open');
+        document.body.style.overflow = '';
+        if (esp32ModalInterval) {
+            clearInterval(esp32ModalInterval);
+            esp32ModalInterval = null;
+        }
+    }
+
+    // Modal Triggers
+    if (pillEspContainer) pillEspContainer.addEventListener('click', openEsp32Modal);
+    if (btnEsp32Logs) btnEsp32Logs.addEventListener('click', openEsp32Modal);
+    if (btnCloseEsp32Modal) btnCloseEsp32Modal.addEventListener('click', closeEsp32Modal);
+    if (btnModalCloseFooter) btnModalCloseFooter.addEventListener('click', closeEsp32Modal);
+
+    if (modalEsp32) {
+        modalEsp32.addEventListener('click', (e) => {
+            if (e.target === modalEsp32) closeEsp32Modal();
+        });
+    }
+
+    // Filter tabs inside modal
+    document.querySelectorAll('.esp32-filter-tabs .filter-tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+            hapticFeedback();
+            document.querySelectorAll('.esp32-filter-tabs .filter-tab').forEach(t => t.classList.remove('active'));
+            tab.classList.add('active');
+            esp32ActiveFilter = tab.getAttribute('data-filter') || 'all';
+            renderEsp32Logs();
+        });
+    });
+
+    // Ping Action (Both strip and modal)
+    const handlePing = async (btn) => {
+        hapticFeedback();
+        const origText = btn ? btn.textContent : '';
+        if (btn) btn.textContent = '⏳ Перевірка...';
+        try {
+            const res = await fetch('/api/esp32/ping', { method: 'POST' });
+            const data = await res.json();
+            if (data.result && data.result.online) {
+                alert(`✅ ESP32 на зв'язку!\nЧас відгуку (ping): ${data.result.latency_ms} мс\nХост: ${data.result.host}:${data.result.port}`);
+            } else {
+                alert(`❌ ESP32 не відповідає у мережі!\nХост: ${data.result ? data.result.host : '192.168.100.114'}\nПомилка: ${data.result?.error || 'Таймаут підключення'}`);
+            }
+            loadEsp32Diagnostics();
+            fetchTelemetry();
+        } catch (e) {
+            alert(`Помилка запиту: ${e.message}`);
+        } finally {
+            if (btn) btn.textContent = origText;
+        }
+    };
+
+    if (btnEsp32Ping) btnEsp32Ping.addEventListener('click', () => handlePing(btnEsp32Ping));
+    if (btnModalPing) btnModalPing.addEventListener('click', () => handlePing(btnModalPing));
+
+    // Poll Action (Both strip and modal)
+    const handlePoll = async (btn) => {
+        hapticFeedback();
+        const origText = btn ? btn.textContent : '';
+        if (btn) btn.textContent = '⏳ Опитування...';
+        try {
+            const res = await fetch('/api/esp32/poll', { method: 'POST' });
+            const data = await res.json();
+            if (data.result && data.result.success) {
+                alert(`📡 Команду опитування датчиків успішно передано на ESP32 (${data.result.transport})!\nОчікуйте оновлення показників.`);
+            } else {
+                alert(`⚠️ Не вдалося опитати датчики через ESP32:\n${data.result?.error || 'Контролер не в мережі'}`);
+            }
+            loadEsp32Diagnostics();
+            fetchTelemetry();
+        } catch (e) {
+            alert(`Помилка запиту: ${e.message}`);
+        } finally {
+            if (btn) btn.textContent = origText;
+        }
+    };
+
+    if (btnEsp32Poll) btnEsp32Poll.addEventListener('click', () => handlePoll(btnEsp32Poll));
+    if (btnModalPoll) btnModalPoll.addEventListener('click', () => handlePoll(btnModalPoll));
+
+    // Clear Logs Action
+    if (btnModalClearLogs) {
+        btnModalClearLogs.addEventListener('click', async () => {
+            if (!confirm('Ви впевнені, що бажаєте очистити журнал подій ESP32?')) return;
+            hapticFeedback();
+            try {
+                await fetch('/api/esp32/clear_logs', { method: 'POST' });
+                cachedEsp32Logs = [];
+                renderEsp32Logs();
+            } catch (e) {
+                console.error(e);
+            }
+        });
+    }
+
+    // Escape key listener for ESP32 modal
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && modalEsp32 && modalEsp32.classList.contains('open')) {
+            closeEsp32Modal();
+        }
     });
 
     // Initial Load & Regular Polling

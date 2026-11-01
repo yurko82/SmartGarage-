@@ -381,5 +381,68 @@ class YTMusicService:
         chosen_copy["track_index"] = self.current_track_index
         return chosen_copy
 
+    def get_prev_track_to_play(
+        self,
+        playlist_id_or_name: Optional[str] = None,
+        shuffle: Optional[bool] = None
+    ) -> Optional[Dict[str, Any]]:
+        """Get the previous track in playlist for stepping back."""
+        p_id = playlist_id_or_name or self.current_playlist_id or "LM"
+        pl = self.find_playlist(p_id)
+        if pl:
+            p_id = pl["id"]
+            p_title = pl["title"]
+        else:
+            p_title = p_id
+
+        tracks = self.get_playlist_tracks(p_id)
+        if not tracks:
+            return None
+
+        self.current_playlist_id = p_id
+        self.current_playlist_title = p_title
+
+        is_shuffle = shuffle if shuffle is not None else self.current_shuffle_mode
+        if is_shuffle:
+            return self.get_track_to_play(p_id, shuffle=True)
+
+        # Step back to previous sequential index
+        if self.current_track_index <= 0:
+            self.current_track_index = len(tracks) - 1
+        else:
+            self.current_track_index = (self.current_track_index - 1) % len(tracks)
+
+        chosen = tracks[self.current_track_index]
+        chosen_copy = dict(chosen)
+        chosen_copy["playlist_id"] = p_id
+        chosen_copy["playlist_title"] = p_title
+        chosen_copy["total_tracks"] = len(tracks)
+        chosen_copy["track_index"] = self.current_track_index
+        return chosen_copy
+
+    def get_upcoming_track(self, playlist_id_or_name: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """Peek at what track will play next without modifying the playhead position."""
+        p_id = playlist_id_or_name or self.current_playlist_id or "LM"
+        tracks = self.get_playlist_tracks(p_id)
+        if not tracks:
+            return None
+
+        if len(tracks) == 1:
+            next_idx = 0
+        elif self.current_track_index < 0:
+            next_idx = 0
+        else:
+            next_idx = (self.current_track_index + 1) % len(tracks)
+
+        t = tracks[next_idx]
+        return {
+            "id": t.get("id"),
+            "title": t.get("title", ""),
+            "uploader": t.get("uploader", ""),
+            "duration": t.get("duration", 0),
+            "track_index": next_idx,
+            "total_tracks": len(tracks)
+        }
+
 
 ytmusic_service = YTMusicService()

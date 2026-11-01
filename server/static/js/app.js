@@ -1340,54 +1340,149 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- SPEECH RECOGNITION (STT) ---
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (SpeechRecognition) {
-        recognition = new SpeechRecognition();
-        recognition.continuous = false;
-        recognition.interimResults = false;
-        recognition.lang = 'uk-UA';
 
-        recognition.onstart = () => {
-            isListening = true;
-            if (voiceBtn) voiceBtn.classList.add('listening');
-            if (voiceListeningBar) voiceListeningBar.style.display = 'flex';
-            if (voiceHint) voiceHint.textContent = 'Слухаю... Говоріть команду';
-        };
+    function createRecognitionInstance() {
+        if (!SpeechRecognition) return null;
+        try {
+            const inst = new SpeechRecognition();
+            inst.continuous = false;
+            inst.interimResults = false;
+            inst.lang = 'uk-UA';
 
-        recognition.onresult = (event) => {
-            const transcript = event.results[0][0].transcript;
-            if (commandInput) commandInput.value = transcript;
-            sendCommand(transcript);
-        };
+            inst.onstart = () => {
+                isListening = true;
+                if (voiceBtn) voiceBtn.classList.add('listening');
+                if (voiceListeningBar) voiceListeningBar.style.display = 'flex';
+                if (voiceHint) {
+                    voiceHint.textContent = '🎙️ Слухаю... Говоріть команду';
+                    voiceHint.style.color = '';
+                }
+            };
 
-        recognition.onerror = (event) => {
-            console.warn('Speech recognition error:', event.error);
-            stopListening();
-        };
+            inst.onresult = (event) => {
+                const transcript = (event.results && event.results[0] && event.results[0][0])
+                    ? event.results[0][0].transcript.trim()
+                    : '';
+                if (transcript) {
+                    if (commandInput) commandInput.value = transcript;
+                    if (voiceHint) {
+                        voiceHint.textContent = `✅ Розпізнано: "${transcript}"`;
+                        voiceHint.style.color = '#10b981';
+                    }
+                    setTimeout(() => {
+                        stopListening();
+                        sendCommand(transcript);
+                    }, 400);
+                } else {
+                    stopListening();
+                }
+            };
 
-        recognition.onend = () => {
-            stopListening();
-        };
-    } else {
-        if (voiceBtn) {
-            voiceBtn.style.opacity = '0.5';
-            voiceBtn.title = 'Голосовий ввід не підтримується цим браузером';
+            inst.onerror = (event) => {
+                console.warn('Speech recognition error:', event.error);
+                isListening = false;
+                if (voiceBtn) voiceBtn.classList.remove('listening');
+
+                let errMsg = '⚠️ Помилка розпізнавання голосу';
+                if (event.error === 'not-allowed') {
+                    errMsg = '⚠️ Доступ до мікрофона заблоковано в браузері. Натисніть на значок налаштувань ліворуч від адреси сайту та дозвольте мікрофон.';
+                    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+                        navigator.mediaDevices.getUserMedia({ audio: true }).catch(() => {});
+                    }
+                } else if (event.error === 'network') {
+                    errMsg = '⚠️ Збій підключення до служби розпізнавання Google Speech API. Перевірте інтернет або введіть команду текстом.';
+                } else if (event.error === 'no-speech') {
+                    errMsg = '🔇 Голос не розпізнано. Спробуйте ще раз, говорячи чіткіше.';
+                } else if (event.error === 'audio-capture') {
+                    errMsg = '⚠️ Не вдалося захопити аудіо з мікрофона. Перевірте, чи не зайнятий мікрофон іншою програмою.';
+                } else {
+                    errMsg = `⚠️ Помилка розпізнавання: ${event.error}`;
+                }
+
+                if (voiceHint) {
+                    voiceHint.textContent = errMsg;
+                    voiceHint.style.color = '#ef4444';
+                }
+                if (voiceListeningBar) {
+                    voiceListeningBar.style.display = 'flex';
+                    setTimeout(() => {
+                        if (!isListening && voiceListeningBar) {
+                            voiceListeningBar.style.display = 'none';
+                            if (voiceHint) voiceHint.style.color = '';
+                        }
+                    }, 6000);
+                }
+                appendEntry('system', errMsg);
+            };
+
+            inst.onend = () => {
+                if (isListening) {
+                    stopListening();
+                }
+            };
+
+            return inst;
+        } catch (e) {
+            console.error('Failed to create SpeechRecognition instance:', e);
+            return null;
         }
     }
 
+    if (!SpeechRecognition && voiceBtn) {
+        voiceBtn.style.opacity = '0.5';
+        voiceBtn.title = 'Голосовий ввід не підтримується цим браузером';
+    }
+
     function toggleListening() {
-        if (!recognition) {
-            alert('Голосовий ввід Web Speech API не підтримується у цьому браузері. Рекомендовано Chrome або Edge.');
+        if (!SpeechRecognition) {
+            const warn = '⚠️ Голосовий ввід Web Speech API не підтримується у цьому браузері. Рекомендовано Google Chrome або Microsoft Edge.';
+            appendEntry('system', warn);
+            alert(warn);
             return;
         }
+
         if (isListening) {
-            recognition.stop();
-            stopListening();
-        } else {
-            try {
-                recognition.start();
-            } catch (e) {
-                recognition.stop();
+            if (recognition) {
+                try { recognition.stop(); } catch (_) {}
             }
+            stopListening();
+            return;
+        }
+
+        // Immediate visual feedback on click
+        isListening = true;
+        if (voiceBtn) voiceBtn.classList.add('listening');
+        if (voiceListeningBar) voiceListeningBar.style.display = 'flex';
+        if (voiceHint) {
+            voiceHint.textContent = '🎙️ Підключення мікрофона... Говоріть команду';
+            voiceHint.style.color = '';
+        }
+
+        try {
+            if (recognition) {
+                try { recognition.abort(); } catch (_) {}
+            }
+            recognition = createRecognitionInstance();
+            if (!recognition) {
+                throw new Error('Не вдалося ініціалізувати компонент розпізнавання');
+            }
+            recognition.start();
+        } catch (e) {
+            console.warn('Recognition start exception:', e);
+            isListening = false;
+            if (voiceBtn) voiceBtn.classList.remove('listening');
+            const errText = `⚠️ Не вдалося запустити мікрофон: ${e.message || e}`;
+            if (voiceHint) {
+                voiceHint.textContent = errText;
+                voiceHint.style.color = '#ef4444';
+            }
+            appendEntry('system', errText);
+            setTimeout(() => {
+                if (!isListening && voiceListeningBar) {
+                    voiceListeningBar.style.display = 'none';
+                    if (voiceHint) voiceHint.style.color = '';
+                }
+            }, 5000);
         }
     }
 
@@ -1395,6 +1490,7 @@ document.addEventListener('DOMContentLoaded', () => {
         isListening = false;
         if (voiceBtn) voiceBtn.classList.remove('listening');
         if (voiceListeningBar) voiceListeningBar.style.display = 'none';
+        if (voiceHint) voiceHint.style.color = '';
     }
 
     if (voiceBtn) {

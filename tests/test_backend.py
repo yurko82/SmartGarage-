@@ -220,7 +220,8 @@ class TestCommandProcessor(unittest.TestCase):
             mock_liked.assert_called_with(shuffle=True)
 
         # 3. Play specific playlist
-        with unittest.mock.patch.object(self.processor.speaker, "play_playlist", return_value=(True, "Український рок: драйв та емоції", "Пригадай")) as mock_pl:
+        with unittest.mock.patch("server.services.ytmusic_service.ytmusic_service.find_playlist", return_value={"id": "PL123", "title": "Український рок: драйв та емоції"}), \
+             unittest.mock.patch.object(self.processor.speaker, "play_playlist", return_value=(True, "Український рок: драйв та емоції", "Пригадай")) as mock_pl:
             handled, resp = self.processor.execute("включи плейлист рок")
             self.assertTrue(handled)
             self.assertIn("Український рок", resp)
@@ -540,6 +541,11 @@ class TestWebApp(unittest.TestCase):
         self.assertTrue(res.get_json()["success"])
 
     def test_telemetry_history_endpoint(self):
+        from server.webapp import garage, telemetry_history
+        if hasattr(garage, "telemetry_db") and garage.telemetry_db:
+            garage.telemetry_db.record(floor="floor1", temperature=20.0, humidity=50.0, force=True)
+        else:
+            telemetry_history.add({"temperature": 20.0, "humidity": 50.0})
         res = self.client.get("/api/telemetry/history")
         self.assertEqual(res.status_code, 200)
         data = res.get_json()
@@ -1301,7 +1307,7 @@ class TestMQTTBridge(unittest.TestCase):
             with patch.object(spk, "play_file", return_value=True) as mock_pf:
                 ok = spk.play_youtube("Океан Ельзи на youtube music")
                 self.assertTrue(ok)
-                mock_pf.assert_called_with(str(test_file), track_title=clean_target)
+                mock_pf.assert_called_with(str(test_file), track_title=clean_target, duration=0)
         finally:
             test_file.unlink(missing_ok=True)
 
@@ -1495,6 +1501,112 @@ class TestYTMusicWebAPI(unittest.TestCase):
         res = td.execute("next_music_track", {})
         self.assertTrue(res.get("success"))
         self.assertIn("ADAM - Танцюй", res.get("message", ""))
+
+    def test_ytmusic_service_prev_and_upcoming_track(self):
+        """Test ytmusic service get_prev_track_to_play and get_upcoming_track."""
+        from server.services.ytmusic_service import YTMusicService
+        yt = YTMusicService()
+        mock_tracks = [
+            {"id": "t1", "title": "Пісня 1", "uploader": "Виконавець 1", "duration": 180},
+            {"id": "t2", "title": "Пісня 2", "uploader": "Виконавець 2", "duration": 200},
+            {"id": "t3", "title": "Пісня 3", "uploader": "Виконавець 3", "duration": 220},
+        ]
+        with patch.object(yt, "get_playlist_tracks", return_value=mock_tracks):
+            yt.get_track_to_play("test_pl", shuffle=False, track_id="t2")
+            self.assertEqual(yt.current_track_index, 1)
+
+            upcoming = yt.get_upcoming_track("test_pl")
+            self.assertIsNotNone(upcoming)
+            self.assertEqual(upcoming["id"], "t3")
+            self.assertEqual(upcoming["track_index"], 2)
+            self.assertEqual(yt.current_track_index, 1)
+
+            prev_t = yt.get_prev_track_to_play("test_pl", shuffle=False)
+            self.assertEqual(prev_t["id"], "t1")
+            self.assertEqual(prev_t["track_index"], 0)
+
+            prev_loop = yt.get_prev_track_to_play("test_pl", shuffle=False)
+            self.assertEqual(prev_loop["id"], "t3")
+            self.assertEqual(prev_loop["track_index"], 2)
+
+    @patch("server.webapp.garage")
+    def test_api_ytmusic_prev(self, mock_garage):
+        mock_garage.speaker.play_prev.return_value = (True, "Український рок", "Один в каное - Човен")
+        mock_garage.speaker.is_playing.return_value = True
+        mock_garage.speaker.name = "JBL Clip 5"
+
+        res = self.client.post("/api/ytmusic/prev", json={})
+        self.assertEqual(res.status_code, 200)
+        data = res.get_json()
+        self.assertTrue(data["success"])
+        self.assertEqual(data["track_title"], "Один в каное - Човен")
+        mock_garage.speaker.play_prev.assert_called_once()
+
+    @patch("server.webapp.garage")
+    def test_api_speaker_seek(self, mock_garage):
+        mock_garage.speaker.seek.return_value = True
+        mock_garage.speaker.get_status.return_value = {
+            "elapsed_seconds": 45,
+            "duration_seconds": 180,
+            "playing": True
+        }
+
+        res = self.client.post("/api/speaker/seek", json={"position": 45})
+        self.assertEqual(res.status_code, 200)
+        data = res.get_json()
+        self.assertTrue(data["success"])
+        self.assertEqual(data["position"], 45)
+        mock_garage.speaker.seek.assert_called_with(45)
+
+        res_delta = self.client.post("/api/speaker/seek", json={"delta": 10})
+        self.assertEqual(res_delta.status_code, 200)
+        data_delta = res_delta.get_json()
+        self.assertTrue(data_delta["success"])
+        self.assertEqual(data_delta["position"], 55)
+        mock_garage.speaker.seek.assert_called_with(55)
+
+    def test_processor_prev_and_seek_phrases(self):
+        """Test processor recognizes Ukrainian phrases for previous song and seeking."""
+        from server.commands.processor import CommandProcessor
+        cp = CommandProcessor(DummyLogger(), memory=Memory(os.path.join(tempfile.gettempdir(), 'mem_prev_seek.json')))
+
+        with patch.object(cp.speaker, "play_prev", return_value=(True, "Улюблені", "Океан Ельзи - Без бою")) as mock_prev:
+            for phrase in ("попередня пісня", "попередній трек", "поверни трек назад", "назад"):
+                handled, res = cp.execute(phrase)
+                self.assertTrue(handled, f"Phrase '{phrase}' was not handled")
+                self.assertIn("Без бою", res)
+            self.assertEqual(mock_prev.call_count, 4)
+
+        with patch.object(cp.speaker, "seek", return_value=True) as mock_seek:
+            cp.speaker._playback_start_time = time.time() - 30
+            cp.speaker._current_track_duration = 180
+            cp.speaker.is_playing = MagicMock(return_value=True)
+
+            handled, res = cp.execute("перемотай на 15 секунд вперед")
+            self.assertTrue(handled)
+            self.assertIn("Перемотано", res)
+
+            handled2, res2 = cp.execute("перемотай на 10 секунд назад")
+            self.assertTrue(handled2)
+            self.assertIn("Перемотано", res2)
+
+    def test_ai_tools_prev_and_seek_music_track(self):
+        """Test AI tools execute_tool dispatches prev_music_track and seek_music_track."""
+        from server.ai.tools import ToolDispatcher
+        garage_mock = MagicMock()
+        garage_mock.speaker.play_prev.return_value = (True, "Улюблені", "KAZKA - Плакала")
+        garage_mock.speaker.name = "JX-BT"
+        garage_mock.speaker.seek.return_value = True
+        garage_mock.speaker.get_status.return_value = {"elapsed_seconds": 20, "duration_seconds": 180}
+
+        td = ToolDispatcher(garage_mock)
+        res_prev = td.execute("prev_music_track", {})
+        self.assertTrue(res_prev.get("success"))
+        self.assertIn("Плакала", res_prev.get("message", ""))
+
+        res_seek = td.execute("seek_music_track", {"position": 60})
+        self.assertTrue(res_seek.get("success"))
+        garage_mock.speaker.seek.assert_called_with(60)
 
 
 if __name__ == "__main__":

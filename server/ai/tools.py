@@ -98,6 +98,37 @@ GARAGE_TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "prev_music_track",
+            "description": "Повернення до попереднього треку в YouTube Music на Bluetooth-колонці. Використовуй, коли користувач просить 'попередня пісня', 'попередній трек', 'поверни пісню назад' тощо.",
+            "parameters": {
+                "type": "object",
+                "properties": {}
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "seek_music_track",
+            "description": "Перемотування поточної пісні вперед або назад на Bluetooth-колонці на вказану кількість секунд або до заданої позиції.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "position": {
+                        "type": "integer",
+                        "description": "Абсолютна позиція у секундах (наприклад: 60 для 1 хв)."
+                    },
+                    "delta": {
+                        "type": "integer",
+                        "description": "Зміщення у секундах від поточної позиції (+15 вперед, -15 назад)."
+                    }
+                }
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "play_media",
             "description": "Трансляція відео, фільмів чи кліпів на великий екран проектора HY350MAX у гаражі. Для відтворення пісень чи звичайного аудіо використовуй play_song (YouTube Music на Bluetooth-колонці).",
             "parameters": {
@@ -278,6 +309,14 @@ class ToolDispatcher:
 
             elif tool_name == "next_music_track":
                 return self._next_music_track()
+
+            elif tool_name == "prev_music_track":
+                return self._prev_music_track()
+
+            elif tool_name == "seek_music_track":
+                pos = arguments.get("position")
+                delta = arguments.get("delta")
+                return self._seek_music_track(position=pos, delta=delta)
 
             elif tool_name == "play_media":
                 query = arguments.get("query", "")
@@ -540,5 +579,29 @@ class ToolDispatcher:
         if ok:
             return {"success": True, "message": f"⏭️ Наступний трек на YouTube Music ({spk_name}): {t_title} (з '{p_title}')"}
         return {"success": False, "error": f"Не вдалося перемкнути на наступний трек на {spk_name}"}
+
+    def _prev_music_track(self) -> Dict[str, Any]:
+        if not hasattr(self.garage, "speaker") or not self.garage.speaker:
+            return {"success": False, "error": "Контролер колонки недоступний"}
+        ok, p_title, t_title = self.garage.speaker.play_prev()
+        spk_name = self.garage.speaker.name or "Bluetooth-колонці"
+        if ok:
+            return {"success": True, "message": f"⏮️ Попередній трек на YouTube Music ({spk_name}): {t_title} (з '{p_title}')"}
+        return {"success": False, "error": f"Не вдалося повернутися до попереднього треку на {spk_name}"}
+
+    def _seek_music_track(self, position: Optional[int] = None, delta: Optional[int] = None) -> Dict[str, Any]:
+        if not hasattr(self.garage, "speaker") or not self.garage.speaker:
+            return {"success": False, "error": "Контролер колонки недоступний"}
+        target_pos = position
+        if delta is not None:
+            st = self.garage.speaker.get_status()
+            cur = st.get("elapsed_seconds", 0)
+            target_pos = max(0, cur + int(delta))
+        if target_pos is None:
+            return {"success": False, "error": "Не вказано секунди для перемотування"}
+        ok = self.garage.speaker.seek(int(target_pos))
+        if ok:
+            return {"success": True, "message": f"⏩ Перемотано на позицію {int(target_pos)} сек"}
+        return {"success": False, "error": "Не вдалося перемотати трек"}
 
 

@@ -19,11 +19,13 @@
 #include <BLERemoteCharacteristic.h>
 #include <Update.h>
 #include <PubSubClient.h>
+#include "esp_wifi.h"
 #include "soc/rtc_cntl_reg.h"
 
 // --- Wi-Fi Credentials (4G Modem Network) ---
 const char* WIFI_SSID = "SmGrg";
 const char* WIFI_PASSWORD = "1234567890";
+const uint8_t MODEM_BSSID[6] = {0xA0, 0x62, 0x56, 0x5C, 0x9B, 0xFC};
 
 // --- Smart Garage Backend Server & MQTT Broker ---
 const char* SERVER_TELEMETRY_URL = "http://192.168.100.198:5000/api/esp32/telemetry";
@@ -64,6 +66,9 @@ float humidity = 0.0;
 unsigned long lastTelemetryTime = 0;
 const unsigned long TELEMETRY_INTERVAL = 10000; // Telemetry push every 10 sec
 unsigned long lastWifiCheckTime = 0;
+unsigned long lastWifiRetryTime = 0;
+unsigned long wifiDisconnectedSince = 0;
+bool initialBlePollDone = false;
 unsigned long lastBlePollTime = 0;
 const unsigned long BLE_POLL_INTERVAL = 2UL * 60UL * 1000UL; // 2 min polling
 
@@ -220,6 +225,7 @@ bool readBleSensor(int idx) {
         });
         unsigned long tStart = millis();
         while (!nReceived && (millis() - tStart < 2500)) {
+          server.handleClient();
           delay(50);
         }
         if (nReceived) {
@@ -259,8 +265,10 @@ bool readBleSensor(int idx) {
 void pollAllBleSensors() {
   Serial.println("[BLE] Starting BLE climate poll...");
   for (int i = 0; i < NUM_BLE_SENSORS; i++) {
+    server.handleClient();
     readBleSensor(i);
-    delay(200);
+    server.handleClient();
+    delay(100);
   }
   sendTelemetryToServer();
 }
@@ -305,6 +313,11 @@ String buildTelemetryJson() {
     item["mac"] = bleSensors[i].mac;
     bool is_online = bleSensors[i].online && (bleSensors[i].lastUpdated > 0) && (millis() - bleSensors[i].lastUpdated < 15UL * 60UL * 1000UL);
     item["online"] = is_online;
+    if (bleSensors[i].lastUpdated > 0) {
+      item["last_read_ago_sec"] = (millis() - bleSensors[i].lastUpdated) / 1000;
+    } else {
+      item["last_read_ago_sec"] = -1;
+    }
     if (is_online) {
       item["temperature"] = bleSensors[i].temp;
       item["humidity"] = bleSensors[i].hum;
@@ -320,6 +333,10 @@ String buildTelemetryJson() {
       item["battery"] = nullptr;
     }
   }
+
+  doc["wifi_rssi"] = (WiFi.status() == WL_CONNECTED) ? WiFi.RSSI() : 0;
+  doc["uptime_sec"] = millis() / 1000;
+  doc["poll_interval_sec"] = BLE_POLL_INTERVAL / 1000;
 
   if (hasPrim) {
     doc["temperature"] = primTemp;
@@ -530,6 +547,13 @@ void processSerialCommand(String cmd) {
       if (parsed >= 3 && parsed <= 60) duration = parsed;
     }
     runBleScan(duration);
+  } else if (cmd.equalsIgnoreCase("SCAN_WIFI") || cmd.equalsIgnoreCase("CMD:SCAN_WIFI")) {
+    int n = WiFi.scanNetworks(false, true);
+    Serial.printf("[WiFi Scan] Знайдено мереж: %d\n", n);
+    for (int i = 0; i < n; i++) {
+      Serial.printf("[WiFi Scan] #%d: SSID='%s', RSSI=%d dBm, Канал=%d, BSSID=%s\n",
+                    i + 1, WiFi.SSID(i).c_str(), WiFi.RSSI(i), WiFi.channel(i), WiFi.BSSIDstr(i).c_str());
+    }
   } else if (cmd.equalsIgnoreCase("ENTER_BOOTLOADER") || cmd.equalsIgnoreCase("CMD:ENTER_BOOTLOADER")) {
     enterBootloader();
   } else if (cmd.equalsIgnoreCase("PING")) {
@@ -538,17 +562,41 @@ void processSerialCommand(String cmd) {
 }
 
 void checkWifiConnection() {
-  if (WiFi.status() != WL_CONNECTED) {
-    Serial.printf("[WiFi] Disconnected (status=%d). Reconnecting to %s...\n", WiFi.status(), WIFI_SSID);
-    WiFi.disconnect();
-    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  if (WiFi.status() == WL_CONNECTED) {
+    wifiDisconnectedSince = 0;
+    return;
+  }
+
+  unsigned long now = millis();
+  if (wifiDisconnectedSince == 0) {
+    wifiDisconnectedSince = now;
+  }
+
+  // Апаратний/програмний сторожовий таймер: якщо Wi-Fi відсутній понад 10 хв, перезавантажуємося для очищення стану радіотракту
+  if (now - wifiDisconnectedSince > 600000UL) {
+    Serial.println("[WiFi Watchdog] Зв'язок з Wi-Fi відсутній понад 10 хв! Перезавантаження контролера...");
+    delay(500);
+    esp_restart();
+  }
+
+  // Контрольоване перепідключення кожні 20 секунд (без деструктивного WiFi.disconnect())
+  if (now - lastWifiRetryTime >= 20000) {
+    lastWifiRetryTime = now;
+    Serial.printf("[WiFi] Втрачено зв'язок (статус=%d, офлайн %lu с). Спроба перепідключення до %s...\n",
+                  WiFi.status(), (now - wifiDisconnectedSince) / 1000, WIFI_SSID);
+    if ((now - wifiDisconnectedSince) > 60000UL) {
+      // Якщо офлайн понад 1 хвилину, ініціюємо пряме підключення до модему за BSSID
+      WiFi.begin(WIFI_SSID, WIFI_PASSWORD, 6, MODEM_BSSID);
+    } else {
+      WiFi.reconnect();
+    }
   }
 }
 
 void setup() {
   Serial.begin(115200);
   delay(1000);
-  Serial.println("\n[SmartGarage] ESP32-S3 Initializing as Primary Wireless Climate Gateway...");
+  Serial.println("\n[SmartGarage] ESP32-S3: Ініціалізація бездротового шлюзу мікроклімату...");
 
   pinMode(PIN_RELAY_DOOR, OUTPUT);
   pinMode(PIN_RELAY_LIGHT, OUTPUT);
@@ -558,21 +606,94 @@ void setup() {
   digitalWrite(PIN_RELAY_LIGHT, LOW);
   digitalWrite(PIN_RELAY_FAN, LOW);
 
+  // 1. Ініціалізація BLE на старті для коректного налаштування апаратного арбітра Coexistence
+  initBLE();
+  Serial.println("[BLE] Підсистему BLE успішно ініціалізовано.");
+
+  // 2. Налаштування радіотракту Wi-Fi (з режимом співіснування MIN_MODEM)
   WiFi.mode(WIFI_STA);
+  esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
   WiFi.setAutoReconnect(true);
-  Serial.printf("[WiFi] Connecting to SSID: %s...\n", WIFI_SSID);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+
+  // Фіксована конфігурація IP для миттєвого закріплення без затримок DHCP
+  IPAddress staticIP(192, 168, 100, 114);
+  IPAddress gateway(192, 168, 100, 1);
+  IPAddress subnet(255, 255, 255, 0);
+  IPAddress dns1(192, 168, 100, 1);
+  IPAddress dns2(8, 8, 8, 8);
+
+  if (!WiFi.config(staticIP, gateway, subnet, dns1, dns2)) {
+    Serial.println("[WiFi] Не вдалося налаштувати статичний IP, використовується DHCP.");
+  } else {
+    Serial.println("[WiFi] Налаштовано статичний IP: 192.168.100.114 (Шлюз: 192.168.100.1)");
+  }
+
+  // Обробник мережевих подій Wi-Fi
+  WiFi.onEvent([](WiFiEvent_t event, WiFiEventInfo_t info) {
+    switch (event) {
+      case ARDUINO_EVENT_WIFI_STA_START:
+        Serial.println("[WiFi] Режим Station успішно запущено.");
+        break;
+      case ARDUINO_EVENT_WIFI_STA_CONNECTED:
+        Serial.printf("[WiFi] З'єднано з Wi-Fi точкою '%s'!\n", WIFI_SSID);
+        break;
+      case ARDUINO_EVENT_WIFI_STA_GOT_IP:
+        Serial.printf("[WiFi] Отримано IP: %s (Шлюз: %s, Сигнал RSSI: %d dBm)\n",
+                      WiFi.localIP().toString().c_str(),
+                      WiFi.gatewayIP().toString().c_str(),
+                      WiFi.RSSI());
+        break;
+      case ARDUINO_EVENT_WIFI_STA_DISCONNECTED:
+        Serial.printf("[WiFi] Відключено від мережі. Код причини: %d\n", info.wifi_sta_disconnected.reason);
+        break;
+      default:
+        break;
+    }
+  });
+
+  // Сканування ефіру 2.4GHz
+  Serial.println("[WiFi] Сканування ефіру 2.4GHz для пошуку SmGrg...");
+  int n = WiFi.scanNetworks(false, true);
+  Serial.printf("[WiFi] Знайдено мереж: %d\n", n);
+  int targetChannel = 6;
+  bool foundSmGrg = false;
+  for (int i = 0; i < n; i++) {
+    Serial.printf("[WiFi Мережа] #%d: SSID='%s', RSSI=%d dBm, Канал=%d, BSSID=%s\n",
+                  i + 1, WiFi.SSID(i).c_str(), WiFi.RSSI(i), WiFi.channel(i), WiFi.BSSIDstr(i).c_str());
+    if (WiFi.SSID(i) == WIFI_SSID) {
+      targetChannel = WiFi.channel(i);
+      foundSmGrg = true;
+    }
+  }
+
+  Serial.printf("[WiFi] Підключення до мережі SSID: %s (Канал: %d)...\n", WIFI_SSID, targetChannel);
+  if (foundSmGrg) {
+    WiFi.begin(WIFI_SSID, WIFI_PASSWORD, targetChannel);
+  } else {
+    Serial.println("[WiFi] Пряме підключення до модему за BSSID (A0:62:56:5C:9B:FC, Канал: 6)...");
+    WiFi.begin(WIFI_SSID, WIFI_PASSWORD, 6, MODEM_BSSID);
+  }
 
   unsigned long startWifi = millis();
   while (WiFi.status() != WL_CONNECTED && (millis() - startWifi < 15000)) {
-    delay(500);
+    delay(400);
     Serial.print(".");
   }
+
   if (WiFi.status() == WL_CONNECTED) {
-    Serial.printf("\n[WiFi] Connected! IP: %s, RSSI: %d dBm\n", WiFi.localIP().toString().c_str(), WiFi.RSSI());
+    Serial.printf("\n[WiFi] Успішно підключено! IP: %s, RSSI: %d dBm\n",
+                  WiFi.localIP().toString().c_str(), WiFi.RSSI());
+    wifiDisconnectedSince = 0;
   } else {
-    Serial.printf("\n[WiFi] Connect timed out (status=%d). Will continue in background.\n", WiFi.status());
+    Serial.printf("\n[WiFi] Первинний таймаут з'єднання (статус=%d). Фонове підключення активне.\n",
+                  WiFi.status());
+    wifiDisconnectedSince = millis();
   }
+
+  // HTTP API Endpoints
+  server.on("/api/ping", HTTP_GET, []() {
+    server.send(200, "application/json", "{\"status\":\"ok\",\"pong\":true,\"wifi_ip\":\"192.168.100.114\"}");
+  });
 
   server.on("/api/telemetry", HTTP_GET, handleTelemetry);
   server.on("/api/ble/sensors", HTTP_GET, []() {
@@ -636,19 +757,19 @@ void setup() {
     }
   });
 
-  // Initialize MQTT Client
+  // Ініціалізація MQTT Client
   mqttClient.setServer(MQTT_BROKER, MQTT_PORT);
   mqttClient.setCallback(mqttCallback);
   mqttClient.setBufferSize(1024);
 
   server.begin();
-  Serial.println("[SmartGarage] System Ready (HTTP + MQTT + Serial).");
+  Serial.println("[SmartGarage] Система готова до роботи (HTTP + MQTT + Serial).");
 }
 
 void loop() {
   server.handleClient();
 
-  // Maintain MQTT connection and process incoming packets
+  // Підтримка з'єднання MQTT та обробка пакетів
   if (WiFi.status() == WL_CONNECTED) {
     if (!mqttClient.connected()) {
       reconnectMqtt();
@@ -656,31 +777,32 @@ void loop() {
     mqttClient.loop();
   }
 
-  // Handle incoming Serial commands from USB
+  // Обробка команд з USB Serial
   while (Serial.available() > 0) {
     String input = Serial.readStringUntil('\n');
     processSerialCommand(input);
   }
 
-  // Initial BLE poll 10 sec after startup
-  if (!lastBlePollTime && millis() > 10000) {
+  // Первинне зчитування BLE: тільки після того як Wi-Fi підключився або минуло 25 с
+  if (!initialBlePollDone && (WiFi.status() == WL_CONNECTED || millis() > 25000)) {
+    initialBlePollDone = true;
     lastBlePollTime = millis();
     pollAllBleSensors();
   }
 
-  // Scheduled BLE sensor poll (every 2 min)
-  if (millis() - lastBlePollTime > BLE_POLL_INTERVAL) {
+  // Періодичне зчитування BLE-датчиків (кожні 2 хвилини)
+  if (initialBlePollDone && (millis() - lastBlePollTime > BLE_POLL_INTERVAL)) {
     lastBlePollTime = millis();
     pollAllBleSensors();
   }
 
-  // Periodic Telemetry every 10 sec
+  // Періодична телеметрія кожні 10 секунд
   if (millis() - lastTelemetryTime > TELEMETRY_INTERVAL) {
     lastTelemetryTime = millis();
     sendTelemetryToServer();
   }
 
-  // Check Wi-Fi every 15 seconds
+  // Контроль та підтримка Wi-Fi з'єднання кожні 15 секунд
   if (millis() - lastWifiCheckTime > 15000) {
     lastWifiCheckTime = millis();
     checkWifiConnection();

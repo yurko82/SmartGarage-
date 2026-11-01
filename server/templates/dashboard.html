@@ -71,7 +71,8 @@
                 <span>🔋 Ноутбук:</span>
                 <span class="pill-highlight" id="pillServerBat">-- %</span>
             </div>
-            <div class="status-pill">
+            <div class="status-pill status-pill-clickable" id="pillEspContainer" role="button" tabindex="0" title="Натисніть для перегляду логів та діагностики ESP32" aria-label="Статус та логи ESP32">
+                <span class="status-dot offline" id="pillEspDot"></span>
                 <span id="pillEspStatus">ESP32: Перевірка...</span>
             </div>
         </div>
@@ -135,6 +136,20 @@
                         <span>📊</span> Мікроклімат і Датчики
                     </div>
                     <span class="card-badge">BLE & ESP32</span>
+                </div>
+
+                <!-- ESP32 Gateway Status Strip -->
+                <div class="esp32-gateway-strip" id="esp32GatewayStrip">
+                    <div class="esp32-strip-info">
+                        <span class="esp32-strip-badge offline" id="esp32StripBadge">🔴 ESP32 Офлайн</span>
+                        <span class="esp32-strip-ip" id="esp32StripIp">192.168.100.114</span>
+                        <span class="esp32-strip-time" id="esp32StripLastSeen">Останній зв'язок: --:--</span>
+                    </div>
+                    <div class="esp32-strip-actions">
+                        <button class="btn-micro" id="btnEsp32Ping" title="Перевірити зв'язок (Ping)" aria-label="Перевірити зв'язок з ESP32">⚡ Ping</button>
+                        <button class="btn-micro" id="btnEsp32Poll" title="Опитати BLE-датчики через ESP32" aria-label="Опитати датчики через ESP32">🔄 Опитати</button>
+                        <button class="btn-micro btn-micro-accent" id="btnEsp32Logs" title="Відкрити журнал подій ESP32" aria-label="Відкрити логи ESP32">📋 Логи</button>
+                    </div>
                 </div>
 
                 <!-- 3-Floor Climate Grid -->
@@ -363,14 +378,28 @@
                 <div style="margin-bottom: 10px;">
                     <div style="font-size: 0.78rem; color: var(--text-muted); margin-bottom: 2px;">🎵 Зараз відтворюється:</div>
                     <div style="font-size: 0.9rem; font-weight: 600; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" id="jblNowPlaying">Немає активного відтворення</div>
+                    <div id="dashJblUpcomingContainer" style="display: none; align-items: center; gap: 6px; margin-top: 6px; font-size: 0.78rem; background: rgba(0, 240, 255, 0.08); padding: 3px 8px; border-radius: 6px; border: 1px solid rgba(0, 240, 255, 0.2); width: fit-content; max-width: 100%;">
+                        <span style="font-weight: 700; color: var(--accent-cyan); white-space: nowrap;">⏭ Наступна:</span>
+                        <span id="dashJblUpcomingTrack" style="color: #cbd5e1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 250px;">Очікування...</span>
+                    </div>
+                </div>
+
+                <!-- Timeline Scrubber -->
+                <div class="dash-timeline-deck" style="margin-bottom: 10px; background: rgba(255, 255, 255, 0.03); padding: 6px 10px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.06); display: flex; align-items: center; gap: 8px;">
+                    <span id="dashMediaTimeElapsed" style="font-size: 0.75rem; font-weight: 600; color: var(--accent-cyan); min-width: 34px; text-align: right; font-variant-numeric: tabular-nums;">00:00</span>
+                    <input type="range" min="0" max="100" value="0" step="1" id="dashTimelineSlider" aria-label="Перемотування треку" style="flex: 1; accent-color: var(--accent-cyan); cursor: pointer; height: 6px;">
+                    <span id="dashMediaTimeDuration" style="font-size: 0.75rem; font-weight: 600; color: var(--text-muted); min-width: 34px; font-variant-numeric: tabular-nums;">--:--</span>
                 </div>
 
                 <!-- Playback Buttons -->
-                <div class="media-controls-row" style="margin-bottom: 12px;">
+                <div class="media-controls-row" style="margin-bottom: 12px; display: flex; flex-wrap: wrap; gap: 6px;">
+                    <button class="btn-media" id="btnJblPrev" aria-label="Попередній трек" title="Попередня пісня">⏮ Попередній</button>
+                    <button class="btn-media" id="btnJblRewind" aria-label="Перемотати назад на 10 секунд" title="-10 секунд">⏪ -10с</button>
                     <button class="btn-media" id="btnJblPause" aria-label="Пауза аудіо на колонці">⏸ Пауза</button>
-                    <button class="btn-media" id="btnJblResume" aria-label="Продовжити аудіо на колонці">▶ Продовжити</button>
-                    <button class="btn-media" id="btnJblNext" style="color: var(--accent-cyan); border-color: rgba(0, 240, 255, 0.3);" aria-label="Наступний трек">⏭ Наступний</button>
-                    <button class="btn-media danger" id="btnJblStop" aria-label="Зупинити відтворення на колонці">⏹ Зупинити</button>
+                    <button class="btn-media" id="btnJblResume" aria-label="Продовжити аудіо на колонці">▶ Грати</button>
+                    <button class="btn-media" id="btnJblForward" aria-label="Перемотати вперед на 10 секунд" title="+10 секунд">+10с ⏩</button>
+                    <button class="btn-media" id="btnJblNext" style="color: var(--accent-cyan); border-color: rgba(0, 240, 255, 0.3);" aria-label="Наступний трек" title="Наступна пісня">⏭ Наступний</button>
+                    <button class="btn-media danger" id="btnJblStop" aria-label="Зупинити відтворення на колонці">⏹ Стоп</button>
                 </div>
 
                 <!-- Quick Play Form -->
@@ -566,7 +595,110 @@
         </div>
     </div>
 
+    <!-- 4. ESP32 DIAGNOSTICS & ACTIVITY LOGS MODAL -->
+    <div class="modal-overlay" id="modalEsp32" role="dialog" aria-modal="true" aria-labelledby="modalEsp32Title">
+        <div class="modal-card modal-card-lg">
+            <div class="modal-header">
+                <div class="modal-title-wrap">
+                    <span class="modal-icon">📡</span>
+                    <div>
+                        <h3 id="modalEsp32Title">ESP32-S3 — Діагностика та Журнал подій</h3>
+                        <div class="modal-subtitle">Моніторинг зв'язку, опитування BLE-датчиків клімату та системні логи</div>
+                    </div>
+                </div>
+                <button class="modal-close-btn" id="btnCloseEsp32Modal" aria-label="Закрити вікно">✕</button>
+            </div>
+
+            <div class="esp32-modal-body">
+                <!-- Quick Status Metrics Grid -->
+                <div class="esp32-stats-grid">
+                    <div class="esp32-stat-tile" id="tileEsp32NetStatus">
+                        <span class="esp32-tile-lbl">Мережевий статус</span>
+                        <span class="esp32-tile-val text-status-offline" id="modalEsp32Online">Офлайн</span>
+                        <span class="esp32-tile-sub" id="modalEsp32Transport">Канал: Немає</span>
+                    </div>
+                    <div class="esp32-stat-tile">
+                        <span class="esp32-tile-lbl">IP адреса & Порт</span>
+                        <span class="esp32-tile-val" id="modalEsp32Ip">192.168.100.114:80</span>
+                        <span class="esp32-tile-sub" id="modalEsp32Ping">Затримка: -- мс</span>
+                    </div>
+                    <div class="esp32-stat-tile">
+                        <span class="esp32-tile-lbl">Останній зв'язок</span>
+                        <span class="esp32-tile-val" id="modalEsp32LastSeenTime">--:--</span>
+                        <span class="esp32-tile-sub" id="modalEsp32LastSeenRel">Ніколи</span>
+                    </div>
+                    <div class="esp32-stat-tile">
+                        <span class="esp32-tile-lbl">Опитування датчиків</span>
+                        <span class="esp32-tile-val" id="modalEsp32PollStats">0 / 0</span>
+                        <span class="esp32-tile-sub" id="modalEsp32LastPoll">Останнє: --:--</span>
+                    </div>
+                </div>
+
+                <!-- Sensors Current Status Row -->
+                <div class="esp32-section-heading">
+                    <span>🌡️ Стан підключення датчиків до ESP32</span>
+                </div>
+                <div class="esp32-sensors-row">
+                    <div class="esp32-sensor-card" id="sensorCardBasement">
+                        <div class="sensor-card-top">
+                            <span class="sensor-title">📍 Підвал</span>
+                            <span class="sensor-badge" id="badgeSensorBasement">Очікування</span>
+                        </div>
+                        <div class="sensor-card-metrics">
+                            <span class="sensor-temp" id="tempSensorBasement">-- °C</span>
+                            <span class="sensor-hum" id="humSensorBasement">-- %</span>
+                            <span class="sensor-bat" id="batSensorBasement">🔋 --</span>
+                        </div>
+                        <div class="sensor-card-footer">
+                            <span id="readTimeSensorBasement">Останнє зчитування: --:--</span>
+                        </div>
+                    </div>
+
+                    <div class="esp32-sensor-card" id="sensorCardFloor2">
+                        <div class="sensor-card-top">
+                            <span class="sensor-title">📍 2-й поверх</span>
+                            <span class="sensor-badge" id="badgeSensorFloor2">Очікування</span>
+                        </div>
+                        <div class="sensor-card-metrics">
+                            <span class="sensor-temp" id="tempSensorFloor2">-- °C</span>
+                            <span class="sensor-hum" id="humSensorFloor2">-- %</span>
+                            <span class="sensor-bat" id="batSensorFloor2">🔋 --</span>
+                        </div>
+                        <div class="sensor-card-footer">
+                            <span id="readTimeSensorFloor2">Останнє зчитування: --:--</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Action Bar & Filter Controls -->
+                <div class="esp32-log-controls">
+                    <div class="esp32-filter-tabs">
+                        <button class="filter-tab active" data-filter="all">Всі події</button>
+                        <button class="filter-tab" data-filter="sensor_read">Датчики BLE</button>
+                        <button class="filter-tab" data-filter="connection">Мережа</button>
+                        <button class="filter-tab" data-filter="error">Помилки</button>
+                    </div>
+                    <div class="esp32-action-btns">
+                        <button class="btn-modal-action" id="btnModalPing">⚡ Перевірити (Ping)</button>
+                        <button class="btn-modal-action" id="btnModalPoll">🔄 Опитати датчики</button>
+                        <button class="btn-modal-action btn-modal-danger" id="btnModalClearLogs">🗑️ Очистити</button>
+                    </div>
+                </div>
+
+                <!-- Activity Logs Feed -->
+                <div class="esp32-logs-container" id="esp32LogsContainer">
+                    <div class="esp32-empty-logs">Завантаження журналу...</div>
+                </div>
+            </div>
+
+            <div class="modal-footer">
+                <span class="esp32-footer-note" id="esp32FooterNote">💡 Автооновлення даних під час відкритого вікна</span>
+                <button class="btn-pill" id="btnModalCloseFooter">Закрити</button>
+            </div>
+        </div>
+    </div>
+
     <script src="/static/js/chart.min.js"></script>
-    <script src="/static/js/dashboard.js?v=0.5.1"></script>
+    <script src="/static/js/dashboard.js?v=0.6.0"></script>
 </body>
 </html>

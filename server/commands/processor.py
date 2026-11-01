@@ -280,6 +280,35 @@ class CommandProcessor:
                 return True, f"⏭️ Наступний трек: {t_title}"
             return True, "Не вдалося перемкнути трек на колонці."
 
+        if any(cmd.startswith(k) or cmd == k for k in (
+            "включи попередню", "увімкни попередню", "включи попередній", "увімкни попередній",
+            "включи попередню пісню", "увімкни попередню пісню", "включи попередній трек", "увімкни попередній трек",
+            "попередня пісня", "попередній трек", "попередню пісню", "попередній", "попередня",
+            "поверни пісню", "поверни трек", "назад", "трек назад", "пісню назад",
+            "prev song", "prev track", "previous song", "previous track", "prev"
+        )):
+            ok, p_title, t_title = self.speaker.play_prev()
+            if ok:
+                return True, f"⏮️ Попередній трек: {t_title}"
+            return True, "Не вдалося перемкнути на попередній трек на колонці."
+
+        if any(cmd.startswith(k) for k in ("перемотай", "перемотати", "мотай", "seek")):
+            import re
+            sec_match = re.search(r"(\d+)\s*(?:сек|sec|хв|min)?", cmd)
+            secs = int(sec_match.group(1)) if sec_match else 15
+            if "хв" in cmd or "min" in cmd:
+                secs *= 60
+            if any(w in cmd for w in ("назад", "back", "поверни")):
+                secs = -secs
+            st = self.speaker.get_status()
+            cur = st.get("elapsed_seconds", 0)
+            target = max(0, cur + secs)
+            ok = self.speaker.seek(target)
+            if ok:
+                direction = "назад" if secs < 0 else "вперед"
+                return True, f"⏩ Перемотано {direction} на {abs(secs)} сек (позиція: {target}с)."
+            return True, "Не вдалося перемотати трек."
+
         if cmd.startswith("колонка гучність ") or cmd.startswith("speaker volume "):
             val_str = cmd.split()[-1].replace("%", "").strip()
             if val_str.isdigit():

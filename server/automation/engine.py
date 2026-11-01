@@ -24,12 +24,14 @@ class AutomationEngine:
             return
 
         with self._lock:
-            car_present = telemetry.get("car_present", False)
-            gas_ppm = telemetry.get("gas_ppm", 0)
-            motion = telemetry.get("motion_detected", False)
+            car_present = bool(telemetry.get("car_present"))
+            gas_val = telemetry.get("gas_ppm")
+            gas_ppm = float(gas_val) if (gas_val is not None) else 0.0
+            motion = bool(telemetry.get("motion_detected"))
 
             # Auto Safety: Gas/Smoke spike detection
-            if gas_ppm > 200 and self._last_gas_level <= 200:
+            last_gas = float(self._last_gas_level or 0.0)
+            if gas_ppm > 200 and last_gas <= 200:
                 self.logger.warning(f"⚠️ HIGH GAS DETECTED ({gas_ppm} ppm)! Triggering Emergency Ventilation.")
                 self.scenario_gas_alarm()
 
