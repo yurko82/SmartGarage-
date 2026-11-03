@@ -97,7 +97,8 @@ void handleTelemetry() {
   doc["distance_cm"] = distanceCm;
   doc["car_present"] = carPresent;
   doc["motion_detected"] = motionDetected;
-  doc["gas_ppm"] = gasLevel;
+  doc["gas_ppm"] = nullptr;
+  doc["gas_status"] = "not_installed";
   doc["online"] = true;
 
   String response;
@@ -106,19 +107,11 @@ void handleTelemetry() {
 }
 
 void handleDoorOpen() {
-  digitalWrite(PIN_RELAY_DOOR, HIGH);
-  delay(500);
-  digitalWrite(PIN_RELAY_DOOR, LOW);
-  doorState = "open";
-  server.send(200, "application/json", "{\"status\":\"ok\",\"door\":\"open\"}");
+  server.send(400, "application/json", "{\"status\":\"error\",\"error\":\"Door drive not installed\",\"door\":\"unknown\"}");
 }
 
 void handleDoorClose() {
-  digitalWrite(PIN_RELAY_DOOR, HIGH);
-  delay(500);
-  digitalWrite(PIN_RELAY_DOOR, LOW);
-  doorState = "closed";
-  server.send(200, "application/json", "{\"status\":\"ok\",\"door\":\"closed\"}");
+  server.send(400, "application/json", "{\"status\":\"error\",\"error\":\"Door drive not installed\",\"door\":\"unknown\"}");
 }
 
 void handleLightOn() {

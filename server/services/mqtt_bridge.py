@@ -54,7 +54,7 @@ class SmartGarageMQTTBridge:
         broker_host: str = "127.0.0.1",
         broker_port: int = 1883,
         username: Optional[str] = "smartgarage",
-        password: Optional[str] = "smartgarage_secret",
+        password: Optional[str] = None,
         discovery_prefix: str = "homeassistant",
         topic_prefix: str = "smartgarage",
         garage_instance = None
@@ -80,7 +80,7 @@ class SmartGarageMQTTBridge:
         }
 
         # Cached states
-        self.state_door = "closed"
+        self.state_door = "unknown"
         self.state_light = "OFF"
         self.state_fan = "OFF"
         self.state_ai_status = "idle"
@@ -90,42 +90,17 @@ class SmartGarageMQTTBridge:
         """Publish retained Home Assistant MQTT Discovery configuration topics."""
         logger.info(f"Publishing Home Assistant discovery configs (prefix='{self.discovery_prefix}')...")
 
-        # 1. Garage Door Cover
-        cover_config = {
-            "name": "Ворота Гаража",
-            "unique_id": "smartgarage_door_cover",
-            "command_topic": f"{self.topic_prefix}/door/set",
-            "state_topic": f"{self.topic_prefix}/door/state",
-            "device_class": "garage",
-            "payload_open": "OPEN",
-            "payload_close": "CLOSE",
-            "payload_stop": "STOP",
-            "state_open": "open",
-            "state_closed": "closed",
-            "availability_topic": f"{self.topic_prefix}/bridge/status",
-            "payload_available": "online",
-            "payload_not_available": "offline",
-            "device": self.device_info
-        }
-        await client.publish(
-            f"{self.discovery_prefix}/cover/{self.topic_prefix}/door/config",
-            payload=json.dumps(cover_config, ensure_ascii=False),
-            retain=True
-        )
-
-        # 2. Door Contact Sensor (Binary Sensor)
+        # 1. Door Status Sensor (Read-Only; gate drive uninstalled)
         door_sensor_config = {
-            "name": "Ворота (Датчик геркона)",
-            "unique_id": "smartgarage_door_contact_sensor",
+            "name": "Стан воріт (Read-Only)",
+            "unique_id": "smartgarage_door_status_sensor",
             "state_topic": f"{self.topic_prefix}/door/state",
-            "device_class": "garage_door",
-            "payload_on": "open",
-            "payload_off": "closed",
+            "icon": "mdi:garage-variant-lock",
             "availability_topic": f"{self.topic_prefix}/bridge/status",
             "device": self.device_info
         }
         await client.publish(
-            f"{self.discovery_prefix}/binary_sensor/{self.topic_prefix}/door_contact/config",
+            f"{self.discovery_prefix}/sensor/{self.topic_prefix}/door_status/config",
             payload=json.dumps(door_sensor_config, ensure_ascii=False),
             retain=True
         )
@@ -240,22 +215,7 @@ class SmartGarageMQTTBridge:
             retain=True
         )
 
-        # 7. Gas MQ2 Sensor
-        gas_sensor = {
-            "name": "Газ MQ2 (Дим)",
-            "unique_id": "smartgarage_gas_sensor",
-            "state_topic": f"{self.topic_prefix}/telemetry",
-            "value_template": "{{ value_json.gas_ppm }}",
-            "unit_of_measurement": "ppm",
-            "icon": "mdi:molecule-co2",
-            "availability_topic": f"{self.topic_prefix}/bridge/status",
-            "device": self.device_info
-        }
-        await client.publish(
-            f"{self.discovery_prefix}/sensor/{self.topic_prefix}/gas_sensor/config",
-            payload=json.dumps(gas_sensor, ensure_ascii=False),
-            retain=True
-        )
+        # Gas sensor is uninstalled / not planned: no MQ2 discovery published
 
         # 8. AI Status Sensor
         ai_sensor = {
@@ -294,12 +254,8 @@ class SmartGarageMQTTBridge:
         if self.garage and hasattr(self.garage, "router"):
             try:
                 if action_type == "door":
-                    if param == "OPEN":
-                        self.garage.esp32.door_open()
-                        return "Ворота відчинено"
-                    elif param == "CLOSE":
-                        self.garage.esp32.door_close()
-                        return "Ворота зачинено"
+                    logger.warning("Door command rejected via MQTT: gate drive not installed / disabled.")
+                    return "Керування воротами вимкнено: привід воріт не планується / не встановлений"
                 elif action_type == "light":
                     if param == "ON":
                         self.garage.esp32.light_on()
@@ -329,9 +285,8 @@ class SmartGarageMQTTBridge:
                         data = await resp.json()
                         return data.get("response", "Виконано")
                 elif action_type == "door":
-                    endpoint = "/api/door/open" if param == "OPEN" else "/api/door/close"
-                    async with session.post(f"http://127.0.0.1:5000{endpoint}") as resp:
-                        return "Команду воріт надіслано"
+                    logger.warning("HTTP fallback door command rejected: gate drive not installed.")
+                    return "Керування воротами вимкнено"
                 elif action_type == "light":
                     endpoint = "/api/light/on" if param == "ON" else "/api/light/off"
                     async with session.post(f"http://127.0.0.1:5000{endpoint}") as resp:
@@ -355,13 +310,12 @@ class SmartGarageMQTTBridge:
             await self.publish_discovery(client)
             return
 
-        # 2. Door Control from HA
+        # 2. Door Control from HA (Disabled)
         if topic == f"{self.topic_prefix}/door/set":
             cmd = payload_str.upper().strip()
-            logger.info(f"HA Door Command: {cmd}")
-            await self._execute_garage_command("door", cmd)
-            self.state_door = "open" if cmd == "OPEN" else "closed"
-            await client.publish(f"{self.topic_prefix}/door/state", payload=self.state_door, retain=True)
+            logger.warning(f"HA Door Command rejected: {cmd} (gate drive not installed)")
+            self.state_door = "unknown"
+            await client.publish(f"{self.topic_prefix}/door/state", payload="unknown", retain=True)
 
         # 3. Light Control from HA
         elif topic == f"{self.topic_prefix}/light/set":
@@ -426,10 +380,12 @@ class SmartGarageMQTTBridge:
                     floors = self.garage.get_floors_telemetry()
                     doc = {
                         "device": "smartgarage-core",
-                        "door_status": st.get("door", self.state_door),
+                        "door_status": "unknown",
                         "light": bool(st.get("light", False)),
                         "fan": bool(st.get("fan", False)),
-                        "gas_ppm": st.get("gas_ppm", 35),
+                        "gas_ppm": None,
+                        "gas_installed": False,
+                        "gas_status": "not_installed",
                         "floors": floors,
                         "timestamp": time.time()
                     }

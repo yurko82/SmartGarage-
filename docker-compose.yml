@@ -1,14 +1,36 @@
 version: '3.8'
 
 services:
-  # In-memory Redis cache for Telemetry API and fast state lookup
+  # Eclipse Mosquitto MQTT Broker for ESP32 and Home Assistant Integration (Core Stack)
+  mosquitto:
+    image: eclipse-mosquitto:2.0
+    container_name: smartgarage_mosquitto
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:1883:1883"
+      - "127.0.0.1:9001:9001"
+    volumes:
+      - ./config/mosquitto:/mosquitto/config:ro
+      - mosquitto_data:/mosquitto/data
+      - mosquitto_log:/mosquitto/log
+    mem_limit: 128m
+    cpus: 0.25
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 128M
+
+  # In-memory Redis cache for Telemetry API and fast state lookup (Optional Profile)
+  # When Redis is offline, SmartGarage seamlessly falls back to local in-memory caching.
   redis:
+    profiles: ["cache", "all"]
     image: redis:7-alpine
     container_name: smartgarage_redis
     restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes", "--maxmemory", "128mb", "--maxmemory-policy", "allkeys-lru"]
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - redis_data:/data
     mem_limit: 256m
@@ -19,8 +41,31 @@ services:
           cpus: '0.50'
           memory: 256M
 
-  # Isolated Open Interpreter sandbox environment
+  # n8n Workflow Automation Platform (Optional Profile)
+  # Used for visual workflow orchestrations and integrations with external webhooks.
+  n8n:
+    profiles: ["automation", "all"]
+    image: docker.n8n.io/n8nio/n8n:latest
+    container_name: smartgarage_n8n
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5678:5678"
+    environment:
+      - N8N_HOST=0.0.0.0
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - NODE_ENV=production
+      - WEBHOOK_URL=http://localhost:5678/
+      - GENERIC_TIMEZONE=Europe/Kyiv
+      - TZ=Europe/Kyiv
+    volumes:
+      - n8n_data:/home/node/.n8n
+    mem_limit: 512m
+    cpus: 1.0
+
+  # Isolated Open Interpreter sandbox environment (Development Only Profile)
   interpreter:
+    profiles: ["dev"]
     build:
       context: .
       dockerfile: Dockerfile
@@ -45,11 +90,8 @@ services:
 
     # Volume Mounts: Project directory mounted as READ-ONLY
     volumes:
-      # Host project directory mounted read-only into container workspace
       - .:/workspace:ro
-      # Writable storage for interpreter conversation history and runtime state
       - interpreter_cache:/root/.config/open-interpreter
-      # Writable isolated temporary scratchpad for test files
       - /tmp/smartgarage_sandbox_scratch:/tmp/scratch:rw
 
     working_dir: /workspace
@@ -61,28 +103,10 @@ services:
       - PYTHONUNBUFFERED=1
       - TMPDIR=/tmp/scratch
 
-  # Eclipse Mosquitto MQTT Broker for ESP32 and Home Assistant Integration
-  mosquitto:
-    image: eclipse-mosquitto:2.0
-    container_name: smartgarage_mosquitto
-    restart: unless-stopped
-    ports:
-      - "1883:1883"
-      - "9001:9001"
-    volumes:
-      - ./config/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
-      - mosquitto_data:/mosquitto/data
-      - mosquitto_log:/mosquitto/log
-    mem_limit: 128m
-    cpus: 0.25
-    deploy:
-      resources:
-        limits:
-          cpus: '0.25'
-          memory: 128M
-
 volumes:
   interpreter_cache:
   redis_data:
   mosquitto_data:
   mosquitto_log:
+  n8n_data:
+

@@ -1,3 +1,26 @@
+// Auto-attach CSRF token & unified session headers to mutating requests
+(function() {
+    const origFetch = window.fetch;
+    window.fetch = function(url, options = {}) {
+        if (options && options.method && ['POST', 'PUT', 'DELETE', 'PATCH'].includes(options.method.toUpperCase())) {
+            const csrfToken = sessionStorage.getItem('sg_csrf_token');
+            if (csrfToken) {
+                if (!options.headers) {
+                    options.headers = {};
+                }
+                if (options.headers instanceof Headers) {
+                    if (!options.headers.has('X-CSRF-Token')) {
+                        options.headers.set('X-CSRF-Token', csrfToken);
+                    }
+                } else if (!options.headers['X-CSRF-Token']) {
+                    options.headers['X-CSRF-Token'] = csrfToken;
+                }
+            }
+        }
+        return origFetch(url, options);
+    };
+})();
+
 document.addEventListener('DOMContentLoaded', () => {
     // DOM Elements - Console
     const commandForm = document.getElementById('commandForm');
@@ -157,10 +180,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (data.success && data.state) {
                     const s = data.state;
                     if (telDoor) {
-                        if (s.door === 'not_installed' || s.door_installed === false) {
-                            telDoor.textContent = 'Очікує датчик';
+                        if (s.door === 'not_installed' || s.door === 'unknown' || s.door_installed === false) {
+                            telDoor.textContent = 'Невідомо';
                             telDoor.className = 'val-badge';
-                            telDoor.title = 'Геркон воріт фізично ще не підключено';
+                            telDoor.title = 'Привід воріт не планується / не встановлений';
                         } else {
                             const isOpen = s.door === 'open';
                             telDoor.textContent = isOpen ? 'Відкрито' : 'Закрито';
@@ -183,119 +206,109 @@ document.addEventListener('DOMContentLoaded', () => {
                     const f2 = floors.floor2 || {};
                     const fb = floors.basement || {};
 
-                    const formatTime = (obj, defaultName) => {
-                        if (!obj) return `${defaultName}: Очікується оновлення`;
-                        const timeStr = obj.last_updated_formatted || obj.last_updated_time || 'Очікується оновлення';
-                        return `${obj.name || defaultName}: Оновлено о ${timeStr}`;
+                    // Helper to render telemetry per floor with strict freshness rules
+                    const renderFloorUi = (floorObj, defaultName, elTelTemp, elTelHum, elCardTemp, elCardHum, elCardSub, elBadge, cardEl) => {
+                        const isInstalled = floorObj && floorObj.installed !== false;
+                        const status = floorObj ? (floorObj.status || (floorObj.online ? 'online' : (floorObj.is_stale ? 'stale' : 'offline'))) : 'never_seen';
+                        const isOnline = status === 'online' && floorObj && floorObj.current_temperature !== null && floorObj.current_temperature !== undefined;
+                        const lastTemp = floorObj ? (floorObj.last_known_temperature ?? floorObj.temperature) : null;
+                        const lastHum = floorObj ? (floorObj.last_known_humidity ?? floorObj.humidity) : null;
+                        const lastTime = floorObj ? (floorObj.last_updated_time || '--:--') : '--:--';
+                        const lastRel = floorObj ? (floorObj.last_updated_relative || '') : '';
+                        const srcName = floorObj && floorObj.source_name ? floorObj.source_name : 'BLE';
+                        const batStr = (floorObj && floorObj.battery !== null && floorObj.battery !== undefined) ? ` • 🔋 ${floorObj.battery}%` : '';
+
+                        let tempText = '-- °C';
+                        let humText = '-- %';
+                        let badgeText = 'Офлайн';
+                        let badgeClass = 'floor-badge warning';
+                        let subText = 'Очікує даних';
+                        let tooltip = defaultName;
+
+                        if (!isInstalled || status === 'not_installed') {
+                            tempText = '-- °C';
+                            humText = '-- %';
+                            badgeText = 'Датчик не встановлено';
+                            badgeClass = 'floor-badge';
+                            subText = 'Датчик не встановлено';
+                            tooltip = `${defaultName}: датчик не встановлено`;
+                        } else if (isOnline) {
+                            tempText = `${Number(floorObj.current_temperature).toFixed(1)} °C`;
+                            humText = (floorObj.current_humidity !== null && floorObj.current_humidity !== undefined)
+                                ? `${Number(floorObj.current_humidity).toFixed(0)} %` : '-- %';
+                            badgeText = 'Актуально';
+                            badgeClass = 'floor-badge active';
+                            subText = `Актуально • ${lastTime}${batStr}`;
+                            tooltip = `${defaultName}: Актуально (${srcName}) • Оновлено о ${lastTime}`;
+                        } else if (status === 'stale') {
+                            tempText = '-- °C';
+                            humText = '-- %';
+                            badgeText = 'Дані застаріли';
+                            badgeClass = 'floor-badge warning';
+                            const lastValStr = lastTemp !== null ? ` (ост. ${Number(lastTemp).toFixed(1)} °C)` : '';
+                            subText = `Дані застаріли${lastValStr} • ${lastRel || lastTime}`;
+                            tooltip = `${defaultName}: Дані застаріли (${srcName}) • Останній вимір: ${lastTemp !== null ? Number(lastTemp).toFixed(1) + ' °C о ' : ''}${lastTime}`;
+                        } else if (status === 'offline') {
+                            tempText = '-- °C';
+                            humText = '-- %';
+                            badgeText = 'Офлайн';
+                            badgeClass = 'floor-badge warning';
+                            const lastValStr = lastTemp !== null ? ` (${Number(lastTemp).toFixed(1)} °C)` : '';
+                            subText = `Офлайн — останній вимір ${lastTime}${lastValStr}`;
+                            tooltip = `${defaultName}: Офлайн (${srcName}) • Останній вимір: ${lastTime}`;
+                        } else {
+                            // never_seen
+                            tempText = '-- °C';
+                            humText = '-- %';
+                            badgeText = 'Очікує даних';
+                            badgeClass = 'floor-badge';
+                            subText = 'Дані ще не надходили';
+                            tooltip = `${defaultName}: очікування зв'язку з датчиком`;
+                        }
+
+                        if (elTelTemp) {
+                            elTelTemp.textContent = tempText;
+                            elTelTemp.title = tooltip;
+                            elTelTemp.className = isOnline ? 'val-badge active hoverable' : 'val-badge hoverable';
+                        }
+                        if (elTelHum) {
+                            elTelHum.textContent = humText;
+                            elTelHum.title = `${defaultName}: вологість ${humText}`;
+                            elTelHum.className = isOnline ? 'val-badge active hoverable' : 'val-badge hoverable';
+                        }
+                        if (elCardTemp) {
+                            elCardTemp.textContent = tempText;
+                            elCardTemp.title = tooltip;
+                        }
+                        if (elCardHum) {
+                            elCardHum.textContent = humText;
+                            elCardHum.title = `${defaultName}: вологість ${humText}`;
+                        }
+                        if (elCardSub) {
+                            elCardSub.textContent = subText;
+                        }
+                        if (elBadge) {
+                            elBadge.textContent = badgeText;
+                            elBadge.className = badgeClass;
+                        }
+                        if (cardEl) {
+                            cardEl.classList.toggle('is-stale', status === 'stale');
+                        }
                     };
 
-                    // Floor 1 (Garage)
-                    const hasF1 = f1 && f1.temperature !== undefined && f1.temperature !== null;
-                    const t1 = hasF1 ? `${Number(f1.temperature).toFixed(1)} °C` : '-- °C';
-                    const tip1 = hasF1 ? formatTime(f1, '1-й поверх (Гараж)') : 'Очікує монтажу датчика';
-                    if (telTemp) {
-                        telTemp.textContent = t1;
-                        telTemp.title = tip1;
-                        telTemp.className = hasF1 ? 'val-badge active hoverable' : 'val-badge hoverable';
-                    }
-                    if (chartCardTemp) {
-                        chartCardTemp.textContent = t1;
-                        chartCardTemp.title = tip1;
-                    }
-                    const hasHumF1 = hasF1 && f1.humidity !== undefined && f1.humidity !== null;
-                    const h1Val = hasHumF1 ? `${Number(f1.humidity).toFixed(0)} %` : '-- %';
-                    if (telHumFloor1) {
-                        telHumFloor1.textContent = h1Val;
-                        telHumFloor1.className = hasHumF1 ? 'val-badge active hoverable' : 'val-badge hoverable';
-                        telHumFloor1.title = hasF1 ? `Вологість 1-й поверх: ${h1Val}` : 'Очікує монтажу датчика';
-                    }
-                    if (chartCardHumF1) {
-                        chartCardHumF1.textContent = h1Val;
-                        chartCardHumF1.title = hasF1 ? `Вологість 1-й поверх: ${h1Val}` : 'Очікує монтажу датчика';
-                    }
-                    if (chartCardTempSub) {
-                        chartCardTempSub.textContent = hasF1 ? `Оновлено: ${f1.last_updated_time || '--:--'} • 🔋 ${f1.battery || 100}%` : 'Очікує монтажу датчика';
-                    }
-                    if (badgeFloor1) {
-                        badgeFloor1.textContent = hasF1 ? 'Онлайн' : 'Очікує датчик';
-                        badgeFloor1.className = hasF1 ? 'floor-badge active' : 'floor-badge';
-                    }
+                    const floorCard1 = document.getElementById('floorCard1');
+                    const floorCard2 = document.getElementById('floorCard2');
+                    const floorCardBasement = document.getElementById('floorCardBasement');
 
-                    // Floor 2 (Xiaomi LYWSD03MMC)
-                    const isOnlineF2 = f2 && !!f2.online;
-                    const hasF2 = f2 && f2.temperature !== undefined && f2.temperature !== null;
-                    const t2 = hasF2 ? `${Number(f2.temperature).toFixed(1)} °C` : '-- °C';
-                    const tip2 = formatTime(f2, '2-й поверх');
-                    if (telTempFloor2) {
-                        telTempFloor2.textContent = t2;
-                        telTempFloor2.title = tip2;
-                        telTempFloor2.className = hasF2 ? 'val-badge active hoverable' : 'val-badge hoverable';
-                    }
-                    if (chartCardTempF2) {
-                        chartCardTempF2.textContent = t2;
-                        chartCardTempF2.title = tip2;
-                    }
-                    const hasHumF2 = hasF2 && f2.humidity !== undefined && f2.humidity !== null;
-                    const h2Val = hasHumF2 ? `${Number(f2.humidity).toFixed(0)} %` : '-- %';
-                    if (telHumFloor2) {
-                        telHumFloor2.textContent = h2Val;
-                        telHumFloor2.className = hasHumF2 ? 'val-badge active hoverable' : 'val-badge hoverable';
-                        telHumFloor2.title = hasF2 ? `Вологість 2-й поверх: ${h2Val}` : 'Офлайн (немає даних)';
-                    }
-                    if (chartCardHumF2) {
-                        chartCardHumF2.textContent = h2Val;
-                        chartCardHumF2.title = hasF2 ? `Вологість 2-й поверх: ${h2Val}` : 'Офлайн';
-                    }
-                    if (chartCardSubF2) {
-                        const timeStr2 = f2.last_updated_time || '--:--';
-                        const batStr2 = f2.battery !== undefined && f2.battery !== null ? ` • 🔋 ${f2.battery}%` : '';
-                        chartCardSubF2.textContent = isOnlineF2 ? `Онлайн • ${timeStr2}${batStr2}` : (hasF2 ? `Офлайн • ${timeStr2}${batStr2}` : 'Офлайн (немає зв\'язку)');
-                    }
-                    if (badgeFloor2) {
-                        badgeFloor2.textContent = isOnlineF2 ? 'BLE Онлайн' : 'BLE Офлайн';
-                        badgeFloor2.className = isOnlineF2 ? 'floor-badge active' : 'floor-badge warning';
-                    }
-
-                    // Basement (Xiaomi LYWSD03MMC)
-                    const isOnlineFB = fb && !!fb.online;
-                    const hasFB = fb && fb.temperature !== undefined && fb.temperature !== null;
-                    const tb = hasFB ? `${Number(fb.temperature).toFixed(1)} °C` : '-- °C';
-                    const tipB = formatTime(fb, 'Підвал');
-                    if (telTempBasement) {
-                        telTempBasement.textContent = tb;
-                        telTempBasement.title = tipB;
-                        telTempBasement.className = hasFB ? 'val-badge active hoverable' : 'val-badge hoverable';
-                    }
-                    if (chartCardTempFB) {
-                        chartCardTempFB.textContent = tb;
-                        chartCardTempFB.title = tipB;
-                    }
-                    const hasHumFB = hasFB && fb.humidity !== undefined && fb.humidity !== null;
-                    const hBVal = hasHumFB ? `${Number(fb.humidity).toFixed(0)} %` : '-- %';
-                    if (telHumBasement) {
-                        telHumBasement.textContent = hBVal;
-                        telHumBasement.className = hasHumFB ? 'val-badge active hoverable' : 'val-badge hoverable';
-                        telHumBasement.title = hasFB ? `Вологість підвал: ${hBVal}` : 'Офлайн (немає даних)';
-                    }
-                    if (chartCardHumFB) {
-                        chartCardHumFB.textContent = hBVal;
-                        chartCardHumFB.title = hasFB ? `Вологість підвал: ${hBVal}` : 'Офлайн';
-                    }
-                    if (chartCardSubFB) {
-                        const timeStrB = fb.last_updated_time || '--:--';
-                        const batStrB = fb.battery !== undefined && fb.battery !== null ? ` • 🔋 ${fb.battery}%` : '';
-                        chartCardSubFB.textContent = isOnlineFB ? `Онлайн • ${timeStrB}${batStrB}` : (hasFB ? `Офлайн • ${timeStrB}${batStrB}` : 'Очікує даних');
-                    }
-                    if (badgeBasement) {
-                        badgeBasement.textContent = isOnlineFB ? 'BLE Онлайн' : 'BLE Офлайн';
-                        badgeBasement.className = isOnlineFB ? 'floor-badge active' : 'floor-badge warning';
-                    }
+                    renderFloorUi(f1, '1-й поверх (Гараж)', telTemp, telHumFloor1, chartCardTemp, chartCardHumF1, chartCardTempSub, badgeFloor1, floorCard1);
+                    renderFloorUi(f2, '2-й поверх', telTempFloor2, telHumFloor2, chartCardTempF2, chartCardHumF2, chartCardSubF2, badgeFloor2, floorCard2);
+                    renderFloorUi(fb, 'Підвал', telTempBasement, telHumBasement, chartCardTempFB, chartCardHumFB, chartCardSubFB, badgeBasement, floorCardBasement);
 
                     // Battery (calculate only from real configured sensors)
                     if (telBat) {
                         const bats = [];
-                        if (hasFB && fb.battery !== null && fb.battery !== undefined) bats.push(fb.battery);
-                        if (hasF2 && f2.battery !== null && f2.battery !== undefined) bats.push(f2.battery);
+                        if (fb && fb.installed !== false && fb.battery !== null && fb.battery !== undefined) bats.push(fb.battery);
+                        if (f2 && f2.installed !== false && f2.battery !== null && f2.battery !== undefined) bats.push(f2.battery);
                         if (bats.length > 0) {
                             telBat.textContent = `🔋 ${Math.min(...bats)}%`;
                             telBat.title = `Заряд батарей: Підвал: ${fb.battery || '--'}%, 2-й поверх: ${f2.battery || '--'}%`;
@@ -1281,6 +1294,31 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     let currentTtsAudioApp = null;
+    let currentTtsUrlApp = null;
+
+    function playBrowserSpeechSynthesisApp(clean, onEnded) {
+        if (!('speechSynthesis' in window)) {
+            if (typeof onEnded === 'function') onEnded();
+            return;
+        }
+        try {
+            window.speechSynthesis.cancel();
+            const utt = new SpeechSynthesisUtterance(clean);
+            utt.lang = 'uk-UA';
+            const ukVoice = getUkrainianVoiceApp();
+            if (ukVoice) utt.voice = ukVoice;
+            utt.onend = () => {
+                if (typeof onEnded === 'function') onEnded();
+            };
+            utt.onerror = () => {
+                if (typeof onEnded === 'function') onEnded();
+            };
+            window.speechSynthesis.speak(utt);
+        } catch (e) {
+            console.warn('Browser speechSynthesis error:', e);
+            if (typeof onEnded === 'function') onEnded();
+        }
+    }
 
     function speakText(text, onEnded) {
         if (!ttsEnabled) {
@@ -1304,38 +1342,65 @@ document.addEventListener('DOMContentLoaded', () => {
             } catch (_) {}
             currentTtsAudioApp = null;
         }
+        if (currentTtsUrlApp) {
+            try { URL.revokeObjectURL(currentTtsUrlApp); } catch (_) {}
+            currentTtsUrlApp = null;
+        }
 
         let endedCalled = false;
         const fireEnded = () => {
             if (endedCalled) return;
             endedCalled = true;
+            if (currentTtsUrlApp) {
+                try { URL.revokeObjectURL(currentTtsUrlApp); } catch (_) {}
+                currentTtsUrlApp = null;
+            }
             currentTtsAudioApp = null;
             if (typeof onEnded === 'function') onEnded();
         };
 
-        try {
-            const audioUrl = '/api/voice/tts?text=' + encodeURIComponent(clean);
-            currentTtsAudioApp = new Audio(audioUrl);
-            currentTtsAudioApp.onended = fireEnded;
-            currentTtsAudioApp.onerror = fireEnded;
-            currentTtsAudioApp.play().catch(err => {
-                console.warn('Browser audio autoplay blocked, broadcasting to garage speaker:', err);
-                fetch('/api/voice/speak', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ text: clean })
-                }).catch(e => console.warn('Server TTS failed:', e));
-                setTimeout(fireEnded, Math.min(Math.max(clean.length * 80, 1800), 5000));
+        const ttsUrl = '/api/voice/tts?text=' + encodeURIComponent(clean);
+        fetch(ttsUrl)
+            .then(res => {
+                if (!res.ok) {
+                    throw new Error(`Server TTS HTTP ${res.status}`);
+                }
+                const provider = res.headers.get('X-TTS-Provider') || 'server';
+                const isFallback = res.headers.get('X-TTS-Fallback') === 'true';
+                if (isFallback) {
+                    console.info(`[TTS] Використано серверний fallback: ${provider}`);
+                }
+                return res.blob();
+            })
+            .then(blob => {
+                if (!blob || blob.size === 0) {
+                    throw new Error('Отримано порожнє аудіо від сервера');
+                }
+                currentTtsUrlApp = URL.createObjectURL(blob);
+                currentTtsAudioApp = new Audio(currentTtsUrlApp);
+                currentTtsAudioApp.onended = fireEnded;
+                currentTtsAudioApp.onerror = () => {
+                    console.warn('Audio playback error, fallback to browser synthesis');
+                    appendEntry('system', '⚠️ Резервне озвучення: браузерний синтез (Web Speech API)');
+                    playBrowserSpeechSynthesisApp(clean, fireEnded);
+                };
+                return currentTtsAudioApp.play();
+            })
+            .catch(err => {
+                console.warn('[TTS] Серверний синтез недоступний:', err.message);
+                appendEntry('system', '⚠️ Серверний TTS недоступний. Задіяно резервний браузерний синтез (Web Speech API)');
+                if ('speechSynthesis' in window) {
+                    playBrowserSpeechSynthesisApp(clean, fireEnded);
+                } else {
+                    // Якщо браузер не має speechSynthesis, передаємо на Bluetooth/PipeWire сервера
+                    fetch('/api/voice/speak', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ text: clean })
+                    }).catch(e => console.warn('Server TTS speak_locally failed:', e));
+                    setTimeout(fireEnded, Math.min(Math.max(clean.length * 80, 1800), 5000));
+                }
             });
-        } catch (e) {
-            console.warn('Audio init error, broadcasting to garage speaker:', e);
-            fetch('/api/voice/speak', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ text: clean })
-            }).catch(e => console.warn('Server TTS failed:', e));
-            setTimeout(fireEnded, Math.min(Math.max(clean.length * 80, 1800), 5000));
-        }
     }
 
     // --- SPEECH RECOGNITION (STT) ---
@@ -1573,15 +1638,24 @@ document.addEventListener('DOMContentLoaded', () => {
 
         setLoading(true);
 
+        let webSessionId = sessionStorage.getItem('sg_session_id');
+        const reqPayload = { command: command };
+        if (webSessionId) {
+            reqPayload.session_id = webSessionId;
+        }
+
         fetch('/command', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ command: command })
+            body: JSON.stringify(reqPayload)
         })
         .then(response => {
             if (!response.ok) {
+                if (response.status === 403) {
+                    sessionStorage.removeItem('sg_session_id');
+                }
                 return response.json().then(errData => {
                     throw new Error(errData.response || `HTTP Error ${response.status}`);
                 });
@@ -1589,6 +1663,9 @@ document.addEventListener('DOMContentLoaded', () => {
             return response.json();
         })
         .then(data => {
+            if (data.session_id) {
+                sessionStorage.setItem('sg_session_id', data.session_id);
+            }
             if (data.success) {
                 const aiResp = data.response || 'Команду виконано.';
                 appendEntry('ai', aiResp);
@@ -1702,6 +1779,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function checkAdminState() {
         const isAuth = sessionStorage.getItem('sg_admin_auth') === 'true';
+        if (!sessionStorage.getItem('sg_csrf_token')) {
+            fetch('/api/csrf')
+                .then(res => res.json())
+                .then(d => {
+                    if (d && d.csrf_token) sessionStorage.setItem('sg_csrf_token', d.csrf_token);
+                })
+                .catch(() => {});
+        }
         if (isAuth) {
             if (adminAuthSection) adminAuthSection.style.display = 'none';
             if (adminContentSection) adminContentSection.style.display = 'block';
@@ -1731,6 +1816,9 @@ document.addEventListener('DOMContentLoaded', () => {
             .then(data => {
                 if (data.authenticated) {
                     sessionStorage.setItem('sg_admin_auth', 'true');
+                    if (data.csrf_token) {
+                        sessionStorage.setItem('sg_csrf_token', data.csrf_token);
+                    }
                     checkAdminState();
                 } else {
                     if (adminPinError) {
@@ -1750,8 +1838,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (adminLogoutBtn) {
         adminLogoutBtn.addEventListener('click', () => {
-            sessionStorage.removeItem('sg_admin_auth');
-            checkAdminState();
+            fetch('/api/admin/logout', { method: 'POST' }).finally(() => {
+                sessionStorage.removeItem('sg_admin_auth');
+                sessionStorage.removeItem('sg_csrf_token');
+                checkAdminState();
+            });
         });
     }
 

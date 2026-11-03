@@ -376,9 +376,14 @@ class VoiceListenerService:
         # 2. Dispatch via HTTP to server API
         try:
             import aiohttp
+            admin_pin = os.getenv("ADMIN_PIN") or "7777"
+            headers = {
+                "X-Admin-PIN": admin_pin,
+                "Content-Type": "application/json"
+            }
             async with aiohttp.ClientSession() as session:
                 payload = {"command": text, "text": text, "source": "voice"}
-                async with session.post(self.api_url, json=payload, timeout=aiohttp.ClientTimeout(total=6.0)) as resp:
+                async with session.post(self.api_url, json=payload, headers=headers, timeout=aiohttp.ClientTimeout(total=6.0)) as resp:
                     if resp.status == 200:
                         data = await resp.json()
                         resp_text = data.get("response") or "Виконано"

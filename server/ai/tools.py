@@ -1,7 +1,9 @@
 """Tools and Function Calling declarations for SmartGarage AI."""
 import json
 import logging
+import uuid
 from typing import Dict, Any, List, Optional
+from server.security.audit import audit_log
 
 logger = logging.getLogger(__name__)
 
@@ -10,19 +12,19 @@ GARAGE_TOOLS = [
         "type": "function",
         "function": {
             "name": "control_device",
-            "description": "Керування фізичними виконавчими пристроями гаража через ESP32-S3 (ворота, освітлення, витяжна вентиляція).",
+            "description": "Керування фізичними виконавчими пристроями гаража через ESP32-S3 (освітлення, витяжна вентиляція). Привід воріт не планується.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "device": {
                         "type": "string",
-                        "enum": ["door", "light", "fan"],
-                        "description": "Тип пристрою: door (гаражні ворота), light (основне освітлення), fan (витяжна вентиляція)."
+                        "enum": ["light", "fan"],
+                        "description": "Тип пристрою: light (основне освітлення), fan (витяжна вентиляція)."
                     },
                     "action": {
                         "type": "string",
-                        "enum": ["open", "close", "on", "off", "toggle"],
-                        "description": "Дія: для door використовуй open/close/toggle, для light та fan використовуй on/off/toggle."
+                        "enum": ["on", "off", "toggle"],
+                        "description": "Дія: on/off/toggle для light та fan."
                     }
                 },
                 "required": ["device", "action"]
@@ -164,8 +166,8 @@ GARAGE_TOOLS = [
                 "properties": {
                     "scenario": {
                         "type": "string",
-                        "enum": ["arrival", "departure", "night", "cinema", "safety"],
-                        "description": "Сценарій: arrival (прибуття), departure (від'їзд), night (нічна охорона/блокування), cinema (кінотеатр/проектор), safety (екстрене провітрювання)."
+                        "enum": ["arrival", "departure", "night", "cinema"],
+                        "description": "Сценарій: arrival (прибуття), departure (від'їзд), night (нічна охорона/блокування), cinema (кінотеатр/проектор)."
                     }
                 },
                 "required": ["scenario"]
@@ -280,107 +282,144 @@ GARAGE_TOOLS = [
 class ToolDispatcher:
     """Dispatches and executes tool calls against SmartGarage hardware."""
 
-    def __init__(self, garage=None):
+    def __init__(self, garage=None, session_mgr=None):
         self.garage = garage
+        self.session_manager = session_mgr
 
     def execute(self, tool_name: str, arguments: Dict[str, Any], session_id: str = "default") -> Dict[str, Any]:
-        """Execute a tool call and return structured result dict."""
+        """Execute a tool call and return structured result dict with strict allowlist enforcement."""
+        cid = f"ai_{uuid.uuid4().hex[:8]}"
         if not self.garage:
-            return {"success": False, "error": "SmartGarage instance not bound to ToolDispatcher"}
+            res = {"success": False, "error": "SmartGarage instance not bound to ToolDispatcher"}
+            audit_log("ai", f"tool_{tool_name}", "FAILED", {"error": res["error"]}, cid, session_id)
+            return res
+
+        ALLOWED_TOOLS = {
+            "control_device",
+            "play_song",
+            "play_user_playlist",
+            "list_user_playlists",
+            "next_music_track",
+            "prev_music_track",
+            "seek_music_track",
+            "play_media",
+            "stop_media",
+            "run_scenario",
+            "speaker_control",
+            "get_climate_history",
+            "show_climate_chart",
+            "play_radio",
+            "stop_radio",
+        }
+        if tool_name not in ALLOWED_TOOLS:
+            res = {
+                "success": False,
+                "is_blocked": True,
+                "error": f"Виконання інструменту '{tool_name}' заборонено: відсутній у дозволеному переліку (allowlist)."
+            }
+            audit_log("ai", f"tool_blocked_{tool_name}", "BLOCKED", {"tool": tool_name}, cid, session_id)
+            session_mgr = getattr(self, "session_manager", None)
+            if not session_mgr:
+                from server.ai.session_manager import session_manager as global_sm
+                session_mgr = global_sm
+            session_mgr.record_tool_action(session_id, tool_name, arguments, res)
+            return res
 
         try:
             if tool_name == "control_device":
                 device = arguments.get("device")
                 action = arguments.get("action")
-                return self._control_device(device, action)
+                res = self._control_device(device, action)
 
             elif tool_name == "play_song":
                 query = str(arguments.get("query") or "").strip()
                 spk = str(arguments.get("speaker") or "").lower()
-                return self._play_song(query, spk)
+                res = self._play_song(query, spk)
 
             elif tool_name == "play_user_playlist":
                 pl = str(arguments.get("playlist") or "LM").strip()
                 spk = str(arguments.get("speaker") or "").lower()
-                return self._play_user_playlist(pl, spk)
+                res = self._play_user_playlist(pl, spk)
 
             elif tool_name == "list_user_playlists":
-                return self._list_user_playlists()
+                res = self._list_user_playlists()
 
             elif tool_name == "next_music_track":
-                return self._next_music_track()
+                res = self._next_music_track()
 
             elif tool_name == "prev_music_track":
-                return self._prev_music_track()
+                res = self._prev_music_track()
 
             elif tool_name == "seek_music_track":
                 pos = arguments.get("position")
                 delta = arguments.get("delta")
-                return self._seek_music_track(position=pos, delta=delta)
+                res = self._seek_music_track(position=pos, delta=delta)
 
             elif tool_name == "play_media":
                 query = arguments.get("query", "")
                 if not query:
-                    return {"success": False, "error": "Порожній пошуковий запит"}
-                if hasattr(self.garage, "projector") and self.garage.projector and self.garage.projector.is_reachable():
+                    res = {"success": False, "error": "Порожній пошуковий запит"}
+                elif hasattr(self.garage, "projector") and self.garage.projector and self.garage.projector.is_reachable():
                     ok, _ = self.garage.projector.stream_online_video(query)
-                    return {
+                    res = {
                         "success": bool(ok),
                         "message": f"🎬 Трансляцію '{query}' надіслано на проектор" if ok else f"Не вдалося запустити трансляцію '{query}' на проекторі"
                     }
-                # Fallback to Bluetooth speaker YouTube Music if projector is offline
-                if hasattr(self.garage, "speaker") and self.garage.speaker:
-                    return self._play_song(query)
-                return {"success": False, "error": "Проектор HY350MAX офлайн, а аудіосистема недоступна"}
+                elif hasattr(self.garage, "speaker") and self.garage.speaker:
+                    res = self._play_song(query)
+                else:
+                    res = {"success": False, "error": "Проектор HY350MAX офлайн, а аудіосистема недоступна"}
 
             elif tool_name == "stop_media":
                 if hasattr(self.garage, "projector") and self.garage.projector:
                     self.garage.projector.stop_video()
                     self.garage.projector.stop_mirroring()
-                    return {"success": True, "message": "Відтворення на проекторі зупинено"}
-                return {"success": False, "error": "Контролер проектора недоступний"}
+                    res = {"success": True, "message": "Відтворення на проекторі зупинено"}
+                else:
+                    res = {"success": False, "error": "Контролер проектора недоступний"}
 
             elif tool_name == "run_scenario":
                 scenario = arguments.get("scenario")
-                return self._run_scenario(scenario)
+                res = self._run_scenario(scenario)
 
             elif tool_name == "speaker_control":
                 action = arguments.get("action", "status")
                 target = str(arguments.get("speaker") or "jbl").lower()
                 if not hasattr(self.garage, "speaker") or not self.garage.speaker:
-                    return {"success": False, "error": "Контролер колонки недоступний"}
-
-                if target in ("jx-bt", "jxbt", "xt-bt", "xtbt", "floor1", "1 поверх"):
-                    self.garage.speaker.set_active_speaker("41:42:62:69:51:9B", "JX-BT (1-й поверх)")
-                elif target in ("jbl", "garage", "гараж"):
-                    self.garage.speaker.set_active_speaker("F8:5C:7E:EE:7D:CC", "Юрій: JBL Clip 5")
-
-                spk_name = self.garage.speaker.name or "Колонку"
-                if action == "connect":
-                    ok = self.garage.speaker.connect()
-                    return {"success": ok, "message": f"{spk_name} підключено" if ok else f"Не вдалося підключити {spk_name}"}
-                elif action == "disconnect":
-                    ok = self.garage.speaker.disconnect()
-                    return {"success": ok, "message": f"{spk_name} відключено"}
+                    res = {"success": False, "error": "Контролер колонки недоступний"}
                 else:
-                    st = self.garage.speaker.get_status()
-                    return {"success": True, "status": st}
+                    if target in ("jx-bt", "jxbt", "xt-bt", "xtbt", "floor1", "1 поверх"):
+                        self.garage.speaker.set_active_speaker("41:42:62:69:51:9B", "JX-BT (1-й поверх)")
+                    elif target in ("jbl", "garage", "гараж"):
+                        self.garage.speaker.set_active_speaker("F8:5C:7E:EE:7D:CC", "Юрій: JBL Clip 5")
+
+                    spk_name = self.garage.speaker.name or "Колонку"
+                    if action == "connect":
+                        ok = self.garage.speaker.connect()
+                        res = {"success": ok, "message": f"{spk_name} підключено" if ok else f"Не вдалося підключити {spk_name}"}
+                    elif action == "disconnect":
+                        ok = self.garage.speaker.disconnect()
+                        res = {"success": ok, "message": f"{spk_name} відключено"}
+                    else:
+                        st = self.garage.speaker.get_status()
+                        res = {"success": True, "status": st}
 
             elif tool_name == "get_climate_history":
                 floor = arguments.get("floor", "basement")
                 hours = float(arguments.get("hours", 24))
                 if hasattr(self.garage, "telemetry_db") and self.garage.telemetry_db:
                     f_param = None if floor == "all" else floor
-                    res = self.garage.telemetry_db.get_history(floor=f_param, hours=hours, limit=50)
-                    stats = res.get("stats", {})
-                    return {
+                    res_db = self.garage.telemetry_db.get_history(floor=f_param, hours=hours, limit=50)
+                    stats = res_db.get("stats", {})
+                    res = {
                         "success": True,
                         "floor": floor,
                         "hours": hours,
                         "stats": stats,
-                        "points_count": len(res.get("points", []))
+                        "points_count": len(res_db.get("points", []))
                     }
-                return {"success": False, "error": "База даних телеметрії недоступна"}
+                else:
+                    res = {"success": False, "error": "База даних телеметрії недоступна"}
 
             elif tool_name == "show_climate_chart":
                 floor = arguments.get("floor", "basement")
@@ -401,32 +440,43 @@ class ToolDispatcher:
 
                 if hasattr(self.garage, "telegram") and chat_id:
                     ok = self.garage.telegram.send_climate_chart(chat_id=chat_id, floor=floor, hours=hours)
-                    return {
+                    res = {
                         "success": ok,
                         "floor": floor,
                         "hours": hours,
                         "fallback_to_basement": fallback,
                         "message": f"Графік клімату ({floor}, {int(hours)}г) успішно надіслано в Telegram." if ok else "Не вдалося згенерувати або надіслати графік в Telegram"
                     }
-                return {"success": False, "error": "Telegram чат недоступний для надсилання графіка"}
+                else:
+                    res = {"success": False, "error": "Telegram чат недоступний для надсилання графіка"}
 
             elif tool_name == "play_radio":
                 station = arguments.get("station") or "Hit FM"
                 spk = str(arguments.get("speaker") or "").lower()
-                return self._play_radio(station, spk)
+                res = self._play_radio(station, spk)
 
             elif tool_name == "stop_radio":
                 if hasattr(self.garage, "speaker") and self.garage.speaker:
                     self.garage.speaker.stop()
-                    return {"success": True, "message": "Радіо зупинено"}
-                return {"success": False, "error": "Контролер колонки недоступний"}
+                    res = {"success": True, "message": "Радіо зупинено"}
+                else:
+                    res = {"success": False, "error": "Контролер колонки недоступний"}
 
             else:
-                return {"success": False, "error": f"Невідомий інструмент: {tool_name}"}
+                res = {"success": False, "error": f"Невідомий інструмент: {tool_name}"}
 
         except Exception as e:
             logger.error(f"Error executing tool {tool_name} with {arguments}: {e}")
-            return {"success": False, "error": str(e)}
+            res = {"success": False, "error": str(e)}
+
+        status = "SUCCESS" if res.get("success") else "FAILED"
+        audit_log("ai", f"tool_{tool_name}", status, {"args": arguments, "result": res.get("message") or res.get("error")}, cid, session_id)
+        session_mgr = getattr(self, "session_manager", None)
+        if not session_mgr:
+            from server.ai.session_manager import session_manager as global_sm
+            session_mgr = global_sm
+        session_mgr.record_tool_action(session_id, tool_name, arguments, res, initial_query=arguments.get("query") or arguments.get("station") or tool_name)
+        return res
 
     def _control_device(self, device: str, action: str) -> Dict[str, Any]:
         if not hasattr(self.garage, "esp32") or not self.garage.esp32:
@@ -434,15 +484,12 @@ class ToolDispatcher:
 
         esp = self.garage.esp32
         if device == "door":
-            if action in ("open", "on"):
-                esp.door_open()
-                return {"success": True, "message": "Ворота відчиняються (надіслано сигнал реле)"}
-            elif action in ("close", "off"):
-                esp.door_close()
-                return {"success": True, "message": "Ворота зачиняються (надіслано сигнал реле)"}
-            elif action == "toggle":
-                esp.door_toggle()
-                return {"success": True, "message": "Ворота перемкнено (сигнал реле)"}
+            return {
+                "success": False,
+                "is_blocked": True,
+                "error": "Керування воротами вимкнено: привід воріт не планується / не встановлений",
+                "door": "unknown"
+            }
 
         elif device == "light":
             if action == "on":
@@ -486,14 +533,20 @@ class ToolDispatcher:
             _, msg = auto.scenario_cinema_mode()
             return {"success": True, "message": msg}
         elif scenario == "safety":
-            _, msg = auto.scenario_gas_alarm()
-            return {"success": True, "message": msg}
+            return {"success": False, "error": "Сценарій 'safety' недоступний: газовий датчик не встановлений"}
 
         return {"success": False, "error": f"Невідомий сценарій '{scenario}'"}
 
     def _play_radio(self, station: str, speaker_target: str = "") -> Dict[str, Any]:
+        initial_st = station
+        st_name = (station or "Hit FM").strip()
         if not hasattr(self.garage, "speaker") or not self.garage.speaker:
-            return {"success": False, "error": "Контролер колонки недоступний"}
+            return {
+                "success": False,
+                "status": "device_unavailable",
+                "error": "Контролер колонки недоступний",
+                "station": st_name
+            }
 
         from server.services.radio_service import radio_service
         if speaker_target in ("jx-bt", "jxbt", "floor1", "1 поверх"):
@@ -501,32 +554,95 @@ class ToolDispatcher:
         elif speaker_target in ("jbl", "garage", "гараж"):
             self.garage.speaker.set_active_speaker("F8:5C:7E:EE:7D:CC", "Юрій: JBL Clip 5")
 
-        stations = radio_service.search_stations(station, limit=3)
+        raw_name = getattr(self.garage.speaker, "name", None)
+        spk_name = str(raw_name) if raw_name and not hasattr(raw_name, "_mock_return_value") else "Bluetooth-колонка"
+        if hasattr(self.garage.speaker, "is_connected") and not self.garage.speaker.is_connected():
+            return {
+                "success": False,
+                "status": "device_unavailable",
+                "error": f"⚠️ Не вдалося запустити радіо: колонка {spk_name} не підключена по Bluetooth або вимкнена.",
+                "speaker": spk_name,
+                "station": st_name
+            }
+
+        stations = radio_service.search_stations(st_name, limit=3)
         if not stations:
             stations = radio_service.get_top_stations(limit=5)
 
         if stations:
             st = stations[0]
             ok = self.garage.speaker.play_stream(st["url"], track_title=st["name"])
-            spk_name = self.garage.speaker.name or "колонці"
             if ok:
-                return {"success": True, "message": f"📻 Транслюю радіо '{st['name']}' на {spk_name}."}
+                return {
+                    "success": True,
+                    "status": "playback_started",
+                    "station": st["name"],
+                    "speaker": spk_name,
+                    "message": f"📻 Транслюю радіо '{st['name']}' на {spk_name}."
+                }
             else:
-                return {"success": False, "error": f"Не вдалося запустити радіо '{st['name']}' на {spk_name} (перевірте підключення)"}
-        return {"success": False, "error": f"Радіостанцію '{station}' не знайдено"}
+                return {
+                    "success": False,
+                    "status": "playback_failed",
+                    "station": st["name"],
+                    "speaker": spk_name,
+                    "error": f"Не вдалося запустити радіо '{st['name']}' на {spk_name} (помилка аудіопотоку)."
+                }
+        return {
+            "success": False,
+            "status": "not_found",
+            "station": st_name,
+            "speaker": spk_name,
+            "error": f"Радіостанцію '{st_name}' не знайдено."
+        }
 
     def _play_song(self, query: str, speaker_target: str = "") -> Dict[str, Any]:
+        initial_q = query
+        q = (query or "").strip()
+        if not q or q.lower() in ("пісню", "пісня", "музику", "музика", "музон", "трек", "song", "music", "якусь пісню", "просто пісню"):
+            resolved_query = "ADAM - Сильно Сильно"
+        else:
+            resolved_query = q
+
         if not hasattr(self.garage, "speaker") or not self.garage.speaker:
-            return {"success": False, "error": "Контролер колонки недоступний"}
+            return {
+                "success": False,
+                "status": "device_unavailable",
+                "error": "Контролер колонки недоступний",
+                "query": resolved_query,
+                "initial_query": initial_q
+            }
 
         if speaker_target in ("jx-bt", "jxbt", "floor1", "1 поверх"):
             self.garage.speaker.set_active_speaker("41:42:62:69:51:9B", "JX-BT (1-й поверх)")
         elif speaker_target in ("jbl", "garage", "гараж"):
             self.garage.speaker.set_active_speaker("F8:5C:7E:EE:7D:CC", "Юрій: JBL Clip 5")
 
-        q = query.strip()
-        if not q or q.lower() in ("пісню", "пісня", "музику", "музика", "музон", "трек", "song", "music", "якусь пісню", "просто пісню"):
-            q = "ADAM - Сильно Сильно"
+        raw_name = getattr(self.garage.speaker, "name", None)
+        spk_name = str(raw_name) if raw_name and not hasattr(raw_name, "_mock_return_value") else "Bluetooth-колонка"
+
+        # ЖОРСТКЕ ТАБУ НА РОСІЙСЬКУ МУЗИКУ ТА КОНТЕНТ
+        RUSSIAN_CHARS = set("ёъыэЁЪЫЭ")
+        if any(ch in RUSSIAN_CHARS for ch in resolved_query) or any(w in resolved_query.lower() for w in ("російськ", "русск", "по-русски", "російською")):
+            return {
+                "success": False,
+                "status": "blocked",
+                "is_blocked": True,
+                "error": "🚫 Російська музика та контент під суворим табу в цій системі. Будь ласка, обирайте українські треки.",
+                "speaker": spk_name,
+                "query": resolved_query,
+                "initial_query": initial_q
+            }
+
+        if hasattr(self.garage.speaker, "is_connected") and not self.garage.speaker.is_connected():
+            return {
+                "success": False,
+                "status": "device_unavailable",
+                "error": f"⚠️ Не вдалося відтворити на YouTube Music: колонка {spk_name} не підключена по Bluetooth або вимкнена.",
+                "speaker": spk_name,
+                "query": resolved_query,
+                "initial_query": initial_q
+            }
 
         # Stop projector video if active
         if hasattr(self.garage, "projector") and self.garage.projector:
@@ -535,14 +651,25 @@ class ToolDispatcher:
             except Exception:
                 pass
 
-        ok = self.garage.speaker.play_youtube(q)
-        spk_name = self.garage.speaker.name or "Bluetooth-колонці"
+        ok = self.garage.speaker.play_youtube(resolved_query)
         if ok:
-            return {"success": True, "message": f"🔊 Відтворюю на YouTube Music ({spk_name}): {q}"}
+            return {
+                "success": True,
+                "status": "playback_started",
+                "message": f"🔊 Відтворюю на YouTube Music ({spk_name}): {resolved_query}",
+                "speaker": spk_name,
+                "query": resolved_query,
+                "initial_query": initial_q
+            }
         else:
-            if not self.garage.speaker.is_connected():
-                return {"success": False, "error": f"⚠️ Не вдалося відтворити на YouTube Music: колонка {spk_name} не підключена по Bluetooth або вимкнена."}
-            return {"success": False, "error": f"Не вдалося запустити відтворення на YouTube Music ({spk_name}) для '{q}'"}
+            return {
+                "success": False,
+                "status": "ytmusic_error",
+                "error": f"Помилка YouTube Music: не вдалося запустити відтворення на {spk_name} для '{resolved_query}'.",
+                "speaker": spk_name,
+                "query": resolved_query,
+                "initial_query": initial_q
+            }
 
     def _play_user_playlist(self, playlist_name: str, speaker_target: str = "", shuffle: bool = False) -> Dict[str, Any]:
         if not hasattr(self.garage, "speaker") or not self.garage.speaker:

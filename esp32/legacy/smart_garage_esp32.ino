@@ -14,9 +14,9 @@
 #include <BLEScan.h>
 #include <BLEAdvertisedDevice.h>
 
-// --- Wi-Fi Credentials (4G Modem Network) ---
-const char* WIFI_SSID = "4G-UFI-BFC";
-const char* WIFI_PASSWORD = "09876543210";
+// --- Wi-Fi Credentials (Placeholders: configure locally or in credentials.h) ---
+const char* WIFI_SSID = "YOUR_WIFI_SSID";
+const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
 
 // --- Smart Garage Backend Server ---
 const char* SERVER_TELEMETRY_URL = "http://192.168.100.198:5000/api/esp32/telemetry";
@@ -175,21 +175,16 @@ void handleBleScan() {
 
 
 void triggerDoorPulse(const String& targetState) {
-  digitalWrite(PIN_RELAY_DOOR, HIGH);
-  delay(500);
-  digitalWrite(PIN_RELAY_DOOR, LOW);
-  doorState = targetState;
-  Serial.println("DOOR_EVENT:" + doorState);
+  // Gate drive uninstalled / disabled: do not pulse relay pin
+  Serial.println("WARN: Door relay disabled - drive not installed");
 }
 
 void handleDoorOpen() {
-  triggerDoorPulse("open");
-  server.send(200, "application/json", "{\"status\":\"ok\",\"door\":\"open\"}");
+  server.send(400, "application/json", "{\"status\":\"error\",\"error\":\"Door drive not installed\",\"door\":\"unknown\"}");
 }
 
 void handleDoorClose() {
-  triggerDoorPulse("closed");
-  server.send(200, "application/json", "{\"status\":\"ok\",\"door\":\"closed\"}");
+  server.send(400, "application/json", "{\"status\":\"error\",\"error\":\"Door drive not installed\",\"door\":\"unknown\"}");
 }
 
 void handleLightOn() {

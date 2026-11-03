@@ -125,11 +125,11 @@ class TestCommandProcessor(unittest.TestCase):
     def test_esp32_commands(self):
         handled, resp = self.processor.execute("door open")
         self.assertTrue(handled)
-        self.assertIn("OPEN", resp)
+        self.assertIn("вимкнено", resp.lower())
 
         handled, resp = self.processor.execute("відкрий ворота")
         self.assertTrue(handled)
-        self.assertIn("відкрито", resp.lower())
+        self.assertIn("вимкнено", resp.lower())
 
         handled, resp = self.processor.execute("light on")
         self.assertTrue(handled)
@@ -249,7 +249,7 @@ class TestCommandProcessor(unittest.TestCase):
         # Wake phrase with actual commands
         handled, resp = self.processor.execute("Альо гараж, відчини ворота")
         self.assertTrue(handled)
-        self.assertIn("відкрито", resp)
+        self.assertIn("вимкнено", resp)
 
         handled, resp = self.processor.execute("Альо гараж увімкни світло")
         self.assertTrue(handled)
@@ -437,6 +437,7 @@ class TestCommandRouter(unittest.TestCase):
 class TestWebApp(unittest.TestCase):
 
     def setUp(self):
+        app.config["TESTING"] = True
         self.client = app.test_client()
 
     def test_health_endpoint(self):
@@ -520,7 +521,9 @@ class TestWebApp(unittest.TestCase):
 
         res_door = self.client.post("/api/device/door/toggle")
         self.assertEqual(res_door.status_code, 200)
-        self.assertTrue(res_door.get_json()["success"])
+        self.assertFalse(res_door.get_json()["success"])
+        self.assertEqual(res_door.get_json()["door"], "unknown")
+        self.assertIn("error", res_door.get_json())
 
     def test_garage_state_endpoint(self):
         res = self.client.get("/api/garage/state")
@@ -607,9 +610,9 @@ class TestESP32Controller(unittest.TestCase):
         self.esp = ESP32Controller(host="127.0.0.1", port=9998)
 
     def test_door_actions(self):
-        self.assertEqual(self.esp.door_open(), "open")
-        self.assertEqual(self.esp.door_close(), "closed")
-        self.assertEqual(self.esp.door_toggle(), "open")
+        self.assertEqual(self.esp.door_open(), "unknown")
+        self.assertEqual(self.esp.door_close(), "unknown")
+        self.assertEqual(self.esp.door_toggle(), "unknown")
 
     def test_light_actions(self):
         self.assertTrue(self.esp.light_on())
@@ -641,19 +644,19 @@ class TestAutomationEngine(unittest.TestCase):
     def test_arrival_scenario(self):
         success, msg = self.engine.scenario_car_arrival()
         self.assertTrue(success)
-        self.assertEqual(self.esp.state["door"], "open")
+        self.assertEqual(self.esp.state["door"], "unknown")
         self.assertTrue(self.esp.state["light"])
 
     def test_night_scenario(self):
         success, msg = self.engine.scenario_night_mode()
         self.assertTrue(success)
-        self.assertEqual(self.esp.state["door"], "closed")
+        self.assertEqual(self.esp.state["door"], "unknown")
         self.assertFalse(self.esp.state["light"])
 
     def test_gas_alarm_scenario(self):
         success, msg = self.engine.scenario_gas_alarm()
-        self.assertTrue(success)
-        self.assertTrue(self.esp.state["fan"])
+        self.assertFalse(success)
+        self.assertIn("не встановлений", msg)
 
 
 class TestPresenceBLEMatching(unittest.TestCase):
@@ -914,12 +917,12 @@ class TestAITools(unittest.TestCase):
 
     def test_control_device_door(self):
         res = self.dispatcher.execute("control_device", {"device": "door", "action": "open"})
-        self.assertTrue(res["success"])
-        self.assertIn("відчиняються", res["message"])
+        self.assertFalse(res["success"])
+        self.assertIn("вимкнено", res["error"])
 
         res_close = self.dispatcher.execute("control_device", {"device": "door", "action": "close"})
-        self.assertTrue(res_close["success"])
-        self.assertIn("зачиняються", res_close["message"])
+        self.assertFalse(res_close["success"])
+        self.assertIn("вимкнено", res_close["error"])
 
     def test_control_device_light_and_fan(self):
         res_l = self.dispatcher.execute("control_device", {"device": "light", "action": "on"})
@@ -935,6 +938,10 @@ class TestAITools(unittest.TestCase):
         self.assertTrue(res["success"])
         self.assertIn("виконано", res["message"])
 
+        res_safety = self.dispatcher.execute("run_scenario", {"scenario": "safety"})
+        self.assertFalse(res_safety["success"])
+        self.assertIn("недоступний", res_safety["error"])
+
     def test_show_climate_chart_tool(self):
         from unittest.mock import MagicMock
         self.garage.telegram.send_climate_chart = MagicMock(return_value=True)
@@ -946,7 +953,7 @@ class TestAITools(unittest.TestCase):
     def test_unknown_tool(self):
         res = self.dispatcher.execute("non_existent_tool", {})
         self.assertFalse(res["success"])
-        self.assertIn("Невідомий інструмент", res["error"])
+        self.assertIn("заборонено", res["error"])
 
 
 class TestChartRenderer(unittest.TestCase):
@@ -1211,19 +1218,19 @@ class TestMQTTBridge(unittest.TestCase):
         asyncio.run(bridge.publish_discovery(MockClient()))
 
         # Check essential discovery topics
-        self.assertIn("homeassistant/cover/smartgarage/door/config", published)
-        self.assertIn("homeassistant/binary_sensor/smartgarage/door_contact/config", published)
+        self.assertIn("homeassistant/sensor/smartgarage/door_status/config", published)
+        self.assertNotIn("homeassistant/cover/smartgarage/door/config", published)
+        self.assertNotIn("homeassistant/sensor/smartgarage/gas_sensor/config", published)
         self.assertIn("homeassistant/switch/smartgarage/light/config", published)
         self.assertIn("homeassistant/switch/smartgarage/fan/config", published)
         self.assertIn("homeassistant/sensor/smartgarage/basement_temperature/config", published)
         self.assertIn("homeassistant/sensor/smartgarage/ai_status/config", published)
 
-        # Validate cover payload
-        cover_payload = json.loads(published["homeassistant/cover/smartgarage/door/config"]["payload"])
-        self.assertEqual(cover_payload["name"], "Ворота Гаража")
-        self.assertEqual(cover_payload["device_class"], "garage")
-        self.assertEqual(cover_payload["device"]["name"], "Smart Garage Antigravity")
-        self.assertTrue(published["homeassistant/cover/smartgarage/door/config"]["retain"])
+        # Validate read-only door sensor payload
+        door_payload = json.loads(published["homeassistant/sensor/smartgarage/door_status/config"]["payload"])
+        self.assertEqual(door_payload["name"], "Стан воріт (Read-Only)")
+        self.assertEqual(door_payload["device"]["name"], "Smart Garage Antigravity")
+        self.assertTrue(published["homeassistant/sensor/smartgarage/door_status/config"]["retain"])
 
     def test_message_handling(self):
         from server.services.mqtt_bridge import SmartGarageMQTTBridge
@@ -1607,6 +1614,507 @@ class TestYTMusicWebAPI(unittest.TestCase):
         res_seek = td.execute("seek_music_track", {"position": 60})
         self.assertTrue(res_seek.get("success"))
         garage_mock.speaker.seek.assert_called_with(60)
+
+
+class TestOwnerSecurityConstraints(unittest.TestCase):
+    """Rigorous regression tests for owner constraints:
+    1. Gas sensor not installed: no gas rules, gas_ppm is None, status is not_installed.
+    2. Door control disabled: read-only status is unknown, door toggle/open/close blocked.
+    3. Tool allowlist enforcement: arbitrary tools/code execution blocked.
+    """
+
+    def setUp(self):
+        from server.webapp import app, garage
+        self.app = app
+        self.app.testing = True
+        self.client = self.app.test_client()
+        self.garage = garage
+
+    def test_door_control_fully_blocked_on_api(self):
+        # 1. Door toggle endpoint
+        res = self.client.post("/api/device/door/toggle")
+        data = res.get_json()
+        self.assertFalse(data["success"])
+        self.assertEqual(data["door"], "unknown")
+        self.assertIn("вимкнено", data["error"])
+
+        # 2. Door open endpoint
+        res_open = self.client.post("/api/door/open")
+        data_open = res_open.get_json()
+        self.assertFalse(data_open["success"])
+        self.assertEqual(data_open["door"], "unknown")
+        self.assertIn("вимкнено", data_open["error"])
+
+        # 3. Door close endpoint
+        res_close = self.client.post("/api/door/close")
+        data_close = res_close.get_json()
+        self.assertFalse(data_close["success"])
+        self.assertEqual(data_close["door"], "unknown")
+        self.assertIn("вимкнено", data_close["error"])
+
+    def test_garage_state_door_and_gas_contract(self):
+        res = self.client.get("/api/garage/state")
+        data = res.get_json()
+        self.assertTrue(data["success"])
+        state = data["state"]
+        # Door constraints
+        self.assertEqual(state["door"], "unknown")
+        self.assertFalse(state["door_installed"])
+        self.assertEqual(state["door_status"], "unknown")
+        # Gas constraints
+        self.assertIsNone(state["gas_ppm"])
+        self.assertFalse(state["gas_installed"])
+        self.assertEqual(state["gas_status"], "not_installed")
+
+    def test_automation_scenarios_door_and_gas_constraints(self):
+        auto = self.garage.automation
+        esp = self.garage.esp32
+
+        # Car arrival does not open door
+        success, msg = auto.scenario_car_arrival()
+        self.assertTrue(success)
+        self.assertEqual(esp.state.get("door"), "unknown")
+        self.assertNotIn("Ворота відкрито", msg)
+
+        # Departure does not close door
+        success, msg = auto.scenario_departure()
+        self.assertTrue(success)
+        self.assertEqual(esp.state.get("door"), "unknown")
+        self.assertNotIn("Ворота закрито", msg)
+
+        # Gas alarm scenario is disabled
+        success, msg = auto.scenario_gas_alarm()
+        self.assertFalse(success)
+        self.assertIn("не встановлений", msg)
+
+    def test_strict_ai_tool_allowlist(self):
+        from server.ai.tools import ToolDispatcher
+        dispatcher = ToolDispatcher(self.garage)
+
+        # Arbitrary / malicious tool execution blocked
+        res_bad1 = dispatcher.execute("bash", {"command": "rm -rf /"})
+        self.assertFalse(res_bad1["success"])
+        self.assertIn("заборонено", res_bad1["error"])
+
+        res_bad2 = dispatcher.execute("eval_python", {"code": "import os; os.system('ls')"})
+        self.assertFalse(res_bad2["success"])
+        self.assertIn("заборонено", res_bad2["error"])
+
+        # Door device control blocked in AI tools
+        res_door = dispatcher.execute("control_device", {"device": "door", "action": "open"})
+        self.assertFalse(res_door["success"])
+        self.assertIn("вимкнено", res_door["error"])
+
+        # Safety gas scenario blocked in AI tools
+        res_safety = dispatcher.execute("run_scenario", {"scenario": "safety"})
+        self.assertFalse(res_safety["success"])
+        self.assertIn("недоступний", res_safety["error"])
+
+    def test_server_auth_enforcement_on_mutating_endpoints(self):
+        """Mutating endpoints must reject unauthenticated requests with 401 when auth is enforced."""
+        endpoints = [
+            ("/api/device/light/toggle", "post", None),
+            ("/api/device/fan/toggle", "post", None),
+            ("/api/scenarios/night", "post", None),
+            ("/api/media/delete", "post", {"filename": "test.mp4"}),
+            ("/api/speaker/volume", "post", {"value": 40}),
+            ("/command", "post", {"command": "тест"}),
+            ("/api/presence/scan", "post", None),
+            ("/api/radio/play", "post", {"url": "http://stream.example.com"}),
+            ("/api/ytmusic/next", "post", None),
+        ]
+        headers = {"X-Enforce-Auth": "true"}
+        for ep, method, body in endpoints:
+            if method == "post":
+                res = self.client.post(ep, json=body or {}, headers=headers)
+            elif method == "delete":
+                res = self.client.delete(ep, headers=headers)
+            self.assertEqual(res.status_code, 401, f"Endpoint {ep} did not return 401 without auth")
+            data = res.get_json()
+            self.assertFalse(data["success"])
+            self.assertIn("авторизація", data["error"])
+
+    def test_server_auth_with_valid_api_pin(self):
+        """Valid PIN via header (X-Admin-PIN or Bearer) allows execution."""
+        headers_pin = {"X-Enforce-Auth": "true", "X-Admin-PIN": "7777"}
+        res = self.client.post("/api/device/light/toggle", headers=headers_pin)
+        self.assertEqual(res.status_code, 200)
+        self.assertTrue(res.get_json()["success"])
+
+        headers_bearer = {"X-Enforce-Auth": "true", "Authorization": "Bearer 7777"}
+        res2 = self.client.post("/api/speaker/volume", json={"value": 35}, headers=headers_bearer)
+        self.assertEqual(res2.status_code, 200)
+        self.assertTrue(res2.get_json()["success"])
+
+    def test_csrf_protection_with_session(self):
+        """Session-authenticated requests must require a valid CSRF token."""
+        with self.client.session_transaction() as sess:
+            sess["authenticated"] = True
+            sess["login_time"] = time.time()
+            sess["csrf_token"] = "valid_csrf_token_12345"
+
+        headers_enforce = {"X-Enforce-Auth": "true"}
+        # 1. Missing CSRF token -> 403 Forbidden
+        res_no_csrf = self.client.post("/api/device/light/toggle", headers=headers_enforce)
+        self.assertEqual(res_no_csrf.status_code, 403)
+        self.assertIn("CSRF", res_no_csrf.get_json()["error"])
+
+        # 2. Invalid CSRF token -> 403 Forbidden
+        headers_bad_csrf = {"X-Enforce-Auth": "true", "X-CSRF-Token": "bad_token"}
+        res_bad_csrf = self.client.post("/api/device/light/toggle", headers=headers_bad_csrf)
+        self.assertEqual(res_bad_csrf.status_code, 403)
+
+        # 3. Valid CSRF token -> 200 OK
+        headers_good_csrf = {"X-Enforce-Auth": "true", "X-CSRF-Token": "valid_csrf_token_12345"}
+        res_good_csrf = self.client.post("/api/device/light/toggle", headers=headers_good_csrf)
+        self.assertEqual(res_good_csrf.status_code, 200)
+        self.assertTrue(res_good_csrf.get_json()["success"])
+
+    def test_login_rate_limiting(self):
+        """Rate limiter blocks brute-force login after 5 failed attempts."""
+        from server.security import rate_limiter
+        rate_limiter.reset("127.0.0.1")
+
+        for i in range(5):
+            res = self.client.post("/api/admin/verify", json={"pin": "wrong_pin"})
+            self.assertEqual(res.status_code, 401)
+            self.assertFalse(res.get_json()["authenticated"])
+
+        # 6th attempt must be rate-limited (HTTP 429)
+        res_blocked = self.client.post("/api/admin/verify", json={"pin": "wrong_pin"})
+        self.assertEqual(res_blocked.status_code, 429)
+        self.assertIn("Забагато невдалих спроб", res_blocked.get_json()["error"])
+
+        rate_limiter.reset("127.0.0.1")
+
+    def test_audit_logging_and_secret_redaction(self):
+        """Audit logging must record actions without leaking secrets."""
+        from server.security.audit import sanitize_details, audit_log
+        raw = {
+            "password": "super_secret_password",
+            "pin": "7777",
+            "token": "secret_token_abc",
+            "api_key": "sk-123456",
+            "normal_field": "visible_value"
+        }
+        sanitized = sanitize_details(raw)
+        self.assertEqual(sanitized["password"], "[REDACTED]")
+        self.assertEqual(sanitized["pin"], "[REDACTED]")
+        self.assertEqual(sanitized["token"], "[REDACTED]")
+        self.assertEqual(sanitized["api_key"], "[REDACTED]")
+        self.assertEqual(sanitized["normal_field"], "visible_value")
+
+    def test_open_interpreter_disabled_by_default(self):
+        """OpenInterpreter must not be enabled by default in production."""
+        from server.ai.manager import ENABLE_OPEN_INTERPRETER, AIManager
+        self.assertFalse(ENABLE_OPEN_INTERPRETER)
+        ai = AIManager()
+        res = ai.chat("test command without openrouter", context_info="")
+        # Must not run arbitrary code or throw OpenInterpreter errors
+        self.assertIsInstance(res, str)
+        self.assertTrue(len(res) > 0)
+
+
+class TestSensorFreshnessAndTelemetryTruth(unittest.TestCase):
+    """Rigorous regression tests for Stage 2: Sensors & Telemetry Freshness/Authenticity:
+    1. New measurement online
+    2. Sensor goes offline (connection lost)
+    3. Cache older than threshold (> 1200s)
+    4. SQLite fallback contains only old historical value
+    5. Sensor not configured / not installed
+    6. Conflicting timestamps between ESP32 bridge & direct host BLE
+    7. gas_ppm = None safety (no TypeError, safe status)
+    8. Missing primary sensor when all sensors offline
+    """
+
+    def setUp(self):
+        from server.webapp import app, garage
+        from server.sensors.freshness import (
+            SENSOR_FRESHNESS_THRESHOLD_SECONDS,
+            STATUS_ONLINE,
+            STATUS_STALE,
+            STATUS_OFFLINE,
+            STATUS_NOT_INSTALLED,
+            STATUS_NEVER_SEEN,
+            SOURCE_BLE_DIRECT,
+            SOURCE_ESP32_BRIDGE,
+            SOURCE_SQLITE_HISTORY,
+            SOURCE_CACHE,
+            SOURCE_NONE,
+            build_sensor_payload,
+            merge_sensor_readings,
+            format_iso_timestamp,
+            format_relative_time_ua
+        )
+        self.app = app
+        self.app.testing = True
+        self.client = self.app.test_client()
+        self.garage = garage
+        self.build_sensor_payload = build_sensor_payload
+        self.merge_sensor_readings = merge_sensor_readings
+        self.threshold = SENSOR_FRESHNESS_THRESHOLD_SECONDS
+
+    def test_1_new_measurement_online(self):
+        """Fresh online measurement must have status='online', current_temperature matching, and ISO-8601 timestamp."""
+        now = time.time()
+        payload = self.build_sensor_payload(
+            floor="floor2",
+            name="2-й поверх",
+            installed=True,
+            mac="A4:C1:38:00:11:22",
+            temperature=21.5,
+            humidity=55.0,
+            battery=88,
+            last_updated=now - 20,
+            is_online_reported=True,
+            source="ble_direct"
+        )
+        self.assertEqual(payload["status"], "online")
+        self.assertTrue(payload["online"])
+        self.assertFalse(payload["is_stale"])
+        self.assertEqual(payload["current_temperature"], 21.5)
+        self.assertEqual(payload["current_humidity"], 55.0)
+        self.assertEqual(payload["last_known_temperature"], 21.5)
+        self.assertEqual(payload["last_known_humidity"], 55.0)
+        self.assertEqual(payload["battery"], 88)
+        self.assertEqual(payload["source"], "ble_direct")
+        self.assertEqual(payload["status_text"], "Актуально")
+        self.assertIsNotNone(payload["last_successful_iso"])
+        self.assertIn("T", payload["last_successful_iso"])
+
+    def test_2_sensor_goes_offline(self):
+        """When sensor connection fails, current_temperature must be None, online=False, and last_known_temperature preserved."""
+        now = time.time()
+        payload = self.build_sensor_payload(
+            floor="basement",
+            name="Підвал",
+            installed=True,
+            mac="A4:C1:38:00:33:44",
+            temperature=18.2,
+            humidity=62.0,
+            battery=75,
+            last_updated=now - 300,
+            is_online_reported=False,
+            source="ble_direct"
+        )
+        self.assertEqual(payload["status"], "offline")
+        self.assertFalse(payload["online"])
+        self.assertFalse(payload["is_stale"])
+        # CRITICAL: Old temperature must never be reported as current!
+        self.assertIsNone(payload["current_temperature"])
+        self.assertIsNone(payload["current_humidity"])
+        self.assertEqual(payload["last_known_temperature"], 18.2)
+        self.assertEqual(payload["last_known_humidity"], 62.0)
+        self.assertTrue(payload["status_text"].startswith("Офлайн — останній вимір"))
+
+    def test_3_cache_older_than_threshold(self):
+        """When cached data age exceeds threshold (1200s), status must be 'stale' and current_temperature None."""
+        now = time.time()
+        payload = self.build_sensor_payload(
+            floor="floor2",
+            name="2-й поверх",
+            installed=True,
+            mac="A4:C1:38:00:11:22",
+            temperature=20.0,
+            humidity=50.0,
+            battery=80,
+            last_updated=now - 1500,  # 25 minutes ago (> 20 min threshold)
+            is_online_reported=True,
+            source="cache"
+        )
+        self.assertEqual(payload["status"], "stale")
+        self.assertFalse(payload["online"])
+        self.assertTrue(payload["is_stale"])
+        self.assertIsNone(payload["current_temperature"])
+        self.assertEqual(payload["last_known_temperature"], 20.0)
+        self.assertTrue(payload["status_text"].startswith("Дані застаріли"))
+
+    def test_4_sqlite_fallback_only_old_value(self):
+        """When reading from SQLite fallback history, source is 'sqlite_history' and stale value is never current."""
+        now = time.time()
+        payload = self.build_sensor_payload(
+            floor="basement",
+            name="Підвал",
+            installed=True,
+            mac="A4:C1:38:00:33:44",
+            temperature=17.5,
+            humidity=65.0,
+            battery=None,
+            last_updated=now - 7200,  # 2 hours old
+            is_online_reported=False,
+            source="sqlite_history"
+        )
+        self.assertEqual(payload["status"], "stale")
+        self.assertFalse(payload["online"])
+        self.assertTrue(payload["is_stale"])
+        self.assertIsNone(payload["current_temperature"])
+        self.assertEqual(payload["last_known_temperature"], 17.5)
+        self.assertEqual(payload["source"], "sqlite_history")
+        self.assertEqual(payload["source_name"], "Історія SQLite")
+
+    def test_5_sensor_not_configured(self):
+        """Unconfigured sensor (Floor 1 Garage) must report not_installed with current_temperature=None."""
+        payload = self.build_sensor_payload(
+            floor="floor1",
+            name="1-й поверх (Гараж)",
+            installed=False,
+            mac=None,
+            temperature=None,
+            humidity=None,
+            battery=None,
+            last_updated=None,
+            is_online_reported=False,
+            source="none"
+        )
+        self.assertEqual(payload["status"], "not_installed")
+        self.assertFalse(payload["installed"])
+        self.assertFalse(payload["online"])
+        self.assertFalse(payload["is_stale"])
+        self.assertIsNone(payload["current_temperature"])
+        self.assertIsNone(payload["last_known_temperature"])
+        self.assertEqual(payload["status_text"], "Датчик не встановлено")
+
+    def test_6_conflicting_timestamps_ble_and_esp32_merging(self):
+        """Merging BLE direct and ESP32 bridge measurements must prevent older or offline polls from overwriting fresh data."""
+        now = time.time()
+        # Case A: BLE direct is fresh (60s ago), ESP32 poll is older (600s ago)
+        ble_fresh = self.build_sensor_payload(
+            floor="floor2",
+            name="2-й поверх",
+            installed=True,
+            mac="A4:C1:38:00:11:22",
+            temperature=22.0,
+            humidity=55.0,
+            battery=90,
+            last_updated=now - 60,
+            is_online_reported=True,
+            source="ble_direct"
+        )
+        esp32_older = self.build_sensor_payload(
+            floor="floor2",
+            name="2-й поверх",
+            installed=True,
+            mac="A4:C1:38:00:11:22",
+            temperature=20.5,
+            humidity=50.0,
+            battery=89,
+            last_updated=now - 600,
+            is_online_reported=False,
+            source="esp32_bridge"
+        )
+        merged_a = self.merge_sensor_readings(ble_fresh, esp32_older)
+        self.assertEqual(merged_a["status"], "online")
+        self.assertEqual(merged_a["current_temperature"], 22.0)
+        self.assertEqual(merged_a["source"], "ble_direct")
+
+        # Reverse order argument test: offline/older first must still yield the fresh online one
+        merged_a_rev = self.merge_sensor_readings(esp32_older, ble_fresh)
+        self.assertEqual(merged_a_rev["status"], "online")
+        self.assertEqual(merged_a_rev["current_temperature"], 22.0)
+
+        # Case B: Direct BLE connection lost (800s ago), ESP32 bridge fresh (20s ago)
+        ble_offline = self.build_sensor_payload(
+            floor="basement",
+            name="Підвал",
+            installed=True,
+            mac="A4:C1:38:00:33:44",
+            temperature=18.0,
+            humidity=60.0,
+            battery=70,
+            last_updated=now - 800,
+            is_online_reported=False,
+            source="ble_direct"
+        )
+        esp32_fresh = self.build_sensor_payload(
+            floor="basement",
+            name="Підвал",
+            installed=True,
+            mac="A4:C1:38:00:33:44",
+            temperature=18.4,
+            humidity=61.0,
+            battery=72,
+            last_updated=now - 20,
+            is_online_reported=True,
+            source="esp32_bridge"
+        )
+        merged_b = self.merge_sensor_readings(ble_offline, esp32_fresh)
+        self.assertEqual(merged_b["status"], "online")
+        self.assertEqual(merged_b["current_temperature"], 18.4)
+        self.assertEqual(merged_b["source"], "esp32_bridge")
+
+    def test_7_gas_ppm_none_safety(self):
+        """gas_ppm=None must not cause TypeError in telemetry evaluation, state serialization, or scenario execution."""
+        auto = self.garage.automation
+        # 1. Telemetry evaluation with None gas_ppm
+        try:
+            auto.evaluate_telemetry({"gas_ppm": None, "car_present": False, "motion_detected": False})
+        except TypeError as e:
+            self.fail(f"evaluate_telemetry raised TypeError on gas_ppm=None: {e}")
+
+        # 2. API state check
+        res = self.client.get("/api/garage/state")
+        self.assertEqual(res.status_code, 200)
+        data = res.get_json()
+        self.assertIsNone(data["state"]["gas_ppm"])
+        self.assertFalse(data["state"]["gas_installed"])
+        self.assertEqual(data["state"]["gas_status"], "not_installed")
+
+        # 3. Emergency gas scenario returns disabled/unavailable without crash
+        ok, msg = auto.scenario_gas_alarm()
+        self.assertFalse(ok)
+        self.assertIn("не встановлений", msg)
+
+    def test_8_missing_primary_sensor_when_all_offline(self):
+        """When all climate sensors are offline or stale, state['temperature'] and state['current_temperature'] must be None."""
+        now = time.time()
+        mock_bt_telemetry = {
+            "installed": True,
+            "online": False,
+            "primary_current_temperature": None,
+            "primary_last_known_temperature": 19.5,
+            "temperature": None,
+            "floors": {
+                "floor1": self.build_sensor_payload(floor="floor1", name="1-й поверх (Гараж)", installed=False, mac=None),
+                "floor2": self.build_sensor_payload(floor="floor2", name="2-й поверх", installed=True, mac="A4:C1:38:00:11:22", temperature=19.5, last_updated=now - 3600, is_online_reported=False, source="sqlite_history"),
+                "basement": self.build_sensor_payload(floor="basement", name="Підвал", installed=True, mac="A4:C1:38:00:33:44", temperature=16.0, last_updated=now - 5000, is_online_reported=False, source="sqlite_history")
+            }
+        }
+        mock_esp_telemetry = {
+            "online": False,
+            "floors": {
+                "floor1": self.build_sensor_payload(floor="floor1", name="1-й поверх (Гараж)", installed=False, mac=None),
+                "floor2": self.build_sensor_payload(floor="floor2", name="2-й поверх", installed=True, mac="A4:C1:38:00:11:22", temperature=19.5, last_updated=now - 3600, is_online_reported=False, source="esp32_bridge"),
+                "basement": self.build_sensor_payload(floor="basement", name="Підвал", installed=True, mac="A4:C1:38:00:33:44", temperature=16.0, last_updated=now - 5000, is_online_reported=False, source="esp32_bridge")
+            }
+        }
+        with patch.object(self.garage.bt_sensors, "get_telemetry", return_value=mock_bt_telemetry), \
+             patch.object(self.garage.esp32, "get_telemetry", return_value=mock_esp_telemetry):
+            res = self.client.get("/api/garage/state")
+            self.assertEqual(res.status_code, 200)
+            st = res.get_json()["state"]
+
+            # Current temperature must be None because no sensor is online
+            self.assertIsNone(st["current_temperature"])
+            self.assertIsNone(st["temperature"])
+            # Historical last known temperature is preserved
+            self.assertEqual(st["last_known_temperature"], 19.5)
+            # Floors detail verification
+            self.assertIsNone(st["floors"]["floor2"]["current_temperature"])
+            self.assertEqual(st["floors"]["floor2"]["last_known_temperature"], 19.5)
+            self.assertEqual(st["floors"]["floor2"]["status"], "stale")
+            self.assertIsNone(st["floors"]["basement"]["current_temperature"])
+            self.assertEqual(st["floors"]["basement"]["last_known_temperature"], 16.0)
+            self.assertEqual(st["floors"]["basement"]["status"], "stale")
+            self.assertEqual(st["floors"]["floor1"]["status"], "not_installed")
+            self.assertEqual(st["last_known_temperature"], 19.5)
+            # Floors detail verification
+            self.assertIsNone(st["floors"]["floor2"]["current_temperature"])
+            self.assertEqual(st["floors"]["floor2"]["last_known_temperature"], 19.5)
+            self.assertEqual(st["floors"]["floor2"]["status"], "stale")
+            self.assertIsNone(st["floors"]["basement"]["current_temperature"])
+            self.assertEqual(st["floors"]["basement"]["last_known_temperature"], 16.0)
+            self.assertEqual(st["floors"]["basement"]["status"], "stale")
+            self.assertEqual(st["floors"]["floor1"]["status"], "not_installed")
 
 
 if __name__ == "__main__":

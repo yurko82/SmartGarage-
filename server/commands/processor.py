@@ -19,6 +19,7 @@ class CommandProcessor:
         self.presence = presence
         self.automation = automation if automation is not None else AutomationEngine(self.esp32, self.projector, self.memory, self.logger)
         self.telemetry_db = telemetry_db
+        self.last_media_queries: dict = {}
     def _get_floors(self) -> dict:
         floors = {}
         if self.bt_sensors:
@@ -56,7 +57,7 @@ class CommandProcessor:
             return "на колонці JBL Clip 5" if locative else "колонка JBL Clip 5"
         return f"на {name}" if locative and name else (name or "колонці")
 
-    def execute(self, command):
+    def execute(self, command, session_id: str = "default"):
 
         command = command.strip()
 
@@ -107,7 +108,7 @@ class CommandProcessor:
             sub_candidate = command[wake_prefix_match.end():].strip()
             if not sub_candidate:
                 return True, "Що тобі потрібно?"
-            sub_handled, sub_resp = self.execute(sub_candidate)
+            sub_handled, sub_resp = self.execute(sub_candidate, session_id=session_id)
             if sub_handled:
                 return True, sub_resp
             return False, None
@@ -118,7 +119,7 @@ class CommandProcessor:
             sub_commands = [c.strip() for c in re.split(r"[,;]", command) if c.strip()]
             if len(sub_commands) > 1:
                 for sub in reversed(sub_commands):
-                    sub_handled, sub_resp = self.execute(sub)
+                    sub_handled, sub_resp = self.execute(sub, session_id=session_id)
                     if sub_handled:
                         return True, sub_resp
 
@@ -757,7 +758,7 @@ class CommandProcessor:
             }
 
             if not query or not cleaned_lower or cleaned_lower in GENERIC_MEDIA_REQUESTS:
-                last_q = getattr(self, "last_media_query", None)
+                last_q = (getattr(self, "last_media_queries", {}).get(session_id) or getattr(self, "last_media_query", None))
                 if last_q and last_q.lower().strip() not in GENERIC_MEDIA_REQUESTS and not any(last_q.lower().startswith(p) for p in ("просто ", "включи ", "увімкни ")):
                     query = last_q
                 else:
@@ -766,12 +767,15 @@ class CommandProcessor:
                 "цю пісню", "цей кліп", "цю музику", "цей трек", "ту саму пісню", "цю ж пісню",
                 "це ж саме", "цю", "цей", "це", "ту саму", "той самий", "this song", "this", "this track"
             ):
-                last_q = getattr(self, "last_media_query", None)
+                last_q = (getattr(self, "last_media_queries", {}).get(session_id) or getattr(self, "last_media_query", None))
                 query = last_q if (last_q and last_q.lower() not in GENERIC_MEDIA_REQUESTS) else DEFAULT_UKRAINIAN_HITS[0]
             elif cleaned_lower:
                 query = query.strip(" \"'.,:;-")
 
             self.last_media_query = query
+            if not hasattr(self, "last_media_queries"):
+                self.last_media_queries = {}
+            self.last_media_queries[session_id] = query
 
             spk_name = self.speaker.name or "аудіосистемі"
             spk_loc = self._format_speaker_location(locative=True)
@@ -953,24 +957,21 @@ class CommandProcessor:
             "ворота відкрити", "відкрий ворота", "відчини ворота", "відчинити ворота",
             "відкрий двері", "відчини двері", "відкрий гараж", "відчини гараж"
         ):
-            state = self.esp32.door_open()
-            return True, f"Ворота гаража відкрито (СТАН: {state.upper()})."
+            return True, "Керування воротами вимкнено: привід воріт не планується / не встановлений."
 
         if cmd in (
             "door close", "close door", "close gate", "close the door", "close the gate",
             "ворота закрити", "закрий ворота", "зачини ворота", "зачинити ворота",
             "закрий двері", "зачини двері", "закрий гараж", "зачини гараж"
         ):
-            state = self.esp32.door_close()
-            return True, f"Ворота гаража закрито (СТАН: {state.upper()})."
+            return True, "Керування воротами вимкнено: привід воріт не планується / не встановлений."
 
         if cmd in ("door toggle", "toggle door", "ворота перемкнути", "перемкни ворота"):
-            state = self.esp32.door_toggle()
-            return True, f"Положення воріт змінено: {state.upper()}."
+            return True, "Керування воротами вимкнено: привід воріт не планується / не встановлений."
 
         if cmd in ("door status", "стан воріт", "чи закриті ворота", "чи відкриті ворота"):
             tel = self.esp32.get_telemetry()
-            return True, f"Статус воріт: {tel['door'].upper()}"
+            return True, f"Статус воріт: {tel.get('door', 'unknown').upper()} (привід не встановлений)"
 
         if cmd in (
             "light on", "turn on light", "turn on lights", "lights on",

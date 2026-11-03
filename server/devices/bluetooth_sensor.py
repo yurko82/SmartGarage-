@@ -13,6 +13,23 @@ except ImportError:
     BLEAK_AVAILABLE = False
 
 from server.storage.telemetry_db import TelemetryDB
+from server.sensors.freshness import (
+    SENSOR_FRESHNESS_THRESHOLD_SECONDS,
+    SENSOR_POLL_INTERVAL_SECONDS,
+    STATUS_ONLINE,
+    STATUS_STALE,
+    STATUS_OFFLINE,
+    STATUS_NOT_INSTALLED,
+    STATUS_NEVER_SEEN,
+    SOURCE_BLE_DIRECT,
+    SOURCE_ESP32_BRIDGE,
+    SOURCE_SQLITE_HISTORY,
+    SOURCE_CACHE,
+    SOURCE_NONE,
+    build_sensor_payload,
+    format_iso_timestamp,
+    format_relative_time_ua
+)
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +95,7 @@ class BluetoothSensorManager:
                             "rssi": None,
                             "online": False,
                             "last_updated": None,
+                            "source": SOURCE_NONE,
                             "type": info.get("type", "temperature_sensor")
                         }
                     else:
@@ -112,8 +130,9 @@ class BluetoothSensorManager:
                     mac_u = mac.upper().strip()
                     if mac_u in self.sensors:
                         last = vals.get("last_updated")
-                        is_fresh = bool(last and (time.time() - last < 900) and vals.get("online"))
+                        is_fresh = bool(last and (time.time() - last < SENSOR_FRESHNESS_THRESHOLD_SECONDS) and vals.get("online"))
                         self.sensors[mac_u]["online"] = is_fresh
+                        self.sensors[mac_u]["source"] = SOURCE_CACHE
                         # Always preserve last known physical measurements from cache
                         for k in ("temperature", "humidity", "battery", "last_updated"):
                             v = vals.get(k)
@@ -131,10 +150,14 @@ class BluetoothSensorManager:
                         f_key = s.get("floor")
                         if f_key in latest_floors and s.get("temperature") is None:
                             db_rec = latest_floors[f_key]
+                            last_ts = db_rec.get("timestamp")
+                            is_db_fresh = bool(last_ts and (time.time() - last_ts < SENSOR_FRESHNESS_THRESHOLD_SECONDS))
                             s["temperature"] = db_rec.get("temperature")
                             s["humidity"] = db_rec.get("humidity")
                             s["battery"] = db_rec.get("battery")
-                            s["last_updated"] = db_rec.get("timestamp")
+                            s["last_updated"] = last_ts
+                            s["online"] = is_db_fresh
+                            s["source"] = SOURCE_SQLITE_HISTORY
             except Exception as e:
                 logger.error(f"Error falling back to telemetry DB in sensor manager: {e}")
 
@@ -326,11 +349,12 @@ class BluetoothSensorManager:
                     updated = True
                 if temp_found is not None or battery_found is not None:
                     s["online"] = True
+                    s["source"] = SOURCE_BLE_DIRECT
                     s["last_updated"] = time.time()
                     logger.info(f"Updated BLE sensor {mac}: Temp={s['temperature']}°C, Hum={s['humidity']}%, Bat={s['battery']}%")
                 else:
                     last = s.get("last_updated")
-                    if not last or (time.time() - last > 900):
+                    if not last or (time.time() - last > SENSOR_FRESHNESS_THRESHOLD_SECONDS):
                         s["online"] = False
 
         if updated:
@@ -352,17 +376,12 @@ class BluetoothSensorManager:
 
     def get_telemetry(self) -> Dict[str, Any]:
         """Return thread-safe snapshot of all sensor data, primary values, and floor climate."""
+        now = time.time()
         with self._lock:
             device_list = list(self.sensors.values())
-            primary = None
 
-            # Floor dictionary
-            floors = {
-                "floor1": {"name": "1-й поверх", "floor": "floor1", "temperature": None, "humidity": None, "battery": None, "online": False, "mac": None},
-                "floor2": {"name": "2-й поверх", "floor": "floor2", "temperature": None, "humidity": None, "battery": None, "online": False, "mac": None},
-                "basement": {"name": "Підвал", "floor": "basement", "temperature": None, "humidity": None, "battery": None, "online": False, "mac": None}
-            }
-
+            # Map configured devices by floor
+            floor_sensor_map: Dict[str, Dict[str, Any]] = {}
             for s in device_list:
                 if s.get("type") == "speaker":
                     continue
@@ -375,47 +394,88 @@ class BluetoothSensorManager:
                         f_key = "floor1"
                     elif "2" in alias_lower or "друг" in alias_lower:
                         f_key = "floor2"
+                if f_key:
+                    floor_sensor_map[f_key] = s
 
-                if f_key in floors:
-                    is_online = bool(s.get("online", False))
-                    last_u = s.get("last_updated")
-                    if last_u and (time.time() - last_u > 900):
-                        is_online = False
-                    floors[f_key] = {
-                        "name": s.get("alias") or floors[f_key]["name"],
-                        "floor": f_key,
-                        "temperature": s.get("temperature"),
-                        "humidity": s.get("humidity"),
-                        "battery": s.get("battery"),
-                        "online": is_online,
-                        "mac": s.get("mac"),
-                        "last_updated": last_u
-                    }
+            # Build standardized floor payloads conforming to freshness and truth contract
+            floors = {}
+            default_floor_names = {
+                "floor1": "1-й поверх (Гараж)",
+                "floor2": "2-й поверх",
+                "basement": "Підвал"
+            }
 
-            # Primary sensor resolution
-            if self.primary_mac and self.primary_mac in self.sensors:
-                primary = self.sensors[self.primary_mac]
-            elif floors["floor1"]["temperature"] is not None:
-                primary = floors["floor1"]
-            elif floors["floor2"]["temperature"] is not None:
-                primary = floors["floor2"]
-            elif device_list:
-                for s in device_list:
-                    if s.get("temperature") is not None:
-                        primary = s
-                        break
-                if not primary and device_list:
-                    primary = device_list[0]
+            for f_key in ("floor1", "floor2", "basement"):
+                s = floor_sensor_map.get(f_key)
+                if s and s.get("mac"):
+                    floors[f_key] = build_sensor_payload(
+                        floor=f_key,
+                        name=s.get("alias") or s.get("name") or default_floor_names[f_key],
+                        mac=s.get("mac"),
+                        temperature=s.get("temperature"),
+                        humidity=s.get("humidity"),
+                        battery=s.get("battery"),
+                        last_updated=s.get("last_updated"),
+                        is_online_reported=bool(s.get("online", False)),
+                        source=s.get("source") or SOURCE_BLE_DIRECT,
+                        installed=True,
+                        now=now
+                    )
+                else:
+                    floors[f_key] = build_sensor_payload(
+                        floor=f_key,
+                        name=default_floor_names[f_key],
+                        mac=None,
+                        temperature=None,
+                        humidity=None,
+                        battery=None,
+                        last_updated=None,
+                        is_online_reported=False,
+                        source=SOURCE_NONE,
+                        installed=False,
+                        now=now
+                    )
+
+            # Primary sensor resolution:
+            # 1. Prefer online & fresh sensor with temperature
+            # 2. If none is online, fallback to sensor with freshest last_updated
+            primary_floor = None
+            for fk in ("basement", "floor2", "floor1"):
+                if floors[fk]["online"] and floors[fk]["current_temperature"] is not None:
+                    primary_floor = floors[fk]
+                    break
+
+            if not primary_floor:
+                candidates = [f for f in floors.values() if f.get("last_known_temperature") is not None]
+                if candidates:
+                    candidates.sort(key=lambda x: x.get("last_updated") or 0, reverse=True)
+                    primary_floor = candidates[0]
+
+            primary_temp = primary_floor["current_temperature"] if primary_floor else None
+            primary_last_known = primary_floor["last_known_temperature"] if primary_floor else None
+            primary_hum = primary_floor["current_humidity"] if primary_floor else None
+            primary_name = primary_floor["name"] if primary_floor else "1-й поверх"
+            primary_online = primary_floor["online"] if primary_floor else False
+            primary_status = primary_floor["status"] if primary_floor else STATUS_NOT_INSTALLED
+            primary_source = primary_floor["source"] if primary_floor else SOURCE_NONE
+            primary_lu = primary_floor.get("last_updated") if primary_floor else None
+            primary_lu_iso = primary_floor.get("last_updated_iso") if primary_floor else None
 
             return {
                 "devices": [dict(d) for d in device_list],
                 "floors": floors,
-                "primary_mac": self.primary_mac,
-                "primary_temperature": primary.get("temperature") if primary else None,
-                "primary_humidity": primary.get("humidity") if primary else None,
-                "primary_battery": primary.get("battery") if primary else None,
-                "primary_name": (primary.get("alias") or primary.get("name")) if primary else "1-й поверх",
-                "primary_online": primary.get("online", False) if primary else False,
+                "primary_mac": primary_floor.get("mac") if primary_floor else self.primary_mac,
+                "primary_temperature": primary_temp,  # None if offline/stale
+                "primary_current_temperature": primary_temp,
+                "primary_last_known_temperature": primary_last_known,
+                "primary_humidity": primary_hum,
+                "primary_battery": primary_floor.get("battery") if primary_floor else None,
+                "primary_name": primary_name,
+                "primary_online": primary_online,
+                "primary_status": primary_status,
+                "primary_source": primary_source,
+                "primary_last_updated": primary_lu,
+                "primary_last_updated_iso": primary_lu_iso
             }
 
     def bind_sensor(self, floor_key: str, new_mac: str, alias: Optional[str] = None) -> bool:

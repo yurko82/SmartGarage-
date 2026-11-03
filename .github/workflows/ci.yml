@@ -1,0 +1,73 @@
+name: CI Test & Build Pipeline
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  python-tests:
+    name: Python Unit Tests & Syntax Verification
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Клонування репозиторію
+        uses: actions/checkout@v4
+
+      - name: Налаштування Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Встановлення тестових залежностей
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Перевірка синтаксису (Compileall)
+        run: |
+          python -m compileall server tests scripts
+
+      - name: Запуск модульних тестів (Pytest)
+        run: |
+          PYTHONPATH=. pytest -v tests/
+        env:
+          OPENROUTER_API_KEY: ""
+          HEYGEN_API_KEY: ""
+          ELEVENLABS_API_KEY: ""
+          TESTING: "true"
+
+  platformio-compile:
+    name: PlatformIO Firmware Compile (ESP32-S3)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Клонування репозиторію
+        uses: actions/checkout@v4
+
+      - name: Налаштування Python для PlatformIO
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Встановлення PlatformIO CLI
+        run: |
+          python -m pip install --upgrade pip
+          pip install platformio
+
+      - name: Кешування ядра та бібліотек PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            esp32/.pio
+          key: ${{ runner.os }}-pio-${{ hashFiles('esp32/platformio.ini') }}
+          restore-keys: |
+            ${{ runner.os }}-pio-
+
+      - name: Збірка прошивки ESP32-S3 (Джерело істини: esp32/src/main.cpp)
+        run: |
+          pio run -d esp32

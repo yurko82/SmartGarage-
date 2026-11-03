@@ -8,6 +8,12 @@ import uuid
 from collections import deque
 from typing import Optional, Dict, Any, List
 from server.config import config
+from server.sensors.freshness import (
+    SENSOR_FRESHNESS_THRESHOLD_SECONDS,
+    SOURCE_ESP32_BRIDGE,
+    format_iso_timestamp,
+    format_relative_time_ua
+)
 
 try:
     import serial
@@ -95,7 +101,9 @@ class ESP32Controller:
         # Стан пристрою
         self.state: Dict[str, Any] = {
             "online": False,
-            "door": "closed",
+            "door": "unknown",
+            "door_installed": False,
+            "door_status": "unknown",
             "light": False,
             "fan": False,
             "temperature": None,
@@ -103,7 +111,9 @@ class ESP32Controller:
             "car_present": False,
             "distance_cm": 240,
             "motion_detected": False,
-            "gas_ppm": 35,
+            "gas_ppm": None,
+            "gas_installed": False,
+            "gas_status": "not_installed",
             "transport": "none",
             "last_seen": None,
             "wifi_ip": self.host,
@@ -157,7 +167,7 @@ class ESP32Controller:
             broker_host = mqtt_cfg.get("broker_host", "127.0.0.1")
             broker_port = int(mqtt_cfg.get("broker_port", 1883))
             username = mqtt_cfg.get("username", "smartgarage")
-            password = mqtt_cfg.get("password", "smartgarage_secret")
+            password = os.getenv("MQTT_PASSWORD") or mqtt_cfg.get("password")
             topic_prefix = mqtt_cfg.get("topic_prefix", "smartgarage")
 
             client = paho_mqtt.Client(client_id=f"SmartGarage-ESP32Mon-{str(uuid.uuid4())[:6]}")
@@ -523,45 +533,21 @@ class ESP32Controller:
 
         return None
 
-    # --- DOOR / GATES ---
+    # --- DOOR / GATES (Read-Only / Disabled: Gate opening not planned) ---
     def door_open(self):
         with self._lock:
-            if self._send_serial_command("CMD:DOOR_OPEN"):
-                self.state["door"] = "open"
-                self.state["last_seen"] = time.time()
-                self.log_event("command", "info", "Команда воріт", "Відкрито через Serial")
-                return "open"
-
-            remote = self._send_request("/api/door/open", method="POST")
-            if remote and "door" in remote:
-                self.state["door"] = remote["door"]
-            else:
-                self.state["door"] = "open"
-            self.log_event("command", "info", "Команда воріт", "Відкрито через HTTP")
-            return self.state["door"]
+            self.log_event("command", "warning", "Команда воріт", "Відкриття воріт вимкнено: привід не встановлений")
+            return "unknown"
 
     def door_close(self):
         with self._lock:
-            if self._send_serial_command("CMD:DOOR_CLOSE"):
-                self.state["door"] = "closed"
-                self.state["last_seen"] = time.time()
-                self.log_event("command", "info", "Команда воріт", "Зачинено через Serial")
-                return "closed"
-
-            remote = self._send_request("/api/door/close", method="POST")
-            if remote and "door" in remote:
-                self.state["door"] = remote["door"]
-            else:
-                self.state["door"] = "closed"
-            self.log_event("command", "info", "Команда воріт", "Зачинено через HTTP")
-            return self.state["door"]
+            self.log_event("command", "warning", "Команда воріт", "Керування воротами вимкнено: привід не встановлений")
+            return "unknown"
 
     def door_toggle(self):
         with self._lock:
-            target = "open" if self.state["door"] == "closed" else "closed"
-            if target == "open":
-                return self.door_open()
-            return self.door_close()
+            self.log_event("command", "warning", "Команда воріт", "Керування воротами вимкнено: привід не встановлений")
+            return "unknown"
 
     # --- LIGHTS ---
     def light_on(self):
@@ -670,12 +656,13 @@ class ESP32Controller:
                         f_bat = fval.get("battery")
                         mac = fval.get("mac", "")
 
-                        # Встановлюємо реальний час зчитування
-                        fval["last_read_ts"] = now
-                        fval["last_read_formatted"] = time.strftime("%H:%M:%S (%d.%m.%Y)", time.localtime(now))
-                        fval["last_read_time"] = time.strftime("%H:%M:%S", time.localtime(now))
+                        fval["source"] = SOURCE_ESP32_BRIDGE
 
                         if f_online and f_temp is not None:
+                            fval["last_read_ts"] = now
+                            fval["last_updated"] = now
+                            fval["last_read_formatted"] = time.strftime("%H:%M:%S (%d.%m.%Y)", time.localtime(now))
+                            fval["last_read_time"] = time.strftime("%H:%M:%S", time.localtime(now))
                             self.log_event(
                                 "sensor_read",
                                 "success",
@@ -684,6 +671,17 @@ class ESP32Controller:
                                 {"floor": fk, "mac": mac, "temp": f_temp, "hum": f_hum, "battery": f_bat, "transport": transport}
                             )
                         elif not f_online:
+                            # Preserve last known reading and timestamp from current_floors if available
+                            if fk in current_floors and current_floors[fk].get("temperature") is not None:
+                                prev = current_floors[fk]
+                                if fval.get("temperature") is None:
+                                    fval["temperature"] = prev.get("temperature")
+                                    fval["humidity"] = prev.get("humidity")
+                                    fval["battery"] = prev.get("battery")
+                                fval["last_read_ts"] = prev.get("last_read_ts")
+                                fval["last_updated"] = prev.get("last_updated") or prev.get("last_read_ts")
+                                fval["last_read_formatted"] = prev.get("last_read_formatted", "--")
+                                fval["last_read_time"] = prev.get("last_read_time", "--:--")
                             self.log_event(
                                 "sensor_read",
                                 "warning",
@@ -692,10 +690,19 @@ class ESP32Controller:
                                 {"floor": fk, "mac": mac, "transport": transport}
                             )
 
-                current_floors.update(new_floors)
-                telemetry_dict["floors"] = current_floors
+            # Constraints: Gate opening not planned, gas sensor not planned
+            telemetry_dict["door"] = "unknown"
+            telemetry_dict["door_installed"] = False
+            telemetry_dict["gas_ppm"] = None
+            telemetry_dict["gas_installed"] = False
+            telemetry_dict["gas_status"] = "not_installed"
 
             self.state.update(telemetry_dict)
+            self.state["door"] = "unknown"
+            self.state["door_installed"] = False
+            self.state["gas_ppm"] = None
+            self.state["gas_installed"] = False
+            self.state["gas_status"] = "not_installed"
             self.state["online"] = True
             self.state["last_seen"] = now
             self.state["transport"] = transport
@@ -722,8 +729,8 @@ class ESP32Controller:
             for fk, f in floors.items():
                 if isinstance(f, dict):
                     lr = f.get("last_read_ts") or f.get("last_updated") or last_seen
-                    # Датчик вважається свіжим, тільки якщо отриманий не більше 20 хв тому
-                    is_fresh = bool(online and f.get("online") and lr and (time.time() - lr < 1200))
+                    # Датчик вважається свіжим, тільки якщо отриманий не більше freshness threshold
+                    is_fresh = bool(online and f.get("online") and lr and (time.time() - lr < SENSOR_FRESHNESS_THRESHOLD_SECONDS))
                     sensor_details[fk] = {
                         "name": f.get("name", fk),
                         "mac": f.get("mac", ""),

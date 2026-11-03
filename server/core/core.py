@@ -250,7 +250,7 @@ class SmartGarage:
         # 4. Multimedia & Audio
         if hasattr(self, "projector") and self.projector:
             proj_online = self.projector.is_reachable()
-            lines.append(f"- Проектор HY350MAX (192.168.100.191): {'онлайн' if proj_online else 'очікування/вимкнено'}")
+            lines.append(f"- Проектор HY350MAX: {'онлайн' if proj_online else 'очікування/вимкнено'}")
         if hasattr(self, "speaker") and self.speaker:
             try:
                 st = self.speaker.get_status()

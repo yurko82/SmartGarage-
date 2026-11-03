@@ -5,8 +5,16 @@ llm:
   provider: openrouter
   model: google/gemini-2.5-flash
   api_base: https://openrouter.ai/api/v1
-  api_key: ''
+  api_key: '' # Ключ API налаштовується виключно через .env (OPENROUTER_API_KEY)
   temperature: 0
+  max_tokens: 400
+  timeout: 8
+  max_retries: 2
+  retry_backoff: 1.0
+  daily_budget_usd: 1.00
+  provider_preferences:
+    data_collection: deny
+    allow_fallbacks: true
 local_llm:
   enabled: true
   provider: ollama
@@ -55,12 +63,27 @@ voice:
   silence_timeout_sec: 1.3
   virtual_source_name: "pipewire-virtual-source"
   api_endpoint: "http://127.0.0.1:5000/api/voice/command"
+tts:
+  enabled: true
+  provider: edge # edge | heygen | elevenlabs
+  model: edge # edge | heygen-voice-1-turbo-free | eleven_flash_v2_5
+  voice_id: uk-UA-PolinaNeural # uk-UA-PolinaNeural | uk-UA-OstapNeural | або ID з провайдера
+  language: uk
+  rate: "+0%"
+  timeout_seconds: 10.0
+  max_text_length: 500
+  max_retries: 2
+  fallback_provider: edge
+  cache_ttl_seconds: 3600
+  max_cache_items: 100
+  # API-ключі (HEYGEN_API_KEY, ELEVENLABS_API_KEY) налаштовуються виключно через .env
+
 mqtt:
   enabled: true
   broker_host: "127.0.0.1"
   broker_port: 1883
   username: "smartgarage"
-  password: "smartgarage_secret"
+  password: "YOUR_MQTT_PASSWORD"
   discovery_prefix: "homeassistant"
   topic_prefix: "smartgarage"
   client_id: "smartgarage_bridge"

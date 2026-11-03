@@ -1,0 +1,10 @@
+# Mosquitto Topic Access Control List (ACL) for Smart Garage
+
+# Administrator / Backend Bridge / ESP32 Service User
+user smartgarage
+topic readwrite smartgarage/#
+topic readwrite homeassistant/#
+
+# Read-only Telemetry and Status Broadcasts
+pattern read smartgarage/+/telemetry
+pattern read smartgarage/+/status

@@ -1,0 +1,4 @@
+# Example Mosquitto Password File
+# Generate encrypted password with:
+# mosquitto_passwd -b passwd.example <username> <password>
+smartgarage:$6$example_hash_replace_with_actual

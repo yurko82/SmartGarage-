@@ -22,10 +22,10 @@
 #include "esp_wifi.h"
 #include "soc/rtc_cntl_reg.h"
 
-// --- Wi-Fi Credentials (4G Modem Network) ---
-const char* WIFI_SSID = "SmGrg";
-const char* WIFI_PASSWORD = "1234567890";
-const uint8_t MODEM_BSSID[6] = {0xA0, 0x62, 0x56, 0x5C, 0x9B, 0xFC};
+// --- Wi-Fi Credentials (Configure via build_flags or local credentials.h) ---
+const char* WIFI_SSID = "YOUR_WIFI_SSID";
+const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
+const uint8_t MODEM_BSSID[6] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 
 // --- Smart Garage Backend Server & MQTT Broker ---
 const char* SERVER_TELEMETRY_URL = "http://192.168.100.198:5000/api/esp32/telemetry";
@@ -33,7 +33,13 @@ const char* MQTT_BROKER = "192.168.100.198";
 const int MQTT_PORT = 1883;
 const char* MQTT_CLIENT_ID = "SmartGarage-ESP32-S3";
 const char* MQTT_USER = "smartgarage";
-const char* MQTT_PASSWORD = "smartgarage_secret";
+const char* MQTT_PASSWORD = "YOUR_MQTT_PASSWORD";
+
+// ESP32 API Key for local HTTP control endpoints
+const char* ESP32_API_KEY = "YOUR_ESP32_API_KEY";
+
+// Web OTA is disabled by default for security to prevent unauthenticated remote firmware overwrite
+#define ENABLE_WEB_OTA 0
 
 const char* TOPIC_TELEMETRY = "smartgarage/esp32/telemetry";
 const char* TOPIC_COMMAND   = "smartgarage/esp32/command";
@@ -59,7 +65,7 @@ WebServer server(80);
 // --- Device State ---
 bool lightState = false;
 bool fanState = false;
-String doorState = "closed";
+String doorState = "unknown";
 float temperature = 0.0;
 float humidity = 0.0;
 
@@ -384,24 +390,36 @@ void handleTelemetry() {
 }
 
 void triggerDoorPulse(const String& targetState) {
-  digitalWrite(PIN_RELAY_DOOR, HIGH);
-  delay(500);
-  digitalWrite(PIN_RELAY_DOOR, LOW);
-  doorState = targetState;
-  Serial.println("DOOR_EVENT:" + doorState);
+  // Gate drive uninstalled / disabled: do not pulse relay pin
+  Serial.println("WARN: Door relay disabled - drive not installed");
+}
+
+bool isRequestAuthorized() {
+  if (strcmp(ESP32_API_KEY, "YOUR_ESP32_API_KEY") == 0) {
+    return true; // Default placeholder for initial setup
+  }
+  if (server.hasHeader("X-API-Key") && server.header("X-API-Key") == ESP32_API_KEY) {
+    return true;
+  }
+  if (server.hasArg("key") && server.arg("key") == ESP32_API_KEY) {
+    return true;
+  }
+  return false;
 }
 
 void handleDoorOpen() {
-  triggerDoorPulse("open");
-  server.send(200, "application/json", "{\"status\":\"ok\",\"door\":\"open\"}");
+  server.send(400, "application/json", "{\"status\":\"error\",\"error\":\"Door drive not installed\",\"door\":\"unknown\"}");
 }
 
 void handleDoorClose() {
-  triggerDoorPulse("closed");
-  server.send(200, "application/json", "{\"status\":\"ok\",\"door\":\"closed\"}");
+  server.send(400, "application/json", "{\"status\":\"error\",\"error\":\"Door drive not installed\",\"door\":\"unknown\"}");
 }
 
 void handleLightOn() {
+  if (!isRequestAuthorized()) {
+    server.send(401, "application/json", "{\"status\":\"error\",\"error\":\"Unauthorized\"}");
+    return;
+  }
   lightState = true;
   digitalWrite(PIN_RELAY_LIGHT, HIGH);
   Serial.println("LIGHT_EVENT:1");
@@ -409,6 +427,10 @@ void handleLightOn() {
 }
 
 void handleLightOff() {
+  if (!isRequestAuthorized()) {
+    server.send(401, "application/json", "{\"status\":\"error\",\"error\":\"Unauthorized\"}");
+    return;
+  }
   lightState = false;
   digitalWrite(PIN_RELAY_LIGHT, LOW);
   Serial.println("LIGHT_EVENT:0");
@@ -416,6 +438,10 @@ void handleLightOff() {
 }
 
 void handleFanOn() {
+  if (!isRequestAuthorized()) {
+    server.send(401, "application/json", "{\"status\":\"error\",\"error\":\"Unauthorized\"}");
+    return;
+  }
   fanState = true;
   digitalWrite(PIN_RELAY_FAN, HIGH);
   Serial.println("FAN_EVENT:1");
@@ -423,6 +449,10 @@ void handleFanOn() {
 }
 
 void handleFanOff() {
+  if (!isRequestAuthorized()) {
+    server.send(401, "application/json", "{\"status\":\"error\",\"error\":\"Unauthorized\"}");
+    return;
+  }
   fanState = false;
   digitalWrite(PIN_RELAY_FAN, LOW);
   Serial.println("FAN_EVENT:0");
@@ -516,11 +546,9 @@ void processSerialCommand(String cmd) {
   if (cmd.length() == 0) return;
 
   if (cmd.equalsIgnoreCase("DOOR_OPEN") || cmd.equalsIgnoreCase("CMD:DOOR_OPEN") || cmd == "{\"command\":\"door_open\"}") {
-    triggerDoorPulse("open");
-    Serial.println("RESP:{\"status\":\"ok\",\"door\":\"open\"}");
+    Serial.println("RESP:{\"status\":\"error\",\"error\":\"Door drive not installed\",\"door\":\"unknown\"}");
   } else if (cmd.equalsIgnoreCase("DOOR_CLOSE") || cmd.equalsIgnoreCase("CMD:DOOR_CLOSE") || cmd == "{\"command\":\"door_close\"}") {
-    triggerDoorPulse("closed");
-    Serial.println("RESP:{\"status\":\"ok\",\"door\":\"closed\"}");
+    Serial.println("RESP:{\"status\":\"error\",\"error\":\"Door drive not installed\",\"door\":\"unknown\"}");
   } else if (cmd.equalsIgnoreCase("LIGHT_ON") || cmd.equalsIgnoreCase("CMD:LIGHT_ON") || cmd == "{\"command\":\"light_on\"}") {
     handleLightOn();
     Serial.println("RESP:{\"status\":\"ok\",\"light\":true}");
@@ -732,8 +760,13 @@ void setup() {
   server.on("/api/fan/on", HTTP_POST, handleFanOn);
   server.on("/api/fan/off", HTTP_POST, handleFanOff);
 
-  // Web OTA
+  // Web OTA (Disabled by default for security)
+#if ENABLE_WEB_OTA
   server.on("/update", HTTP_POST, []() {
+    if (!isRequestAuthorized()) {
+      server.send(401, "text/plain", "Unauthorized");
+      return;
+    }
     server.sendHeader("Connection", "close");
     server.send(200, "text/plain", (Update.hasError()) ? "FAIL" : "OK");
     ESP.restart();
@@ -756,6 +789,11 @@ void setup() {
       }
     }
   });
+#else
+  server.on("/update", HTTP_POST, []() {
+    server.send(403, "application/json", "{\"status\":\"error\",\"error\":\"Web OTA updates disabled for security. Use USB serial flashing.\"}");
+  });
+#endif
 
   // Ініціалізація MQTT Client
   mqttClient.setServer(MQTT_BROKER, MQTT_PORT);

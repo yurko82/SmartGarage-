@@ -31,16 +31,68 @@ class CommandRouter:
         if not prompt:
             return ""
 
-        handled, response = self.commands.execute(prompt)
+        try:
+            handled, response = self.commands.execute(prompt, session_id=session_id)
+        except TypeError:
+            handled, response = self.commands.execute(prompt)
 
         if handled:
+            from server.ai.session_manager import session_manager
+            resp_lower = (response or "").lower()
+            is_blocked = (
+                "вимкнено" in resp_lower
+                or "не планується" in resp_lower
+                or "заборонено" in resp_lower
+                or "під суворим табу" in resp_lower
+            )
+            is_failure = (
+                "не вдалося" in resp_lower
+                or "помилка" in resp_lower
+                or "не підключен" in resp_lower
+                or "вимкнен" in resp_lower
+                or "офлайн" in resp_lower
+            )
+            success = not is_blocked and not is_failure
+            session_manager.record_command_action(
+                session_id=session_id,
+                command=prompt,
+                response=response,
+                success=success,
+                is_blocked=is_blocked
+            )
             return response
 
         # Try converting accidental English keyboard layout to Ukrainian for command execution
         converted_prompt = convert_qwerty_to_ua(prompt)
         if converted_prompt != prompt:
-            handled, response = self.commands.execute(converted_prompt)
+            try:
+                handled, response = self.commands.execute(converted_prompt, session_id=session_id)
+            except TypeError:
+                handled, response = self.commands.execute(converted_prompt)
             if handled:
+                from server.ai.session_manager import session_manager
+                resp_lower = (response or "").lower()
+                is_blocked = (
+                    "вимкнено" in resp_lower
+                    or "не планується" in resp_lower
+                    or "заборонено" in resp_lower
+                    or "під суворим табу" in resp_lower
+                )
+                is_failure = (
+                    "не вдалося" in resp_lower
+                    or "помилка" in resp_lower
+                    or "не підключен" in resp_lower
+                    or "вимкнен" in resp_lower
+                    or "офлайн" in resp_lower
+                )
+                success = not is_blocked and not is_failure
+                session_manager.record_command_action(
+                    session_id=session_id,
+                    command=converted_prompt,
+                    response=response,
+                    success=success,
+                    is_blocked=is_blocked
+                )
                 return response
 
         prompt_for_ai = prompt

@@ -1,17 +1,45 @@
 from pathlib import Path
 import time
+from typing import Dict, Any, Optional, List, Tuple
 from collections import deque
 import threading
 import traceback
 import urllib.parse
 import psutil
-from flask import Flask, request, jsonify, render_template, send_from_directory, send_file
+from flask import Flask, request, jsonify, render_template, send_from_directory, send_file, session, Response
 from .core.core import SmartGarage
 from .devices.projector import get_local_ip
 from server.config import config
 from server.services.radio_service import radio_service
 from server.services.neural_tts import neural_tts, clean_text_for_tts
+from server.tts.manager import tts_manager
 from server.services.ytmusic_service import ytmusic_service
+from server.security import (
+    require_auth,
+    init_session_security,
+    verify_pin_secure,
+    rate_limiter,
+    generate_csrf_token,
+    get_client_ip,
+    audit_log
+)
+from server.sensors.freshness import (
+    SENSOR_FRESHNESS_THRESHOLD_SECONDS,
+    STATUS_ONLINE,
+    STATUS_STALE,
+    STATUS_OFFLINE,
+    STATUS_NOT_INSTALLED,
+    STATUS_NEVER_SEEN,
+    SOURCE_BLE_DIRECT,
+    SOURCE_ESP32_BRIDGE,
+    SOURCE_SQLITE_HISTORY,
+    SOURCE_CACHE,
+    SOURCE_NONE,
+    build_sensor_payload,
+    merge_sensor_readings,
+    format_iso_timestamp,
+    format_relative_time_ua
+)
 
 
 class TelemetryHistory:
@@ -49,6 +77,7 @@ class TelemetryHistory:
 
 
 app = Flask(__name__)
+init_session_security(app)
 garage = SmartGarage()
 telemetry_history = TelemetryHistory()
 MEDIA_DIR = Path(__file__).parent.parent / "media"
@@ -140,12 +169,14 @@ def system_stats():
 
 
 @app.route("/api/device/light/toggle", methods=["POST"])
+@require_auth
 def toggle_light():
     state = garage.esp32.light_toggle()
     return jsonify({"success": True, "light": state})
 
 
 @app.route("/api/device/light/state", methods=["POST"])
+@require_auth
 def set_light():
     data = request.get_json(silent=True) or {}
     on = data.get("state", True)
@@ -154,15 +185,40 @@ def set_light():
 
 
 @app.route("/api/device/fan/toggle", methods=["POST"])
+@require_auth
 def toggle_fan():
     state = garage.esp32.fan_toggle()
     return jsonify({"success": True, "fan": state})
 
 
 @app.route("/api/device/door/toggle", methods=["POST"])
+@require_auth
 def toggle_door():
-    state = garage.esp32.door_toggle()
-    return jsonify({"success": True, "door": state})
+    return jsonify({
+        "success": False,
+        "error": "Керування воротами вимкнено: привід воріт не планується / не встановлений",
+        "door": "unknown"
+    })
+
+
+@app.route("/api/door/open", methods=["POST"])
+@require_auth
+def open_door():
+    return jsonify({
+        "success": False,
+        "error": "Керування воротами вимкнено: привід воріт не планується / не встановлений",
+        "door": "unknown"
+    })
+
+
+@app.route("/api/door/close", methods=["POST"])
+@require_auth
+def close_door():
+    return jsonify({
+        "success": False,
+        "error": "Керування воротами вимкнено: привід воріт не планується / не встановлений",
+        "door": "unknown"
+    })
 
 
 @app.route("/media/<path:filename>")
@@ -175,148 +231,170 @@ def health():
     return jsonify({"status": "ok"})
 
 
+def get_consolidated_floors_telemetry() -> Dict[str, Dict[str, Any]]:
+    """
+    Consolidates floor climate readings across all available channels:
+    1. Host direct BLE (Bleak)
+    2. ESP32 BLE Bridge (HTTP / MQTT)
+    3. SQLite Telemetry DB fallback
+    Guarantees that a fresher online measurement is never overridden by an older or offline poll.
+    """
+    now = time.time()
+    bt_telemetry = garage.bt_sensors.get_telemetry() if hasattr(garage, "bt_sensors") and garage.bt_sensors else {}
+    bt_floors = bt_telemetry.get("floors", {})
+
+    esp_telemetry = garage.esp32.get_telemetry() if hasattr(garage, "esp32") and garage.esp32 else {}
+    esp_floors = esp_telemetry.get("floors", {})
+    esp_is_online = bool(esp_telemetry.get("online", False))
+    esp_last_seen = esp_telemetry.get("last_seen")
+
+    default_names = {
+        "floor1": "1-й поверх (Гараж)",
+        "floor2": "2-й поверх",
+        "basement": "Підвал"
+    }
+
+    consolidated = {}
+    for fk in ("floor1", "floor2", "basement"):
+        # 1. Base from host BLE
+        base_payload = bt_floors.get(fk)
+        if not base_payload:
+            base_payload = build_sensor_payload(
+                floor=fk,
+                name=default_names[fk],
+                mac=None,
+                installed=(fk != "floor1"),
+                now=now
+            )
+
+        # 2. Check ESP32 reading for this floor
+        if isinstance(esp_floors, dict) and fk in esp_floors and isinstance(esp_floors[fk], dict):
+            ef = esp_floors[fk]
+            last_read = ef.get("last_read_ts") or ef.get("last_updated") or (esp_last_seen if ef.get("online") else None)
+            esp_reported_online = bool(esp_is_online and ef.get("online", False))
+            
+            esp_payload = build_sensor_payload(
+                floor=fk,
+                name=ef.get("name") or base_payload.get("name") or default_names[fk],
+                mac=ef.get("mac") or base_payload.get("mac"),
+                temperature=ef.get("temperature"),
+                humidity=ef.get("humidity"),
+                battery=ef.get("battery"),
+                last_updated=last_read,
+                is_online_reported=esp_reported_online,
+                source=SOURCE_ESP32_BRIDGE,
+                installed=bool(ef.get("mac") or base_payload.get("mac")),
+                now=now
+            )
+            # Merge: fresher reading wins, offline cannot overwrite fresh online
+            base_payload = merge_sensor_readings(base_payload, esp_payload)
+
+        # 3. If still no temperature recorded and floor is installed, check SQLite telemetry DB
+        if base_payload.get("installed") and base_payload.get("last_known_temperature") is None and hasattr(garage, "telemetry_db") and garage.telemetry_db:
+            try:
+                latest_db = garage.telemetry_db.get_latest_by_floor()
+                if fk in latest_db and latest_db[fk].get("temperature") is not None:
+                    db_val = latest_db[fk]
+                    db_payload = build_sensor_payload(
+                        floor=fk,
+                        name=db_val.get("sensor_name") or base_payload.get("name") or default_names[fk],
+                        mac=db_val.get("mac") or base_payload.get("mac"),
+                        temperature=db_val.get("temperature"),
+                        humidity=db_val.get("humidity"),
+                        battery=db_val.get("battery"),
+                        last_updated=db_val.get("timestamp"),
+                        is_online_reported=False,  # Database historical fallback is inherently offline/stale
+                        source=SOURCE_SQLITE_HISTORY,
+                        installed=True,
+                        now=now
+                    )
+                    base_payload = merge_sensor_readings(base_payload, db_payload)
+            except Exception:
+                pass
+
+        consolidated[fk] = base_payload
+
+    return consolidated
+
+
 @app.route("/api/garage/state", methods=["GET"])
 def garage_state():
     state = garage.esp32.get_telemetry()
-    bt_telemetry = garage.bt_sensors.get_telemetry() if hasattr(garage, "bt_sensors") else {}
+    bt_telemetry = garage.bt_sensors.get_telemetry() if hasattr(garage, "bt_sensors") and garage.bt_sensors else {}
 
-    floors = bt_telemetry.get("floors", {})
-    esp_floors = state.get("floors", {})
-    esp_is_online = bool(state.get("online", False))
-    esp_last_seen = state.get("last_seen")
+    floors = get_consolidated_floors_telemetry()
 
-    # If ESP32 reports floors from its BLE reads, merge with higher priority or fallback
-    if isinstance(esp_floors, dict):
-        for fk, fval in esp_floors.items():
-            if isinstance(fval, dict) and fval.get("mac"):
-                # Preserve the real timestamp when sensor was physically read
-                last_read = fval.get("last_read_ts") or fval.get("last_updated") or esp_last_seen
-                # A sensor is online only if ESP32 is online AND reading is fresh (< 20 mins)
-                is_fresh = bool(esp_is_online and fval.get("online", False) and last_read and (time.time() - last_read < 1200))
-
-                if fk not in floors:
-                    floors[fk] = dict(fval)
-                else:
-                    if fval.get("temperature") is not None:
-                        floors[fk]["temperature"] = fval["temperature"]
-                        floors[fk]["humidity"] = fval.get("humidity", floors[fk].get("humidity"))
-                        floors[fk]["battery"] = fval.get("battery", floors[fk].get("battery"))
-                    floors[fk]["mac"] = fval.get("mac")
-                    floors[fk]["name"] = fval.get("name", floors[fk].get("name"))
-
-                floors[fk]["online"] = is_fresh
-                floors[fk]["last_updated"] = last_read
-                floors[fk]["source"] = "esp32"
-                floors[fk]["is_stale"] = bool(not is_fresh if (fval.get("temperature") is not None) else False)
-                floors[fk]["esp_online"] = esp_is_online
-            elif isinstance(fval, dict) and not esp_is_online and fk in floors:
-                floors[fk]["online"] = False
-                floors[fk]["esp_online"] = False
-
-    # Mark uninstalled floors clearly (e.g. Floor 1 currently has no physical sensor)
-    if "floor1" not in floors or not floors["floor1"].get("mac"):
-        if "floor1" not in floors:
-            floors["floor1"] = {}
-        floors["floor1"]["name"] = "1-й поверх (Гараж)"
-        floors["floor1"]["temperature"] = None
-        floors["floor1"]["humidity"] = None
-        floors["floor1"]["online"] = False
-        floors["floor1"]["battery"] = None
-        floors["floor1"]["installed"] = False
-        floors["floor1"]["is_stale"] = False
-        floors["floor1"]["status_text"] = "Очікує датчик"
-
-    # If any floor has no active temperature, fallback to last known reading from telemetry_db
-    if hasattr(garage, "telemetry_db") and garage.telemetry_db:
-        try:
-            latest_db = garage.telemetry_db.get_latest_by_floor()
-            for fk, db_val in latest_db.items():
-                if fk in floors and floors[fk].get("temperature") is None and db_val.get("temperature") is not None:
-                    floors[fk]["temperature"] = db_val.get("temperature")
-                    floors[fk]["humidity"] = db_val.get("humidity")
-                    floors[fk]["battery"] = db_val.get("battery")
-                    floors[fk]["last_updated"] = db_val.get("timestamp")
-                    floors[fk]["online"] = False
-                    floors[fk]["is_stale"] = True
-        except Exception:
-            pass
-
-    # Format human-readable update times for all floors
-    from server.devices.esp32 import format_relative_time
-    for fk, f in floors.items():
-        lu = f.get("last_updated")
-        if lu and f.get("temperature") is not None:
-            f["last_updated_formatted"] = time.strftime("%H:%M:%S (%d.%m.%Y)", time.localtime(lu))
-            f["last_updated_time"] = time.strftime("%H:%M:%S", time.localtime(lu))
-            f["last_updated_relative"] = format_relative_time(lu)
-            if not f.get("online"):
-                if not esp_is_online:
-                    f["status_text"] = f"Застарілі дані (ESP32 офлайн, {f['last_updated_relative']})"
-                else:
-                    f["status_text"] = f"Застарілі дані ({f['last_updated_relative']})"
-            else:
-                f["status_text"] = "В нормі"
-        else:
-            f["last_updated_formatted"] = "Очікує встановлення" if not f.get("mac") else "Очікується оновлення"
-            f["last_updated_time"] = "--:--"
-            f["last_updated_relative"] = "Очікує даних"
-            f["status_text"] = f.get("status_text") or ("Очікує датчик" if not f.get("mac") else "Очікує зв'язку")
-
-    # Primary climate resolution: prefer online sensor with temperature, fallback to any with temperature
-    primary_temp = None
-    primary_hum = None
-    primary_name = "Підвал"
-    primary_lu = None
+    # Primary climate resolution:
+    # 1. Prefer online & fresh sensor with temperature
+    # 2. Fallback to candidate with freshest last_updated
+    primary_floor = None
     for pref_floor in ("basement", "floor2", "floor1"):
-        if pref_floor in floors and floors[pref_floor].get("temperature") is not None and floors[pref_floor].get("online", False):
-            primary_temp = floors[pref_floor]["temperature"]
-            primary_hum = floors[pref_floor]["humidity"]
-            primary_name = floors[pref_floor]["name"]
-            primary_lu = floors[pref_floor].get("last_updated")
+        if floors[pref_floor]["online"] and floors[pref_floor]["current_temperature"] is not None:
+            primary_floor = floors[pref_floor]
             break
-    if primary_temp is None:
-        for pref_floor in ("basement", "floor2", "floor1"):
-            if pref_floor in floors and floors[pref_floor].get("temperature") is not None:
-                primary_temp = floors[pref_floor]["temperature"]
-                primary_hum = floors[pref_floor]["humidity"]
-                primary_name = floors[pref_floor]["name"]
-                primary_lu = floors[pref_floor].get("last_updated")
-                break
 
-    state["temperature"] = primary_temp
-    state["humidity"] = primary_hum
+    if not primary_floor:
+        candidates = [f for f in floors.values() if f.get("installed") and f.get("last_known_temperature") is not None]
+        if candidates:
+            candidates.sort(key=lambda x: x.get("last_updated") or 0, reverse=True)
+            primary_floor = candidates[0]
+
+    primary_current_temp = primary_floor["current_temperature"] if primary_floor else None
+    primary_last_known_temp = primary_floor["last_known_temperature"] if primary_floor else None
+    primary_current_hum = primary_floor["current_humidity"] if primary_floor else None
+    primary_last_known_hum = primary_floor["last_known_humidity"] if primary_floor else None
+    primary_name = primary_floor["name"] if primary_floor else "Підвал"
+    primary_online = primary_floor["online"] if primary_floor else False
+    primary_lu = primary_floor.get("last_updated") if primary_floor else None
+
+    # Never return old temperature as current if sensor is offline / stale
+    state["current_temperature"] = primary_current_temp
+    state["current_humidity"] = primary_current_hum
+    state["last_known_temperature"] = primary_last_known_temp
+    state["last_known_humidity"] = primary_last_known_hum
+    state["temperature"] = primary_current_temp   # Must be None if offline/stale!
+    state["humidity"] = primary_current_hum
 
     # Mark uninstalled GPIO hardware clearly so UI doesn't display floating pin noise
     state["gas_ppm"] = None
     state["gas_installed"] = False
+    state["gas_status"] = "not_installed"
     state["distance_cm"] = None
     state["car_present"] = None
     state["car_sensor_installed"] = False
     state["motion_detected"] = None
     state["motion_installed"] = False
-    state["door"] = "not_installed"
+    state["door"] = "unknown"
     state["door_installed"] = False
+    state["door_status"] = "unknown"
     state["relays_installed"] = False
 
-    is_primary_fresh = bool(primary_temp is not None and primary_lu and (time.time() - primary_lu < 1200) and esp_is_online)
     state["bluetooth_sensors"] = bt_telemetry.get("devices", [])
     state["floors"] = floors
-    state["primary_sensor"] = {
+    state["primary_sensor"] = primary_floor or {
         "name": primary_name,
-        "temperature": primary_temp,
-        "humidity": primary_hum,
-        "online": is_primary_fresh,
-        "is_stale": bool(primary_temp is not None and not is_primary_fresh),
-        "last_updated": primary_lu,
-        "last_updated_formatted": time.strftime("%H:%M:%S (%d.%m.%Y)", time.localtime(primary_lu)) if primary_lu else "--",
-        "last_updated_relative": format_relative_time(primary_lu) if primary_lu else "Ніколи"
+        "temperature": None,
+        "current_temperature": None,
+        "last_known_temperature": None,
+        "humidity": None,
+        "current_humidity": None,
+        "last_known_humidity": None,
+        "online": False,
+        "is_stale": False,
+        "status": STATUS_NOT_INSTALLED,
+        "source": SOURCE_NONE,
+        "last_updated": None,
+        "last_updated_iso": None,
+        "last_updated_formatted": "--",
+        "last_updated_relative": "Ніколи",
+        "status_text": "Датчик не встановлено"
     }
     state["speaker"] = garage.speaker.get_status() if hasattr(garage, "speaker") else {}
     state["esp32"] = garage.esp32.get_diagnostics() if hasattr(garage, "esp32") else {}
 
     # Record point into telemetry history only if real FRESH readings exist
-    if primary_temp is not None and is_primary_fresh:
-        telemetry_history.add(temp=primary_temp, hum=primary_hum or 0, door="closed", light=False, car=False)
+    if primary_current_temp is not None and primary_online:
+        telemetry_history.add(temp=primary_current_temp, hum=primary_current_hum or 0, door="unknown", light=False, car=False)
 
     return jsonify({
         "success": True,
@@ -326,24 +404,7 @@ def garage_state():
 
 @app.route("/api/sensors/floors", methods=["GET"])
 def sensors_floors():
-    if hasattr(garage, "get_floors_telemetry"):
-        floors = garage.get_floors_telemetry()
-    else:
-        bt_telemetry = garage.bt_sensors.get_telemetry() if hasattr(garage, "bt_sensors") else {}
-        floors = bt_telemetry.get("floors", {})
-
-    if hasattr(garage, "telemetry_db") and garage.telemetry_db:
-        try:
-            latest_db = garage.telemetry_db.get_latest_by_floor()
-            for fk, db_val in latest_db.items():
-                if fk in floors and floors[fk].get("temperature") is None and db_val.get("temperature") is not None:
-                    floors[fk]["temperature"] = db_val.get("temperature")
-                    floors[fk]["humidity"] = db_val.get("humidity")
-                    floors[fk]["battery"] = db_val.get("battery")
-                    floors[fk]["last_updated"] = db_val.get("timestamp")
-        except Exception:
-            pass
-
+    floors = get_consolidated_floors_telemetry()
     return jsonify({
         "success": True,
         "floors": floors
@@ -351,6 +412,7 @@ def sensors_floors():
 
 
 @app.route("/api/sensors/refresh", methods=["POST"])
+@require_auth
 def sensors_refresh():
     data = request.get_json(silent=True) or {}
     mac = data.get("mac")
@@ -385,6 +447,7 @@ def esp32_status():
 
 
 @app.route("/api/esp32/ping", methods=["POST"])
+@require_auth
 def esp32_ping():
     if hasattr(garage, "esp32") and garage.esp32:
         res = garage.esp32.check_connection(timeout=1.0)
@@ -397,6 +460,7 @@ def esp32_ping():
 
 
 @app.route("/api/esp32/poll", methods=["POST"])
+@require_auth
 def esp32_poll():
     if hasattr(garage, "esp32") and garage.esp32:
         res = garage.esp32.poll_ble()
@@ -409,6 +473,7 @@ def esp32_poll():
 
 
 @app.route("/api/esp32/clear_logs", methods=["POST"])
+@require_auth
 def esp32_clear_logs():
     if hasattr(garage, "esp32") and garage.esp32:
         garage.esp32.clear_logs()
@@ -417,6 +482,7 @@ def esp32_clear_logs():
 
 
 @app.route("/api/sensors/bind", methods=["POST"])
+@require_auth
 def bind_sensor_route():
     data = request.get_json(silent=True) or {}
     floor_key = data.get("floor")
@@ -476,9 +542,13 @@ def esp32_telemetry():
                             s["humidity"] = fval.get("humidity")
                             s["battery"] = fval.get("battery")
                             s["online"] = True
+                            s["source"] = SOURCE_ESP32_BRIDGE
                             s["last_updated"] = time.time()
                         elif not is_sensor_online:
-                            s["online"] = False
+                            # Preserve fresher direct BLE reading if present; do not overwrite fresh reading
+                            cur_lu = s.get("last_updated")
+                            if not cur_lu or (time.time() - cur_lu > SENSOR_FRESHNESS_THRESHOLD_SECONDS):
+                                s["online"] = False
             garage.bt_sensors._save_cache()
 
             # Record into SQLite TelemetryDB only for online readings
@@ -495,7 +565,7 @@ def esp32_telemetry():
                         )
         temp = data.get("temperature")
         hum = data.get("humidity")
-        door = garage.esp32.state.get("door", "closed")
+        door = garage.esp32.state.get("door", "unknown")
         light = garage.esp32.state.get("light", False)
         car = bool(data.get("car_present"))
         if (temp is not None or hum is not None) and data.get("online"):
@@ -624,6 +694,7 @@ def _scan_all_ble(duration: int = 15) -> list:
 
 
 @app.route("/api/esp32/scan_ble", methods=["GET", "POST"])
+@require_auth
 def esp32_scan_ble():
     duration = int(request.args.get("duration", 15))
     if duration <= 0:
@@ -658,6 +729,7 @@ def presence_log():
 
 
 @app.route("/api/presence/devices", methods=["POST"])
+@require_auth
 def presence_register_device():
     if not hasattr(garage, "presence") or not garage.presence:
         return jsonify({"success": False, "error": "Presence manager not available"}), 500
@@ -682,6 +754,7 @@ def presence_register_device():
 
 
 @app.route("/api/presence/devices/<device_id>", methods=["DELETE"])
+@require_auth
 def presence_remove_device(device_id):
     if not hasattr(garage, "presence") or not garage.presence:
         return jsonify({"success": False, "error": "Presence manager not available"}), 500
@@ -690,6 +763,7 @@ def presence_remove_device(device_id):
 
 
 @app.route("/api/presence/scan", methods=["POST"])
+@require_auth
 def presence_scan_and_record():
     if not hasattr(garage, "presence") or not garage.presence:
         return jsonify({"success": False, "error": "Presence manager not available"}), 500
@@ -706,19 +780,60 @@ def presence_scan_and_record():
 
 
 @app.route("/api/admin/verify", methods=["POST"])
+@app.route("/api/admin/login", methods=["POST"])
 def admin_verify():
+    ip = get_client_ip()
+    is_limited, wait_sec = rate_limiter.is_rate_limited(ip)
+    if is_limited:
+        audit_log("web", "admin_login_ratelimited", "BLOCKED", {"ip": ip, "wait_sec": wait_sec})
+        return jsonify({
+            "success": False,
+            "error": f"Забагато невдалих спроб входу. Зачекайте {wait_sec} сек."
+        }), 429
+
     data = request.get_json(silent=True) or {}
     pin = str(data.get("pin", "")).strip()
-    admin_cfg = config.get("admin", {}) if isinstance(config, dict) else {}
-    expected_pin = str(admin_cfg.get("pin", "7777")).strip()
-    if pin and pin == expected_pin:
-        return jsonify({"success": True, "authenticated": True})
-    return jsonify({"success": False, "error": "Невірний PIN-код"}), 401
+
+    if verify_pin_secure(pin):
+        rate_limiter.reset(ip)
+        session.permanent = True
+        session["authenticated"] = True
+        session["login_time"] = time.time()
+        import secrets
+        session["dialog_session_id"] = f"web_{secrets.token_hex(16)}"
+        csrf_token = generate_csrf_token()
+        audit_log("web", "admin_login", "SUCCESS", {"ip": ip}, actor="admin")
+        return jsonify({
+            "success": True,
+            "authenticated": True,
+            "csrf_token": csrf_token,
+            "session_id": session["dialog_session_id"]
+        })
+
+    rate_limiter.record_failure(ip)
+    audit_log("web", "admin_login_failed", "DENIED", {"ip": ip})
+    return jsonify({"success": False, "authenticated": False, "error": "Невірний PIN-код"}), 401
+
+
+@app.route("/api/admin/logout", methods=["POST"])
+def admin_logout():
+    ip = get_client_ip()
+    session.clear()
+    audit_log("web", "admin_logout", "SUCCESS", {"ip": ip})
+    return jsonify({"success": True, "authenticated": False})
+
+
+@app.route("/api/csrf", methods=["GET"])
+def get_csrf():
+    if session.get("authenticated"):
+        return jsonify({"success": True, "csrf_token": generate_csrf_token()})
+    return jsonify({"success": False, "csrf_token": None}), 401
 
 
 
 
 @app.route("/api/scenarios/<name>", methods=["POST"])
+@require_auth
 def trigger_scenario(name):
     handlers = {
         "arrival": garage.automation.scenario_car_arrival,
@@ -784,6 +899,7 @@ def media_list():
 
 
 @app.route("/api/media/delete", methods=["POST"])
+@require_auth
 def media_delete():
     data = request.get_json(silent=True) or {}
     filename = data.get("filename", "").strip()
@@ -803,6 +919,7 @@ def media_delete():
 
 
 @app.route("/api/media/cleanup", methods=["POST"])
+@require_auth
 def media_cleanup():
     """Purge temporary cached stream files (stream_*.mp4) to free space."""
     deleted = 0
@@ -828,6 +945,7 @@ def media_cleanup():
 
 
 @app.route("/api/media/play", methods=["POST"])
+@require_auth
 def media_play():
     try:
         data = request.get_json(silent=True) or {}
@@ -851,6 +969,7 @@ def media_play():
 
 
 @app.route("/api/media/control", methods=["POST"])
+@require_auth
 def media_control():
     try:
         data = request.get_json(silent=True) or {}
@@ -874,6 +993,7 @@ def media_control():
 
 
 @app.route("/api/media/stream_url", methods=["POST"])
+@require_auth
 def media_stream_url():
     try:
         data = request.get_json(silent=True) or {}
@@ -899,6 +1019,7 @@ def projector_status():
 
 
 @app.route("/api/projector/mirror", methods=["POST"])
+@require_auth
 def projector_mirror():
     data = request.get_json(silent=True) or {}
     action = data.get("action", "toggle")
@@ -915,6 +1036,7 @@ def projector_mirror():
 
 
 @app.route("/command", methods=["POST"])
+@require_auth
 def command():
     data = request.get_json(silent=True) or {}
 
@@ -925,16 +1047,62 @@ def command():
             "response": "Missing command"
         }), 400
 
-    response = garage.router.execute(command_text, session_id="web_console")
+    from server.ai.session_manager import is_safe_session_id
+    import secrets
+
+    client_sid = data.get("session_id")
+    is_browser_session = bool(session.get("authenticated") or "csrf_token" in session or "dialog_session_id" in session)
+
+    if is_browser_session:
+        if "dialog_session_id" not in session or not is_safe_session_id(session.get("dialog_session_id", "")):
+            session["dialog_session_id"] = f"web_{secrets.token_hex(16)}"
+            session.permanent = True
+            session.modified = True
+
+        server_sid = session["dialog_session_id"]
+
+        if client_sid:
+            if client_sid != server_sid or not is_safe_session_id(client_sid):
+                cid = request.headers.get("X-Correlation-ID", "")
+                audit_log("web", "session_hijack_blocked", "BLOCKED", {
+                    "client_sid": client_sid,
+                    "server_sid": server_sid
+                }, cid, server_sid)
+                return jsonify({
+                    "success": False,
+                    "response": "Помилка безпеки: підміна session_id заборонена."
+                }), 403
+            effective_sid = client_sid
+        else:
+            effective_sid = server_sid
+    else:
+        if client_sid:
+            if not is_safe_session_id(client_sid):
+                return jsonify({
+                    "success": False,
+                    "response": "Некоректний або небезпечний формат session_id."
+                }), 400
+            if client_sid.startswith("web_"):
+                return jsonify({
+                    "success": False,
+                    "response": "Префікс 'web_' зарезервовано для браузерних сесій."
+                }), 403
+            effective_sid = client_sid
+        else:
+            effective_sid = f"api_{secrets.token_hex(16)}"
+
+    response = garage.router.execute(command_text, session_id=effective_sid)
 
     return jsonify({
         "success": True,
-        "response": response
+        "response": response,
+        "session_id": effective_sid
     })
 
 
 # --- VOICE INTERFACE API ---
 @app.route("/api/voice/command", methods=["POST"])
+@require_auth
 def voice_command():
     """Endpoint for recognized voice commands from voice_listener service."""
     data = request.get_json(silent=True) or {}
@@ -968,30 +1136,73 @@ def voice_status():
 
 @app.route("/api/voice/tts", methods=["GET", "POST"])
 def voice_tts():
-    """Generates and streams high-definition neural Ukrainian speech (MP3) for web clients."""
+    """Generates and streams high-definition neural Ukrainian speech (MP3/WAV) for web clients."""
     if request.method == "POST":
         data = request.get_json(silent=True) or {}
         text = data.get("text") or ""
         voice = data.get("voice")
+        provider = data.get("provider")
     else:
         text = request.args.get("text", "")
         voice = request.args.get("voice")
+        provider = request.args.get("provider")
 
-    clean = clean_text_for_tts(text)
-    if not clean:
+    if not (text and text.strip()):
         return jsonify({"success": False, "error": "Порожній текст"}), 400
 
     try:
-        mp3_path = neural_tts.synthesize(clean, voice=voice)
-        return send_file(mp3_path, mimetype="audio/mpeg", as_attachment=False)
+        result = tts_manager.synthesize(text, provider_name=provider, voice_id=voice)
+        resp = Response(result.audio_bytes, mimetype=result.content_type)
+        resp.headers["X-TTS-Provider"] = result.provider
+        resp.headers["X-TTS-Voice"] = result.voice_id
+        resp.headers["X-TTS-Fallback"] = "true" if result.fallback_used else "false"
+        if result.fallback_reason:
+            resp.headers["X-TTS-Fallback-Reason"] = urllib.parse.quote(result.fallback_reason[:200])
+        resp.headers["X-TTS-Cached"] = "true" if result.cached else "false"
+        return resp
     except Exception as e:
-        app.logger.warning(f"Neural TTS generation error: {e}")
+        app.logger.warning(f"TTS synthesis error: {e}")
+        return jsonify({
+            "success": False,
+            "error": str(e),
+            "fallback_to_browser": True
+        }), 503
+
+
+@app.route("/api/voice/providers", methods=["GET"])
+def voice_providers():
+    """Returns available TTS providers, active provider and voices status."""
+    status = tts_manager.get_providers_status()
+    return jsonify({"success": True, **status})
+
+
+@app.route("/api/voice/preview", methods=["POST"])
+@require_auth
+def voice_preview():
+    """Developer preview endpoint to synthesize test phrases with chosen provider/voice."""
+    data = request.get_json(silent=True) or {}
+    text = (data.get("text") or "").strip()
+    provider = data.get("provider")
+    voice = data.get("voice")
+
+    if not text:
+        text = "Світло в гаражі увімкнено."
+
+    try:
+        result = tts_manager.synthesize(text, provider_name=provider, voice_id=voice, use_cache=False)
+        resp = Response(result.audio_bytes, mimetype=result.content_type)
+        resp.headers["X-TTS-Provider"] = result.provider
+        resp.headers["X-TTS-Voice"] = result.voice_id
+        resp.headers["X-TTS-Fallback"] = "true" if result.fallback_used else "false"
+        return resp
+    except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 
 
 @app.route("/api/voice/speak", methods=["POST"])
+@require_auth
 def voice_speak():
-    """Server-side TTS announcement via neural TTS (Ostap/Polina) to Bluetooth/PipeWire output."""
+    """Server-side TTS announcement via neural TTS to Bluetooth/PipeWire output."""
     data = request.get_json(silent=True) or {}
     text = (data.get("text") or "").strip()
     voice = data.get("voice")
@@ -1014,6 +1225,7 @@ def speaker_status():
 
 
 @app.route("/api/speaker/connect", methods=["POST"])
+@require_auth
 def speaker_connect():
     data = request.get_json(silent=True) or {}
     mac = data.get("mac")
@@ -1033,6 +1245,7 @@ def speaker_connect():
 
 
 @app.route("/api/speaker/switch", methods=["POST"])
+@require_auth
 def speaker_switch():
     data = request.get_json(silent=True) or {}
     mac = data.get("mac")
@@ -1051,6 +1264,7 @@ def speaker_switch():
 
 
 @app.route("/api/speaker/disconnect", methods=["POST"])
+@require_auth
 def speaker_disconnect():
     spk_name = garage.speaker.name or "Колонку"
     ok = garage.speaker.disconnect()
@@ -1062,6 +1276,7 @@ def speaker_disconnect():
 
 
 @app.route("/api/speaker/volume", methods=["POST"])
+@require_auth
 def speaker_volume():
     data = request.get_json(silent=True) or {}
     val = data.get("value", data.get("volume", data.get("val", 33)))
@@ -1074,6 +1289,7 @@ def speaker_volume():
 
 
 @app.route("/api/speaker/play", methods=["POST"])
+@require_auth
 def speaker_play():
     data = request.get_json(silent=True) or {}
     mac = data.get("mac")
@@ -1094,6 +1310,7 @@ def speaker_play():
 
 
 @app.route("/api/speaker/control", methods=["POST"])
+@require_auth
 def speaker_control():
     data = request.get_json(silent=True) or {}
     action = data.get("action", "stop")
@@ -1120,6 +1337,7 @@ def speaker_control():
 
 
 @app.route("/api/speaker/seek", methods=["POST"])
+@require_auth
 def speaker_seek():
     data = request.get_json(silent=True) or {}
     pos = data.get("position")
@@ -1145,6 +1363,7 @@ def speaker_seek():
 
 
 @app.route("/api/speaker/prev", methods=["POST"])
+@require_auth
 def speaker_prev():
     if not hasattr(garage, "speaker") or not garage.speaker:
         return jsonify({"success": False, "error": "Колонка недоступна"}), 500
@@ -1177,6 +1396,7 @@ def radio_search():
 
 
 @app.route("/api/radio/play", methods=["POST"])
+@require_auth
 def radio_play():
     data = request.get_json(silent=True) or {}
     mac = data.get("mac")
@@ -1225,6 +1445,7 @@ def ytmusic_playlist_tracks(playlist_id):
 
 
 @app.route("/api/ytmusic/play", methods=["POST"])
+@require_auth
 def ytmusic_play():
     data = request.get_json(silent=True) or {}
     mac = data.get("mac")
@@ -1299,6 +1520,7 @@ def ytmusic_play():
 
 
 @app.route("/api/ytmusic/next", methods=["POST"])
+@require_auth
 def ytmusic_next():
     data = request.get_json(silent=True) or {}
     mac = data.get("mac")
@@ -1318,6 +1540,7 @@ def ytmusic_next():
 
 
 @app.route("/api/ytmusic/prev", methods=["POST"])
+@require_auth
 def ytmusic_prev():
     data = request.get_json(silent=True) or {}
     mac = data.get("mac")

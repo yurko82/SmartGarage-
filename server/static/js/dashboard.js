@@ -2,6 +2,29 @@
  * Smart Garage - 1st Floor Dashboard (Tablet & Mobile Kiosk Controller)
  */
 
+// Auto-attach CSRF token to mutating requests
+(function() {
+    const origFetch = window.fetch;
+    window.fetch = function(url, options = {}) {
+        if (options && options.method && ['POST', 'PUT', 'DELETE', 'PATCH'].includes(options.method.toUpperCase())) {
+            const csrfToken = sessionStorage.getItem('sg_csrf_token');
+            if (csrfToken) {
+                if (!options.headers) {
+                    options.headers = {};
+                }
+                if (options.headers instanceof Headers) {
+                    if (!options.headers.has('X-CSRF-Token')) {
+                        options.headers.set('X-CSRF-Token', csrfToken);
+                    }
+                } else if (!options.headers['X-CSRF-Token']) {
+                    options.headers['X-CSRF-Token'] = csrfToken;
+                }
+            }
+        }
+        return origFetch(url, options);
+    };
+})();
+
 document.addEventListener('DOMContentLoaded', () => {
     // --- STATE VARIABLES ---
     let wakeLock = null;
@@ -313,6 +336,31 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     let currentTtsAudio = null;
+    let currentTtsUrl = null;
+
+    function playBrowserSpeechSynthesisDash(clean, onEnded) {
+        if (!('speechSynthesis' in window)) {
+            if (typeof onEnded === 'function') onEnded();
+            return;
+        }
+        try {
+            window.speechSynthesis.cancel();
+            const utt = new SpeechSynthesisUtterance(clean);
+            utt.lang = 'uk-UA';
+            const ukVoice = getUkrainianVoice();
+            if (ukVoice) utt.voice = ukVoice;
+            utt.onend = () => {
+                if (typeof onEnded === 'function') onEnded();
+            };
+            utt.onerror = () => {
+                if (typeof onEnded === 'function') onEnded();
+            };
+            window.speechSynthesis.speak(utt);
+        } catch (e) {
+            console.warn('Dashboard browser speechSynthesis error:', e);
+            if (typeof onEnded === 'function') onEnded();
+        }
+    }
 
     function speakText(text, onEnded) {
         if (!ttsEnabled) {
@@ -338,12 +386,20 @@ document.addEventListener('DOMContentLoaded', () => {
             } catch (_) {}
             currentTtsAudio = null;
         }
+        if (currentTtsUrl) {
+            try { URL.revokeObjectURL(currentTtsUrl); } catch (_) {}
+            currentTtsUrl = null;
+        }
 
         let endedFired = false;
         const fireEnded = () => {
             if (endedFired) return;
             endedFired = true;
             if (btnMicHero) btnMicHero.classList.remove('speaking');
+            if (currentTtsUrl) {
+                try { URL.revokeObjectURL(currentTtsUrl); } catch (_) {}
+                currentTtsUrl = null;
+            }
             currentTtsAudio = null;
             if (typeof onEnded === 'function') {
                 onEnded();
@@ -354,31 +410,54 @@ document.addEventListener('DOMContentLoaded', () => {
             btnMicHero.classList.add('speaking');
         }
 
-        // 1. Play high-definition neural Ukrainian voice (Ostap) directly in the browser!
-        try {
-            const audioUrl = '/api/voice/tts?text=' + encodeURIComponent(clean);
-            currentTtsAudio = new Audio(audioUrl);
-            currentTtsAudio.onended = fireEnded;
-            currentTtsAudio.onerror = fireEnded;
-            currentTtsAudio.play().catch(err => {
-                console.warn('Browser audio autoplay blocked, broadcasting to garage speaker:', err);
-                // 2. Fallback: broadcast neural speech via PipeWire pw-play on garage speaker
-                fetch('/api/voice/speak', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ text: clean })
-                }).catch(e => console.warn('Server TTS failed:', e));
-                setTimeout(fireEnded, Math.min(Math.max(clean.length * 80, 1800), 5000));
+        const ttsUrl = '/api/voice/tts?text=' + encodeURIComponent(clean);
+        fetch(ttsUrl)
+            .then(res => {
+                if (!res.ok) {
+                    throw new Error(`Server TTS HTTP ${res.status}`);
+                }
+                const provider = res.headers.get('X-TTS-Provider') || 'server';
+                const isFallback = res.headers.get('X-TTS-Fallback') === 'true';
+                if (isFallback) {
+                    console.info(`[Dashboard TTS] Використано серверний fallback: ${provider}`);
+                }
+                return res.blob();
+            })
+            .then(blob => {
+                if (!blob || blob.size === 0) {
+                    throw new Error('Отримано порожнє аудіо від сервера');
+                }
+                currentTtsUrl = URL.createObjectURL(blob);
+                currentTtsAudio = new Audio(currentTtsUrl);
+                currentTtsAudio.onended = fireEnded;
+                currentTtsAudio.onerror = () => {
+                    console.warn('[Dashboard TTS] Audio playback error, fallback to browser synthesis');
+                    if (voiceStatusText) {
+                        voiceStatusText.textContent = '⚠️ Резервний синтез: браузерний голос';
+                        voiceStatusText.style.color = 'var(--accent-amber)';
+                    }
+                    playBrowserSpeechSynthesisDash(clean, fireEnded);
+                };
+                return currentTtsAudio.play();
+            })
+            .catch(err => {
+                console.warn('[Dashboard TTS] Серверний синтез недоступний:', err.message);
+                if (voiceStatusText) {
+                    voiceStatusText.textContent = '⚠️ Серверний TTS недоступний (резерв: браузерний голос)';
+                    voiceStatusText.style.color = 'var(--accent-amber)';
+                }
+                if ('speechSynthesis' in window) {
+                    playBrowserSpeechSynthesisDash(clean, fireEnded);
+                } else {
+                    // Якщо браузер не має speechSynthesis, передаємо на Bluetooth/PipeWire сервера
+                    fetch('/api/voice/speak', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ text: clean })
+                    }).catch(e => console.warn('Server TTS speak_locally failed:', e));
+                    setTimeout(fireEnded, Math.min(Math.max(clean.length * 80, 1800), 5000));
+                }
             });
-        } catch (e) {
-            console.warn('Audio init error, broadcasting to garage speaker:', e);
-            fetch('/api/voice/speak', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ text: clean })
-            }).catch(e => console.warn('Server TTS failed:', e));
-            setTimeout(fireEnded, Math.min(Math.max(clean.length * 80, 1800), 5000));
-        }
     }
 
     // --- WAKE WORD PARSER & FILTER ---
@@ -677,12 +756,24 @@ document.addEventListener('DOMContentLoaded', () => {
         if (voiceDialogBox) voiceDialogBox.style.display = 'flex';
 
         try {
+            let webSessionId = sessionStorage.getItem('sg_session_id');
+            const reqPayload = { command: query };
+            if (webSessionId) {
+                reqPayload.session_id = webSessionId;
+            }
+
             const res = await fetch('/command', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ command: query })
+                body: JSON.stringify(reqPayload)
             });
+            if (res.status === 403) {
+                sessionStorage.removeItem('sg_session_id');
+            }
             const data = await res.json();
+            if (data.session_id) {
+                sessionStorage.setItem('sg_session_id', data.session_id);
+            }
             const reply = data.response || 'Команду виконано.';
             if (dialogAiText) dialogAiText.textContent = reply;
 
@@ -777,6 +868,11 @@ document.addEventListener('DOMContentLoaded', () => {
             try {
                 const res = await fetch('/api/device/door/toggle', { method: 'POST' });
                 const data = await res.json();
+                if (!data.success) {
+                    if (statusDoor) statusDoor.textContent = 'Невідомо';
+                    if (voiceStatusText) voiceStatusText.textContent = data.error || 'Керування воротами вимкнено';
+                    return;
+                }
                 updateDoorState(data.door === 'open');
             } catch (err) {
                 console.error(err);
@@ -1593,120 +1689,94 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (st.relays_installed === false) {
                     if (statusLight) statusLight.textContent = 'Очікує реле';
                     if (statusFan) statusFan.textContent = 'Очікує реле';
-                    if (statusDoor) statusDoor.textContent = 'Очікує реле';
+                    if (statusDoor) statusDoor.textContent = 'Невідомо';
                     if (tileLight) tileLight.classList.remove('active-light');
                     if (tileFan) tileFan.classList.remove('active-fan');
                     if (tileDoor) tileDoor.classList.remove('active-light');
                 } else {
                     updateLightState(st.light);
                     updateFanState(st.fan);
-                    updateDoorState(st.door === 'open');
+                    if (st.door_installed === false || st.door === 'unknown') {
+                        if (statusDoor) statusDoor.textContent = 'Невідомо';
+                        if (tileDoor) tileDoor.classList.remove('active-light');
+                    } else {
+                        updateDoorState(st.door === 'open');
+                    }
                 }
 
-                // 3-Floor Climate Telemetry
+                // 3-Floor Climate Telemetry with strict freshness rules
                 const floors = st.floors || {};
                 const f1 = floors.floor1 || {};
                 const f2 = floors.floor2 || {};
                 const fb = floors.basement || {};
 
-                // Helper for comfort status
-                const getComfort = (t, h) => {
-                    if (t === null || t === undefined || isNaN(t)) return 'Очікування';
-                    if (t < 18) return 'Прохолодно';
-                    if (t <= 25) return 'Комфортно';
-                    return 'Тепло';
+                // Helper to render climate tile with strict freshness rules
+                const renderFloorTile = (floorObj, defaultName, valTempEl, valHumEl, subEl, batEl, cardEl) => {
+                    const isInstalled = floorObj && floorObj.installed !== false;
+                    const status = floorObj ? (floorObj.status || (floorObj.online ? 'online' : (floorObj.is_stale ? 'stale' : 'offline'))) : 'never_seen';
+                    const isOnline = status === 'online' && floorObj && floorObj.current_temperature !== null && floorObj.current_temperature !== undefined;
+                    const lastTemp = floorObj ? (floorObj.last_known_temperature ?? floorObj.temperature) : null;
+                    const lastHum = floorObj ? (floorObj.last_known_humidity ?? floorObj.humidity) : null;
+                    const lastTime = floorObj ? (floorObj.last_updated_time || '--:--') : '--:--';
+                    const lastRel = floorObj ? (floorObj.last_updated_relative || '') : '';
+                    const srcName = floorObj && floorObj.source_name ? floorObj.source_name : 'BLE';
+                    const batVal = (floorObj && floorObj.battery !== null && floorObj.battery !== undefined) ? `🔋 ${floorObj.battery}%` : '--';
+
+                    let tVal = '--';
+                    let hVal = '--';
+                    let subText = 'Очікує даних';
+                    let tooltip = defaultName;
+
+                    if (!isInstalled || status === 'not_installed') {
+                        tVal = '--';
+                        hVal = '--';
+                        subText = 'Датчик не встановлено';
+                        tooltip = `${defaultName}: датчик не встановлено`;
+                    } else if (isOnline) {
+                        tVal = Number(floorObj.current_temperature).toFixed(1);
+                        hVal = (floorObj.current_humidity !== null && floorObj.current_humidity !== undefined) ? Number(floorObj.current_humidity).toFixed(0) : '--';
+                        subText = `Актуально • ${lastTime}`;
+                        tooltip = `${defaultName}: Актуально (${srcName}) • Оновлено о ${lastTime}`;
+                    } else if (status === 'stale') {
+                        tVal = '--';
+                        hVal = '--';
+                        const lastValStr = lastTemp !== null ? ` (ост. ${Number(lastTemp).toFixed(1)} °C)` : '';
+                        subText = `Дані застаріли${lastValStr} • ${lastRel || lastTime}`;
+                        tooltip = `${defaultName}: Дані застаріли (${srcName}) • Останній вимір: ${lastTemp !== null ? Number(lastTemp).toFixed(1) + ' °C о ' : ''}${lastTime}`;
+                    } else if (status === 'offline') {
+                        tVal = '--';
+                        hVal = '--';
+                        const lastValStr = lastTemp !== null ? ` (${Number(lastTemp).toFixed(1)} °C)` : '';
+                        subText = `Офлайн — останній вимір ${lastTime}${lastValStr}`;
+                        tooltip = `${defaultName}: Офлайн (${srcName}) • Останній вимір: ${lastTime}`;
+                    } else {
+                        // never_seen
+                        tVal = '--';
+                        hVal = '--';
+                        subText = 'Дані ще не надходили';
+                        tooltip = `${defaultName}: очікування першого виміру`;
+                    }
+
+                    if (valTempEl) {
+                        valTempEl.textContent = tVal;
+                        valTempEl.title = tooltip;
+                        valTempEl.setAttribute('data-tooltip', tooltip);
+                        valTempEl.style.cursor = 'help';
+                    }
+                    if (valHumEl) {
+                        valHumEl.textContent = hVal;
+                        valHumEl.title = tooltip;
+                    }
+                    if (subEl) subEl.textContent = subText;
+                    if (batEl) batEl.textContent = (!isInstalled || status === 'not_installed') ? '--' : batVal;
+                    if (cardEl) {
+                        cardEl.classList.toggle('is-stale', status === 'stale');
+                    }
                 };
 
-                // Format update time helper
-                const formatUpdateTime = (floorObj) => {
-                    if (!floorObj) return 'Очікується оновлення';
-                    if (floorObj.last_updated_formatted) return `Оновлено: ${floorObj.last_updated_formatted}`;
-                    if (floorObj.last_updated_time) return `Оновлено: ${floorObj.last_updated_time}`;
-                    return 'Очікується оновлення';
-                };
-
-                // Floor 1 (Garage - currently waiting for sensor)
-                const isOnlineF1 = !!f1.online;
-                const hasF1 = isOnlineF1 && f1.temperature !== null && f1.temperature !== undefined;
-                const t1 = hasF1 ? Number(f1.temperature).toFixed(1) : '--';
-                const h1 = (hasF1 && f1.humidity !== null && f1.humidity !== undefined) ? Number(f1.humidity).toFixed(0) : '--';
-                const tip1 = formatUpdateTime(f1);
-                if (valTempFloor1) {
-                    valTempFloor1.textContent = t1;
-                    valTempFloor1.title = tip1;
-                    valTempFloor1.setAttribute('data-tooltip', tip1);
-                    valTempFloor1.style.cursor = 'help';
-                }
-                if (valHumFloor1) {
-                    valHumFloor1.textContent = h1;
-                    valHumFloor1.title = tip1;
-                }
-                if (subFloor1) subFloor1.textContent = hasF1 ? `${getComfort(Number(t1), Number(h1))} • ${f1.last_updated_time || '--:--'}` : 'Очікує BLE-датчик';
-                if (batFloor1) batFloor1.textContent = hasF1 ? `🔋 ${f1.battery || 100}%` : '--';
-
-                // Floor 2 (LYWSD03MMC BLE)
-                const isOnlineF2 = !!f2.online;
-                const isStaleF2 = !!f2.is_stale;
-                const hasF2 = f2.temperature !== null && f2.temperature !== undefined;
-                const t2 = hasF2 ? Number(f2.temperature).toFixed(1) : '--';
-                const h2 = (hasF2 && f2.humidity !== null && f2.humidity !== undefined) ? Number(f2.humidity).toFixed(0) : '--';
-                const b2 = hasF2 && f2.battery !== null && f2.battery !== undefined ? `🔋 ${f2.battery}%` : '--';
-                const tip2 = formatUpdateTime(f2);
-                if (valTempFloor2) {
-                    valTempFloor2.textContent = t2;
-                    valTempFloor2.title = tip2;
-                    valTempFloor2.setAttribute('data-tooltip', tip2);
-                    valTempFloor2.style.cursor = 'help';
-                }
-                if (valHumFloor2) {
-                    valHumFloor2.textContent = h2;
-                    valHumFloor2.title = tip2;
-                }
-                if (floorCard2) {
-                    floorCard2.classList.toggle('is-stale', isStaleF2);
-                }
-                if (subFloor2) {
-                    if (isOnlineF2) {
-                        subFloor2.textContent = `Онлайн • ${f2.last_updated_time || '--:--'}`;
-                    } else if (isStaleF2) {
-                        subFloor2.textContent = `Застарілі дані (${f2.last_updated_relative || f2.last_updated_time})`;
-                    } else {
-                        subFloor2.textContent = hasF2 ? `Офлайн • ${f2.last_updated_time || '--:--'}` : 'Офлайн (немає зв\'язку)';
-                    }
-                }
-                if (batFloor2) batFloor2.textContent = b2;
-
-                // Basement (LYWSD03MMC BLE)
-                const isOnlineFB = !!fb.online;
-                const isStaleFB = !!fb.is_stale;
-                const hasFB = fb.temperature !== null && fb.temperature !== undefined;
-                const tb = hasFB ? Number(fb.temperature).toFixed(1) : '--';
-                const hb = (hasFB && fb.humidity !== null && fb.humidity !== undefined) ? Number(fb.humidity).toFixed(0) : '--';
-                const bb = (hasFB && fb.battery !== null && fb.battery !== undefined) ? `🔋 ${fb.battery}%` : '--';
-                const tipB = formatUpdateTime(fb);
-                if (valTempBasement) {
-                    valTempBasement.textContent = tb;
-                    valTempBasement.title = tipB;
-                    valTempBasement.setAttribute('data-tooltip', tipB);
-                    valTempBasement.style.cursor = 'help';
-                }
-                if (valHumBasement) {
-                    valHumBasement.textContent = hb;
-                    valHumBasement.title = tipB;
-                }
-                if (floorCardBasement) {
-                    floorCardBasement.classList.toggle('is-stale', isStaleFB);
-                }
-                if (subBasement) {
-                    if (isOnlineFB) {
-                        subBasement.textContent = `${getComfort(Number(tb), Number(hb))} • ${fb.last_updated_time || '--:--'}`;
-                    } else if (isStaleFB) {
-                        subBasement.textContent = `Застарілі дані (${fb.last_updated_relative || fb.last_updated_time})`;
-                    } else {
-                        subBasement.textContent = hasFB ? `Офлайн • ${fb.last_updated_time || '--:--'}` : 'Очікує даних';
-                    }
-                }
-                if (batBasement) batBasement.textContent = bb;
+                renderFloorTile(f1, '1-й поверх (Гараж)', valTempFloor1, valHumFloor1, subFloor1, batFloor1, floorCard1);
+                renderFloorTile(f2, '2-й поверх', valTempFloor2, valHumFloor2, subFloor2, batFloor2, floorCard2);
+                renderFloorTile(fb, 'Підвал', valTempBasement, valHumBasement, subBasement, batBasement, floorCardBasement);
 
                 // BLE sensors summary (Count configured BLE climate sensors)
                 const totalBleSensors = 2; // Basement + Floor 2
@@ -1720,18 +1790,18 @@ document.addEventListener('DOMContentLoaded', () => {
                     } else if (activeBleCount === 1) {
                         subBleSensors.textContent = f2.online ? "2-й поверх на зв'язку" : "Підвал на зв'язку";
                     } else {
-                        subBleSensors.textContent = (isStaleFB || isStaleF2) ? "Дані застарілі (ESP32 офлайн)" : "Очікування сигналів";
+                        subBleSensors.textContent = (fb.is_stale || f2.is_stale) ? "Дані застаріли" : "Очікування сигналів";
                     }
                 }
 
                 // Air quality / Gas
                 if (valAir) {
                     if (st.gas_ppm === null || st.gas_installed === false) {
-                        valAir.textContent = 'Очікує монтажу';
+                        valAir.textContent = 'Не встановлено';
                         valAir.style.fontSize = '1.05rem';
                         valAir.style.color = 'var(--text-muted, #94a3b8)';
                         if (subAir) {
-                            subAir.textContent = 'MQ2 не підключено';
+                            subAir.textContent = 'Датчик газу не планується';
                             subAir.style.color = 'var(--text-muted, #94a3b8)';
                         }
                     } else {
@@ -2419,17 +2489,37 @@ document.addEventListener('DOMContentLoaded', () => {
             const s2 = sensors.floor2 || {};
 
             // Basement
-            if (tempSensorBasement) tempSensorBasement.textContent = sb.temperature !== null && sb.temperature !== undefined ? `${Number(sb.temperature).toFixed(1)} °C` : '--';
-            if (humSensorBasement) humSensorBasement.textContent = sb.humidity !== null && sb.humidity !== undefined ? `${Number(sb.humidity).toFixed(0)} %` : '--';
+            const isOnlineSb = sb.status === 'online' || (sb.online && sb.current_temperature !== null);
+            if (tempSensorBasement) {
+                if (isOnlineSb && sb.current_temperature !== null && sb.current_temperature !== undefined) {
+                    tempSensorBasement.textContent = `${Number(sb.current_temperature).toFixed(1)} °C`;
+                } else if (sb.last_known_temperature !== null && sb.last_known_temperature !== undefined) {
+                    tempSensorBasement.textContent = `-- °C (ост: ${Number(sb.last_known_temperature).toFixed(1)} °C)`;
+                } else {
+                    tempSensorBasement.textContent = '-- °C';
+                }
+            }
+            if (humSensorBasement) {
+                if (isOnlineSb && sb.current_humidity !== null && sb.current_humidity !== undefined) {
+                    humSensorBasement.textContent = `${Number(sb.current_humidity).toFixed(0)} %`;
+                } else if (sb.last_known_humidity !== null && sb.last_known_humidity !== undefined) {
+                    humSensorBasement.textContent = `-- % (ост: ${Number(sb.last_known_humidity).toFixed(0)} %)`;
+                } else {
+                    humSensorBasement.textContent = '-- %';
+                }
+            }
             if (batSensorBasement) batSensorBasement.textContent = sb.battery !== null && sb.battery !== undefined ? `🔋 ${sb.battery}%` : '🔋 --';
-            if (readTimeSensorBasement) readTimeSensorBasement.textContent = `Останнє зчитування: ${sb.last_read_time || '--:--'} (${sb.last_read_relative || 'немає'})`;
+            if (readTimeSensorBasement) readTimeSensorBasement.textContent = `Останнє зчитування: ${sb.last_read_time || sb.last_updated_time || '--:--'} (${sb.last_read_relative || sb.last_updated_relative || 'немає'})`;
             if (badgeSensorBasement) {
-                if (sb.online) {
+                if (sb.status === 'online' || sb.online) {
                     badgeSensorBasement.className = 'sensor-badge badge-online';
-                    badgeSensorBasement.textContent = '🟢 Онлайн';
-                } else if (sb.is_stale) {
+                    badgeSensorBasement.textContent = '🟢 Актуально';
+                } else if (sb.status === 'stale' || sb.is_stale) {
                     badgeSensorBasement.className = 'sensor-badge badge-stale';
-                    badgeSensorBasement.textContent = '⚠️ Застаріло';
+                    badgeSensorBasement.textContent = '⚠️ Дані застаріли';
+                } else if (sb.status === 'not_installed' || sb.installed === false) {
+                    badgeSensorBasement.className = 'sensor-badge badge-offline';
+                    badgeSensorBasement.textContent = '⚪ Не встановлено';
                 } else {
                     badgeSensorBasement.className = 'sensor-badge badge-offline';
                     badgeSensorBasement.textContent = '🔴 Офлайн';
@@ -2437,17 +2527,37 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             // Floor 2
-            if (tempSensorFloor2) tempSensorFloor2.textContent = s2.temperature !== null && s2.temperature !== undefined ? `${Number(s2.temperature).toFixed(1)} °C` : '--';
-            if (humSensorFloor2) humSensorFloor2.textContent = s2.humidity !== null && s2.humidity !== undefined ? `${Number(s2.humidity).toFixed(0)} %` : '--';
+            const isOnlineS2 = s2.status === 'online' || (s2.online && s2.current_temperature !== null);
+            if (tempSensorFloor2) {
+                if (isOnlineS2 && s2.current_temperature !== null && s2.current_temperature !== undefined) {
+                    tempSensorFloor2.textContent = `${Number(s2.current_temperature).toFixed(1)} °C`;
+                } else if (s2.last_known_temperature !== null && s2.last_known_temperature !== undefined) {
+                    tempSensorFloor2.textContent = `-- °C (ост: ${Number(s2.last_known_temperature).toFixed(1)} °C)`;
+                } else {
+                    tempSensorFloor2.textContent = '-- °C';
+                }
+            }
+            if (humSensorFloor2) {
+                if (isOnlineS2 && s2.current_humidity !== null && s2.current_humidity !== undefined) {
+                    humSensorFloor2.textContent = `${Number(s2.current_humidity).toFixed(0)} %`;
+                } else if (s2.last_known_humidity !== null && s2.last_known_humidity !== undefined) {
+                    humSensorFloor2.textContent = `-- % (ост: ${Number(s2.last_known_humidity).toFixed(0)} %)`;
+                } else {
+                    humSensorFloor2.textContent = '-- %';
+                }
+            }
             if (batSensorFloor2) batSensorFloor2.textContent = s2.battery !== null && s2.battery !== undefined ? `🔋 ${s2.battery}%` : '🔋 --';
-            if (readTimeSensorFloor2) readTimeSensorFloor2.textContent = `Останнє зчитування: ${s2.last_read_time || '--:--'} (${s2.last_read_relative || 'немає'})`;
+            if (readTimeSensorFloor2) readTimeSensorFloor2.textContent = `Останнє зчитування: ${s2.last_read_time || s2.last_updated_time || '--:--'} (${s2.last_read_relative || s2.last_updated_relative || 'немає'})`;
             if (badgeSensorFloor2) {
-                if (s2.online) {
+                if (s2.status === 'online' || s2.online) {
                     badgeSensorFloor2.className = 'sensor-badge badge-online';
-                    badgeSensorFloor2.textContent = '🟢 Онлайн';
-                } else if (s2.is_stale) {
+                    badgeSensorFloor2.textContent = '🟢 Актуально';
+                } else if (s2.status === 'stale' || s2.is_stale) {
                     badgeSensorFloor2.className = 'sensor-badge badge-stale';
-                    badgeSensorFloor2.textContent = '⚠️ Застаріло';
+                    badgeSensorFloor2.textContent = '⚠️ Дані застаріли';
+                } else if (s2.status === 'not_installed' || s2.installed === false) {
+                    badgeSensorFloor2.className = 'sensor-badge badge-offline';
+                    badgeSensorFloor2.textContent = '⚪ Не встановлено';
                 } else {
                     badgeSensorFloor2.className = 'sensor-badge badge-offline';
                     badgeSensorFloor2.textContent = '🔴 Офлайн';

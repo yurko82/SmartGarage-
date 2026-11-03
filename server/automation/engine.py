@@ -15,7 +15,7 @@ class AutomationEngine:
 
         # Track previous states to trigger edge-based automations
         self._last_car_present = False
-        self._last_gas_level = 0
+        self._last_gas_level = None
         self._last_motion = False
 
     def evaluate_telemetry(self, telemetry):
@@ -25,18 +25,11 @@ class AutomationEngine:
 
         with self._lock:
             car_present = bool(telemetry.get("car_present"))
-            gas_val = telemetry.get("gas_ppm")
-            gas_ppm = float(gas_val) if (gas_val is not None) else 0.0
             motion = bool(telemetry.get("motion_detected"))
 
-            # Auto Safety: Gas/Smoke spike detection
-            last_gas = float(self._last_gas_level or 0.0)
-            if gas_ppm > 200 and last_gas <= 200:
-                self.logger.warning(f"⚠️ HIGH GAS DETECTED ({gas_ppm} ppm)! Triggering Emergency Ventilation.")
-                self.scenario_gas_alarm()
-
+            # Gas sensor is not installed: no gas threshold comparisons or alarms executed
             self._last_car_present = car_present
-            self._last_gas_level = gas_ppm
+            self._last_gas_level = None
             self._last_motion = motion
 
     def scenario_car_arrival(self):
@@ -44,16 +37,14 @@ class AutomationEngine:
         self.logger.info("🚗 Executing Scenario: Car Arrival")
         actions = []
         if self.esp32:
-            self.esp32.door_open()
             self.esp32.light_on()
-            actions.append("Ворота відкрито")
             actions.append("Освітлення увімкнено")
 
         if self.projector and self.projector.is_reachable():
             self.projector.render_and_send_slide(
                 title="Ласкаво просимо додому!",
                 subtitle="Сценарій: Прибуття авто",
-                details=["Ворота: Відкрито", "Освітлення: 100%", "Паркувальне місце: Готове"]
+                details=["Освітлення: 100%", "Паркувальне місце: Готове"]
             )
             actions.append("Слайд привітання на проекторі")
 
@@ -64,9 +55,7 @@ class AutomationEngine:
         self.logger.info("🚗 Executing Scenario: Departure")
         actions = []
         if self.esp32:
-            self.esp32.door_close()
             self.esp32.light_off()
-            actions.append("Ворота закрито")
             actions.append("Освітлення вимкнено")
 
         if self.projector:
@@ -81,10 +70,8 @@ class AutomationEngine:
         self.logger.info("🌙 Executing Scenario: Night Security Mode")
         actions = []
         if self.esp32:
-            self.esp32.door_close()
             self.esp32.light_off()
             self.esp32.fan_off()
-            actions.append("Ворота надійно зачинено")
             actions.append("Всі прилади та освітлення знеструмлено")
 
         if self.projector:
@@ -114,26 +101,9 @@ class AutomationEngine:
         return True, "🍿 Сценарій 'Кінотеатр у гаражі' активовано: " + ", ".join(actions)
 
     def scenario_gas_alarm(self):
-        """Scenario: Emergency Ventilation & Safety."""
-        self.logger.warning("🚨 Executing Scenario: Gas & Smoke Emergency")
-        actions = []
-        if self.esp32:
-            self.esp32.fan_on()
-            self.esp32.door_open()
-            self.esp32.light_on()
-            actions.append("Вентиляцію увімкнено на 100%")
-            actions.append("Ворота відкрито для провітрювання")
-            actions.append("Освітлення увімкнено для безпеки")
-
-        if self.projector and self.projector.is_reachable():
-            self.projector.render_and_send_slide(
-                title="⚠️ УВАГА: ЗАГАЗОВАНІСТЬ!",
-                subtitle="Активовано аварійне провітрювання",
-                details=["Витяжка: 100% потужності", "Ворота: Відкрито", "Зачекайте очищення повітря"]
-            )
-            actions.append("Тривожне попередження на проекторі")
-
-        return True, "🚨 АВАРІЙНИЙ СЦЕНАРІЙ 'Безпека / Вентиляція': " + ", ".join(actions)
+        """Scenario: Emergency Ventilation & Safety (Disabled: gas sensor not installed)."""
+        self.logger.info("Сценарій аварійного газу відхилено: газовий датчик не встановлений.")
+        return False, "⚠️ Функція недоступна: газовий датчик не встановлений."
 
     def list_scenarios(self):
         return """Доступні сценарії автоматизації Smart Garage:
@@ -141,4 +111,4 @@ class AutomationEngine:
   2. 🔒 'Від'їзд' (команда: 'я поїхав', 'сценарій від'їзд')
   3. 🌙 'Нічний режим' (команда: 'добраніч', 'нічний режим')
   4. 🍿 'Кінотеатр у гаражі' (команда: 'кінотеатр', 'режим кіно')
-  5. 🚨 'Безпека / Провітрювання' (команда: 'провітрити', 'тривога')"""
+  5. 🚨 'Безпека / Газ' (недоступно: датчик газу не встановлений)"""

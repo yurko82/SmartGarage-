@@ -20,3 +20,6 @@ devices/ytmusic_playlists.json
 *.db-wal
 *.db-shm
 *.hcd
+output/
+memory/dialog_sessions.json
+memory/openrouter_usage.json

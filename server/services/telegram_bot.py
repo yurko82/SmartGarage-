@@ -420,7 +420,7 @@ class TelegramBot:
                 f"• ⚓ *Підвал (LYWSD03MMC):* `{temp_str}` (Вологість: `{hum_str}`, 🔋 `{fb.get('battery', '--')}%`)\n"
                 f"• 🏢 *2-й поверх (LYWSD03MMC):* {f2_status_desc}\n"
                 f"• 🏠 *1-й поверх:* Очікує датчик\n"
-                f"• 🚪 *Ворота:* Очікує датчик\n"
+                f"• 🚪 *Ворота:* Невідомо (привід не встановлений)\n"
                 f"• 💡 *Світло:* Очікує реле\n"
             )
             self.send_message(chat_id, text, reply_markup=self._get_main_keyboard())
@@ -599,15 +599,10 @@ class TelegramBot:
             self.send_message(chat_id, f"Помилка перевірки присутності: {e}")
 
     def _send_door_menu(self, chat_id: int):
-        reply_markup = {
-            "inline_keyboard": [
-                [
-                    {"text": "🟢 Відчинити ворота", "callback_data": "door_open"},
-                    {"text": "🔴 Зачинити ворота", "callback_data": "door_close"}
-                ]
-            ]
-        }
-        self.send_message(chat_id, "🚪 *Керування воротами:* (Очікує фізичного підключення реле)", reply_markup=reply_markup)
+        self.send_message(
+            chat_id,
+            "🚪 *Гаражні ворота:* Керування вимкнено (привід воріт не планується / не встановлений).\nСтан: *Невідомо (unknown)*."
+        )
 
     def _send_light_menu(self, chat_id: int):
         reply_markup = {
@@ -643,12 +638,8 @@ class TelegramBot:
         except Exception:
             pass
 
-        if data == "door_open":
-            self.garage.esp32.door_open()
-            self.send_message(chat_id, "🚪 Надіслано сигнал відкриття воріт (реле).")
-        elif data == "door_close":
-            self.garage.esp32.door_close()
-            self.send_message(chat_id, "🚪 Надіслано сигнал закриття воріт (реле).")
+        if data in ("door_open", "door_close"):
+            self.send_message(chat_id, "⚠️ Керування воротами вимкнено: привід воріт не планується / не встановлений.")
         elif data == "light_on":
             self.garage.esp32.light_on()
             self.send_message(chat_id, "💡 Світло увімкнено.")
