@@ -72,5 +72,10 @@
       "Door reed switch / open sensor (немає і не передбачається - ворота мають лише реле імпульсу)",
       "MQ Gas/Smoke analyzer (немає і не передбачається)"
     ]
+  },
+  "repository": {
+    "remote_url": "git@github.com:yurko82/SmartGarage-.git",
+    "branch": "main",
+    "auth": "SSH ed25519 (~/.ssh/id_ed25519)"
   }
 }
