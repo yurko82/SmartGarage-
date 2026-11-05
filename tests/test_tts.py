@@ -434,3 +434,42 @@ class TestWebAppTTSEndpoints(unittest.TestCase):
         raw_body = resp.get_data(as_text=True)
         self.assertNotIn("api_key", raw_body)
         self.assertNotIn("secret", raw_body.lower())
+        # Перевірка наявності голосів у статусі
+        edge_voices = data["providers"]["edge"].get("voices", [])
+        self.assertGreater(len(edge_voices), 0)
+        self.assertIn("voice_id", edge_voices[0])
+
+    def test_voice_config_endpoints(self):
+        # 1. GET /api/voice/config
+        get_res = self.client.get("/api/voice/config")
+        self.assertEqual(get_res.status_code, 200)
+        get_data = get_res.get_json()
+        self.assertTrue(get_data["success"])
+        self.assertIn("active_provider", get_data)
+
+        # 2. POST /api/voice/config with valid provider and voice
+        post_res = self.client.post("/api/voice/config", json={
+            "provider": "edge",
+            "voice_id": "uk-UA-OstapNeural"
+        })
+        self.assertEqual(post_res.status_code, 200)
+        post_data = post_res.get_json()
+        self.assertTrue(post_data["success"])
+        self.assertEqual(post_data["active_provider"], "edge")
+        self.assertEqual(post_data["active_voice_id"], "uk-UA-OstapNeural")
+
+        # 3. POST /api/voice/config with invalid provider returns 400
+        bad_res = self.client.post("/api/voice/config", json={
+            "provider": "non_existent_provider"
+        })
+        self.assertEqual(bad_res.status_code, 400)
+        self.assertFalse(bad_res.get_json()["success"])
+
+    def test_manager_set_active_provider_and_voice(self):
+        mgr = TTSManager()
+        self.assertTrue(mgr.set_active_provider("edge"))
+        self.assertEqual(mgr.active_provider_name, "edge")
+        self.assertFalse(mgr.set_active_provider("unknown_prov"))
+
+        mgr.set_active_voice("uk-UA-PolinaNeural")
+        self.assertEqual(mgr.active_voice_id, "uk-UA-PolinaNeural")

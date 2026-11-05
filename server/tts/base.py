@@ -6,7 +6,7 @@ Smart Garage - Base TTS Provider Interfaces and Data Structures
 """
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 from typing import Dict, List, Optional, Any
 
 
@@ -55,6 +55,9 @@ class TTSVoiceInfo:
     preview_url: Optional[str] = None
     description: Optional[str] = None
     is_default: bool = False
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
 
 
 @dataclass

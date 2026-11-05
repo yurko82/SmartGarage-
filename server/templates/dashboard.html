@@ -107,12 +107,12 @@
                         </div>
                     </div>
 
-                    <!-- Gate / Door Tile -->
-                    <div class="touch-tile" id="tileDoor" role="button" tabindex="0" aria-label="Ворота або двері: перемкнути">
+                    <!-- Gate / Door Tile (Uninstalled / Disabled) -->
+                    <div class="touch-tile tile-disabled" id="tileDoor" role="button" tabindex="0" aria-label="Ворота або двері: привід не встановлено">
                         <div class="tile-icon-box">🚪</div>
                         <div>
                             <div class="tile-label">Ворота / Двері</div>
-                            <div class="tile-status" id="statusDoor">Очікує реле</div>
+                            <div class="tile-status" id="statusDoor">Не встановлено</div>
                         </div>
                     </div>
                 </div>
@@ -242,7 +242,11 @@
                     <div class="card-title">
                         <span>🎙️</span> Голосовий помічник AI
                     </div>
-                    <div style="display: flex; gap: 8px; align-items: center;">
+                    <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                        <button class="btn-wake-toggle" id="btnTtsSettings" title="Налаштування українського голосового TTS" aria-label="Налаштування голосового синтезу">
+                            <span>⚙️</span>
+                            <span id="ttsProviderLabel">TTS: Edge (Поліна)</span>
+                        </button>
                         <button class="btn-wake-toggle" id="btnWakeContinuous" title="Режим авто-слухання фрази «Альо, гараж»" aria-label="Авто-слухання «Альо, гараж»">
                             <span class="wake-dot"></span>
                             <span class="wake-label" id="wakeContinuousLabel">«Альо, гараж»: Вимкнено</span>
@@ -274,6 +278,42 @@
                         <input type="text" class="voice-input-field" id="voiceInput" placeholder="Або введіть команду текстом..." aria-label="Введення команди текстом">
                         <button type="submit" class="voice-submit-btn" aria-label="Надіслати голосову команду">➤</button>
                     </form>
+
+                    <!-- Ukrainian TTS Configuration & Fallback Panel -->
+                    <div class="tts-settings-panel" id="ttsSettingsPanel" style="display: none; margin-top: 15px; padding: 14px 18px; background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(148, 163, 184, 0.2); border-radius: 12px; width: 100%; max-width: 650px; text-align: left;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;">
+                            <div style="font-weight: 600; font-size: 0.95rem; display: flex; align-items: center; gap: 6px;">
+                                <span>🔊</span> Український голосовий синтез (TTS)
+                            </div>
+                            <span class="badge" id="ttsFallbackBadge" style="font-size: 0.75rem; padding: 3px 8px; border-radius: 6px; background: rgba(52, 211, 153, 0.15); color: #34d399; font-weight: 500;">
+                                Baseline: Edge TTS (Безкоштовно)
+                            </span>
+                        </div>
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 12px;">
+                            <div>
+                                <label for="selectTtsProvider" style="display: block; font-size: 0.8rem; color: #94a3b8; margin-bottom: 4px;">Провайдер синтезу:</label>
+                                <select id="selectTtsProvider" class="form-select" style="width: 100%; padding: 8px 10px; border-radius: 8px; background: #1e293b; color: #f8fafc; border: 1px solid #334155; font-size: 0.85rem;">
+                                    <option value="edge">Microsoft Edge (uk, безкоштовно)</option>
+                                    <option value="elevenlabs">ElevenLabs Flash v2.5</option>
+                                    <option value="heygen">HeyGen Voice Turbo REST</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label for="selectTtsVoice" style="display: block; font-size: 0.8rem; color: #94a3b8; margin-bottom: 4px;">Український голос:</label>
+                                <select id="selectTtsVoice" class="form-select" style="width: 100%; padding: 8px 10px; border-radius: 8px; background: #1e293b; color: #f8fafc; border: 1px solid #334155; font-size: 0.85rem;">
+                                    <option value="uk-UA-PolinaNeural">Поліна (жіночий, базовий)</option>
+                                    <option value="uk-UA-OstapNeural">Остап (чоловічий)</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem; color: #94a3b8; flex-wrap: wrap; gap: 10px;">
+                            <div id="ttsFallbackHint">Резервний синтез: Web Speech API або Edge TTS</div>
+                            <div style="display: flex; gap: 8px;">
+                                <button type="button" class="btn-pill" id="btnTtsPreview" style="font-size: 0.8rem; padding: 6px 14px;">▶ Прослухати</button>
+                                <button type="button" class="btn-pill btn-primary" id="btnTtsSave" style="font-size: 0.8rem; padding: 6px 14px; background: #3b82f6; color: white;">Зберегти</button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </section>
 

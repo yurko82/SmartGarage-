@@ -275,6 +275,17 @@ GARAGE_TOOLS = [
                 "properties": {}
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "stop_music",
+            "description": "Зупинка будь-якої музики, треку, пісні, аудіо або радіо на активній Bluetooth-колонці (JBL Clip 5 у гаражі або JX-BT на 1-му поверсі). Використовуй цей інструмент ЗАВЖДИ, коли користувач просить 'виключ музику', 'вимкни музику', 'зупини музику', 'виключи пісню', 'вимкни пісню', 'стоп', 'тиша', 'виключ радіо', 'вимкни радіо'.",
+            "parameters": {
+                "type": "object",
+                "properties": {}
+            }
+        }
     }
 ]
 
@@ -310,6 +321,7 @@ class ToolDispatcher:
             "show_climate_chart",
             "play_radio",
             "stop_radio",
+            "stop_music",
         }
         if tool_name not in ALLOWED_TOOLS:
             res = {
@@ -455,10 +467,10 @@ class ToolDispatcher:
                 spk = str(arguments.get("speaker") or "").lower()
                 res = self._play_radio(station, spk)
 
-            elif tool_name == "stop_radio":
+            elif tool_name in ("stop_radio", "stop_music"):
                 if hasattr(self.garage, "speaker") and self.garage.speaker:
                     self.garage.speaker.stop()
-                    res = {"success": True, "message": "Радіо зупинено"}
+                    res = {"success": True, "message": "⏹️ Відтворення аудіо/радіо/музики зупинено"}
                 else:
                     res = {"success": False, "error": "Контролер колонки недоступний"}
 
@@ -599,7 +611,21 @@ class ToolDispatcher:
     def _play_song(self, query: str, speaker_target: str = "") -> Dict[str, Any]:
         initial_q = query
         q = (query or "").strip()
-        if not q or q.lower() in ("пісню", "пісня", "музику", "музика", "музон", "трек", "song", "music", "якусь пісню", "просто пісню"):
+        q_lower = q.lower()
+
+        # Guard: if query is actually a stop/silence command, stop playback instead of playing music
+        stop_words = ("виключ", "виключи", "вимкни", "зупини", "стоп", "тиша", "замовкни", "досить", "годі", "stop", "pause")
+        if any(sw in q_lower for sw in stop_words):
+            if hasattr(self.garage, "speaker") and self.garage.speaker:
+                self.garage.speaker.stop()
+            return {
+                "success": True,
+                "message": "⏹️ Відтворення музики та радіо зупинено.",
+                "action": "stop",
+                "query": q
+            }
+
+        if not q or q_lower in ("пісню", "пісня", "музику", "музика", "музон", "трек", "song", "music", "якусь пісню", "просто пісню"):
             resolved_query = "ADAM - Сильно Сильно"
         else:
             resolved_query = q

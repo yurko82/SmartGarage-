@@ -46,8 +46,7 @@ If no tool execution is required (conversational or informational final response
 - Current working directory: /home/user/smartgarage/
 - Available tools: shell commands, Python scripts, Docker containers, HTTP requests.
 - Available specialized tools are defined in tool_definitions.json:
-  * garage_door_control (open/close/status)
   * climate_sensor_read (temperature/humidity)
-  * audio_control (play/pause/volume)
+  * audio_control (play/pause/stop/volume)
   * docker_container_manage (start/stop/logs)
   * file_operations (read/write/list)

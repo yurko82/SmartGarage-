@@ -112,6 +112,19 @@ class TTSManager:
     def get_provider(self, name: str) -> Optional[TTSProvider]:
         return self._providers.get(name.lower())
 
+    def set_active_provider(self, name: str) -> bool:
+        """Встановлює активний провайдер синтезу."""
+        clean = (name or "").lower().strip()
+        if clean in self._providers:
+            self.active_provider_name = clean
+            return True
+        return False
+
+    def set_active_voice(self, voice_id: str) -> None:
+        """Встановлює активний ідентифікатор голосу."""
+        if voice_id and isinstance(voice_id, str):
+            self.active_voice_id = voice_id.strip()
+
     def get_providers_status(self) -> Dict[str, Any]:
         """Повертає статус конфігурації провайдерів без розкриття секретних ключів."""
         status = {
@@ -122,10 +135,12 @@ class TTSManager:
             "providers": {},
         }
         for name, prov in self._providers.items():
+            voices = [v.to_dict() for v in prov.get_available_voices()]
             status["providers"][name] = {
                 "name": name,
                 "configured": prov.is_configured(),
-                "available_voices_count": len(prov.get_available_voices()),
+                "available_voices_count": len(voices),
+                "voices": voices,
             }
         return status
 

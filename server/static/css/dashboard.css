@@ -369,6 +369,22 @@ body {
     font-weight: 600;
 }
 
+/* Disabled / Uninstalled Tile State */
+.touch-tile.tile-disabled {
+    opacity: 0.65;
+    cursor: not-allowed;
+    border-style: dashed;
+}
+
+.touch-tile.tile-disabled .tile-icon-box {
+    filter: grayscale(1);
+    opacity: 0.5;
+}
+
+.touch-tile.tile-disabled .tile-status {
+    color: var(--text-muted);
+}
+
 .quick-action-strip {
     display: flex;
     gap: 8px;

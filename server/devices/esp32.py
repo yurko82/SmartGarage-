@@ -101,9 +101,6 @@ class ESP32Controller:
         # Стан пристрою
         self.state: Dict[str, Any] = {
             "online": False,
-            "door": "unknown",
-            "door_installed": False,
-            "door_status": "unknown",
             "light": False,
             "fan": False,
             "temperature": None,
@@ -111,9 +108,6 @@ class ESP32Controller:
             "car_present": False,
             "distance_cm": 240,
             "motion_detected": False,
-            "gas_ppm": None,
-            "gas_installed": False,
-            "gas_status": "not_installed",
             "transport": "none",
             "last_seen": None,
             "wifi_ip": self.host,
@@ -690,19 +684,15 @@ class ESP32Controller:
                                 {"floor": fk, "mac": mac, "transport": transport}
                             )
 
-            # Constraints: Gate opening not planned, gas sensor not planned
-            telemetry_dict["door"] = "unknown"
-            telemetry_dict["door_installed"] = False
-            telemetry_dict["gas_ppm"] = None
-            telemetry_dict["gas_installed"] = False
-            telemetry_dict["gas_status"] = "not_installed"
+            # Clean out any legacy door or gas keys if present in telemetry
+            telemetry_dict.pop("door", None)
+            telemetry_dict.pop("door_installed", None)
+            telemetry_dict.pop("door_status", None)
+            telemetry_dict.pop("gas_ppm", None)
+            telemetry_dict.pop("gas_installed", None)
+            telemetry_dict.pop("gas_status", None)
 
             self.state.update(telemetry_dict)
-            self.state["door"] = "unknown"
-            self.state["door_installed"] = False
-            self.state["gas_ppm"] = None
-            self.state["gas_installed"] = False
-            self.state["gas_status"] = "not_installed"
             self.state["online"] = True
             self.state["last_seen"] = now
             self.state["transport"] = transport

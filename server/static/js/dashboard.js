@@ -69,8 +69,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const statusLight = document.getElementById('statusLight');
     const tileFan = document.getElementById('tileFan');
     const statusFan = document.getElementById('statusFan');
-    const tileDoor = document.getElementById('tileDoor');
-    const statusDoor = document.getElementById('statusDoor');
 
     // Quick light buttons
     const btnAllLightsOn = document.getElementById('btnAllLightsOn');
@@ -92,8 +90,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const batBasement = document.getElementById('batBasement');
     const subBasement = document.getElementById('subBasement');
 
-    const valAir = document.getElementById('valAir');
-    const subAir = document.getElementById('subAir');
     const valBleSensorsCount = document.getElementById('valBleSensorsCount');
     const subBleSensors = document.getElementById('subBleSensors');
 
@@ -271,6 +267,209 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // --- TTS SETTINGS & PROVIDER SELECTION ---
+    const btnTtsSettings = document.getElementById('btnTtsSettings');
+    const ttsSettingsPanel = document.getElementById('ttsSettingsPanel');
+    const selectTtsProvider = document.getElementById('selectTtsProvider');
+    const selectTtsVoice = document.getElementById('selectTtsVoice');
+    const ttsProviderLabel = document.getElementById('ttsProviderLabel');
+    const ttsFallbackBadge = document.getElementById('ttsFallbackBadge');
+    const ttsFallbackHint = document.getElementById('ttsFallbackHint');
+    const btnTtsPreview = document.getElementById('btnTtsPreview');
+    const btnTtsSave = document.getElementById('btnTtsSave');
+
+    let ttsProvidersData = null;
+
+    async function loadTtsProviders() {
+        try {
+            const res = await fetch('/api/voice/providers');
+            if (!res.ok) return;
+            const data = await res.json();
+            if (!data.success) return;
+            ttsProvidersData = data;
+
+            const activeProv = data.active_provider || 'edge';
+            const activeVoice = data.active_voice_id || 'uk-UA-PolinaNeural';
+            const fallbackProv = data.fallback_provider || 'edge';
+
+            if (ttsProviderLabel) {
+                const provName = activeProv === 'edge' ? 'Edge (Поліна)' : (activeProv === 'elevenlabs' ? 'ElevenLabs' : 'HeyGen');
+                ttsProviderLabel.textContent = `TTS: ${provName}`;
+            }
+
+            if (ttsFallbackBadge) {
+                if (activeProv === 'edge') {
+                    ttsFallbackBadge.textContent = 'Baseline: Edge TTS (Безкоштовно)';
+                    ttsFallbackBadge.style.background = 'rgba(52, 211, 153, 0.15)';
+                    ttsFallbackBadge.style.color = '#34d399';
+                } else {
+                    ttsFallbackBadge.textContent = `Активний: ${activeProv} | Резерв: ${fallbackProv}`;
+                    ttsFallbackBadge.style.background = 'rgba(59, 130, 246, 0.15)';
+                    ttsFallbackBadge.style.color = '#60a5fa';
+                }
+            }
+
+            if (ttsFallbackHint) {
+                ttsFallbackHint.textContent = `Резервний синтез (fallback): ${fallbackProv} або Web Speech API у браузері`;
+            }
+
+            if (selectTtsProvider) {
+                selectTtsProvider.innerHTML = '';
+                const providersList = [
+                    { id: 'edge', name: 'Microsoft Edge Neural (uk, безкоштовно)' },
+                    { id: 'elevenlabs', name: 'ElevenLabs Flash v2.5' },
+                    { id: 'heygen', name: 'HeyGen Voice Turbo REST' },
+                ];
+                providersList.forEach(p => {
+                    const opt = document.createElement('option');
+                    opt.value = p.id;
+                    const provInfo = data.providers ? data.providers[p.id] : null;
+                    const isConfigured = provInfo ? provInfo.configured : (p.id === 'edge');
+                    opt.textContent = isConfigured ? p.name : `${p.name} (потрібен API-ключ на сервері)`;
+                    if (p.id === activeProv) opt.selected = true;
+                    selectTtsProvider.appendChild(opt);
+                });
+            }
+
+            updateVoicesDropdown(activeProv, activeVoice);
+        } catch (err) {
+            console.warn('[Dashboard TTS] Помилка завантаження провайдерів:', err);
+        }
+    }
+
+    function updateVoicesDropdown(providerId, currentVoiceId) {
+        if (!selectTtsVoice) return;
+        selectTtsVoice.innerHTML = '';
+
+        let voices = [];
+        if (ttsProvidersData && ttsProvidersData.providers && ttsProvidersData.providers[providerId]) {
+            voices = ttsProvidersData.providers[providerId].voices || [];
+        }
+
+        if (voices.length === 0) {
+            if (providerId === 'edge') {
+                voices = [
+                    { voice_id: 'uk-UA-PolinaNeural', name: 'Поліна (жіночий, базовий)' },
+                    { voice_id: 'uk-UA-OstapNeural', name: 'Остап (чоловічий)' }
+                ];
+            } else {
+                const opt = document.createElement('option');
+                opt.value = '';
+                opt.textContent = 'Немає доступних українських голосів (провайдер не налаштований)';
+                selectTtsVoice.appendChild(opt);
+                return;
+            }
+        }
+
+        voices.forEach(v => {
+            const opt = document.createElement('option');
+            opt.value = v.voice_id;
+            opt.textContent = `${v.name} (${v.voice_id})`;
+            if (v.voice_id === currentVoiceId) opt.selected = true;
+            selectTtsVoice.appendChild(opt);
+        });
+    }
+
+    if (btnTtsSettings && ttsSettingsPanel) {
+        btnTtsSettings.addEventListener('click', () => {
+            hapticFeedback();
+            const isHidden = ttsSettingsPanel.style.display === 'none' || !ttsSettingsPanel.style.display;
+            ttsSettingsPanel.style.display = isHidden ? 'block' : 'none';
+            if (isHidden && !ttsProvidersData) {
+                loadTtsProviders();
+            }
+        });
+    }
+
+    if (selectTtsProvider) {
+        selectTtsProvider.addEventListener('change', () => {
+            const chosen = selectTtsProvider.value;
+            updateVoicesDropdown(chosen, null);
+        });
+    }
+
+    if (btnTtsSave) {
+        btnTtsSave.addEventListener('click', async () => {
+            hapticFeedback();
+            const provider = selectTtsProvider ? selectTtsProvider.value : 'edge';
+            const voice_id = selectTtsVoice ? selectTtsVoice.value : 'uk-UA-PolinaNeural';
+
+            try {
+                btnTtsSave.textContent = 'Збереження...';
+                const res = await fetch('/api/voice/config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ provider, voice_id })
+                });
+                const data = await res.json();
+                btnTtsSave.textContent = 'Зберегти';
+                if (data.success) {
+                    if (voiceStatusText) {
+                        voiceStatusText.textContent = `✓ Налаштування TTS збережено: ${data.active_provider}`;
+                        voiceStatusText.style.color = '#34d399';
+                    }
+                    await loadTtsProviders();
+                } else {
+                    if (voiceStatusText) {
+                        voiceStatusText.textContent = `⚠️ Помилка збереження TTS: ${data.error || 'помилка'}`;
+                        voiceStatusText.style.color = 'var(--accent-amber)';
+                    }
+                }
+            } catch (err) {
+                btnTtsSave.textContent = 'Зберегти';
+                console.error(err);
+            }
+        });
+    }
+
+    if (btnTtsPreview) {
+        btnTtsPreview.addEventListener('click', async () => {
+            hapticFeedback();
+            const provider = selectTtsProvider ? selectTtsProvider.value : 'edge';
+            const voice = selectTtsVoice ? selectTtsVoice.value : 'uk-UA-PolinaNeural';
+            const sampleText = 'Світло в гаражі увімкнено. Температура плюс вісімнадцять градусів.';
+
+            try {
+                btnTtsPreview.textContent = '⏳ Синтез...';
+                const res = await fetch('/api/voice/preview', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ provider, voice, text: sampleText })
+                });
+                btnTtsPreview.textContent = '▶ Прослухати';
+
+                if (!res.ok) {
+                    throw new Error(`HTTP ${res.status}`);
+                }
+
+                const isFallback = res.headers.get('X-TTS-Fallback') === 'true';
+                const usedProv = res.headers.get('X-TTS-Provider') || provider;
+                if (isFallback && voiceStatusText) {
+                    voiceStatusText.textContent = `⚠️ Резервний синтез: використано ${usedProv}`;
+                    voiceStatusText.style.color = 'var(--accent-amber)';
+                } else if (voiceStatusText) {
+                    voiceStatusText.textContent = `🔊 Тестове відтворення: ${usedProv}`;
+                    voiceStatusText.style.color = '#34d399';
+                }
+
+                const blob = await res.blob();
+                const audioUrl = URL.createObjectURL(blob);
+                const audio = new Audio(audioUrl);
+                audio.play();
+            } catch (err) {
+                btnTtsPreview.textContent = '▶ Прослухати';
+                console.warn('[Dashboard TTS Preview] Помилка прев’ю:', err);
+                if (voiceStatusText) {
+                    voiceStatusText.textContent = '⚠️ Помилка попереднього прослуховування голосу';
+                    voiceStatusText.style.color = 'var(--accent-amber)';
+                }
+            }
+        });
+    }
+
+    // Load initial TTS configuration on page load
+    loadTtsProviders();
+
     // --- TTS & SPEECH CLEANING ---
     function cleanSpeechText(text) {
         if (!text) return '';
@@ -420,6 +619,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 const isFallback = res.headers.get('X-TTS-Fallback') === 'true';
                 if (isFallback) {
                     console.info(`[Dashboard TTS] Використано серверний fallback: ${provider}`);
+                    if (voiceStatusText) {
+                        voiceStatusText.textContent = `⚠️ Резервний синтез: використано ${provider}`;
+                        voiceStatusText.style.color = 'var(--accent-amber)';
+                    }
                 }
                 return res.blob();
             })
@@ -862,29 +1065,11 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    if (tileDoor) {
-        tileDoor.addEventListener('click', async () => {
-            hapticFeedback();
-            try {
-                const res = await fetch('/api/device/door/toggle', { method: 'POST' });
-                const data = await res.json();
-                if (!data.success) {
-                    if (statusDoor) statusDoor.textContent = 'Невідомо';
-                    if (voiceStatusText) voiceStatusText.textContent = data.error || 'Керування воротами вимкнено';
-                    return;
-                }
-                updateDoorState(data.door === 'open');
-            } catch (err) {
-                console.error(err);
-            }
-        });
-    }
-
     // Keyboard activation (Enter/Space) for interactive tiles and floor cards
     const floorCard1 = document.getElementById('floorCard1');
     const floorCard2 = document.getElementById('floorCard2');
     const floorCardBasement = document.getElementById('floorCardBasement');
-    [tileLight, tileFan, tileDoor, floorCard1, floorCard2, floorCardBasement].forEach(el => {
+    [tileLight, tileFan, floorCard1, floorCard2, floorCardBasement].forEach(el => {
         if (!el) return;
         el.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' || e.key === ' ') {
@@ -941,19 +1126,6 @@ document.addEventListener('DOMContentLoaded', () => {
             } else {
                 tileFan.classList.remove('active-fan');
                 if (statusFan) statusFan.textContent = 'Вимкнено';
-            }
-        }
-    }
-
-    function updateDoorState(open) {
-        isDoorOpen = !!open;
-        if (tileDoor) {
-            if (isDoorOpen) {
-                tileDoor.classList.add('active-light');
-                if (statusDoor) statusDoor.textContent = 'Відкрито';
-            } else {
-                tileDoor.classList.remove('active-light');
-                if (statusDoor) statusDoor.textContent = 'Закрито';
             }
         }
     }
@@ -1685,23 +1857,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (pillServerDot) pillServerDot.className = 'status-dot online pulse';
                 if (pillServerText) pillServerText.textContent = 'Сервер Онлайн';
 
-                // Light & Fan & Door
+                // Light & Fan
                 if (st.relays_installed === false) {
                     if (statusLight) statusLight.textContent = 'Очікує реле';
                     if (statusFan) statusFan.textContent = 'Очікує реле';
-                    if (statusDoor) statusDoor.textContent = 'Невідомо';
                     if (tileLight) tileLight.classList.remove('active-light');
                     if (tileFan) tileFan.classList.remove('active-fan');
-                    if (tileDoor) tileDoor.classList.remove('active-light');
                 } else {
                     updateLightState(st.light);
                     updateFanState(st.fan);
-                    if (st.door_installed === false || st.door === 'unknown') {
-                        if (statusDoor) statusDoor.textContent = 'Невідомо';
-                        if (tileDoor) tileDoor.classList.remove('active-light');
-                    } else {
-                        updateDoorState(st.door === 'open');
-                    }
                 }
 
                 // 3-Floor Climate Telemetry with strict freshness rules
@@ -1791,35 +1955,6 @@ document.addEventListener('DOMContentLoaded', () => {
                         subBleSensors.textContent = f2.online ? "2-й поверх на зв'язку" : "Підвал на зв'язку";
                     } else {
                         subBleSensors.textContent = (fb.is_stale || f2.is_stale) ? "Дані застаріли" : "Очікування сигналів";
-                    }
-                }
-
-                // Air quality / Gas
-                if (valAir) {
-                    if (st.gas_ppm === null || st.gas_installed === false) {
-                        valAir.textContent = 'Не встановлено';
-                        valAir.style.fontSize = '1.05rem';
-                        valAir.style.color = 'var(--text-muted, #94a3b8)';
-                        if (subAir) {
-                            subAir.textContent = 'Датчик газу не планується';
-                            subAir.style.color = 'var(--text-muted, #94a3b8)';
-                        }
-                    } else {
-                        const gas = st.gas_ppm;
-                        valAir.textContent = `${gas} ppm`;
-                        valAir.style.fontSize = '';
-                        if (subAir) {
-                            if (gas < 100) {
-                                subAir.textContent = 'Повітря чисте';
-                                subAir.style.color = '#34d399';
-                            } else if (gas < 250) {
-                                subAir.textContent = 'Увага: Задимлення';
-                                subAir.style.color = '#fbbf24';
-                            } else {
-                                subAir.textContent = 'Небезпека: Газ/Дим!';
-                                subAir.style.color = '#ef4444';
-                            }
-                        }
                     }
                 }
 

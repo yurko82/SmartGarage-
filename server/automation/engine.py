@@ -15,7 +15,6 @@ class AutomationEngine:
 
         # Track previous states to trigger edge-based automations
         self._last_car_present = False
-        self._last_gas_level = None
         self._last_motion = False
 
     def evaluate_telemetry(self, telemetry):
@@ -27,9 +26,7 @@ class AutomationEngine:
             car_present = bool(telemetry.get("car_present"))
             motion = bool(telemetry.get("motion_detected"))
 
-            # Gas sensor is not installed: no gas threshold comparisons or alarms executed
             self._last_car_present = car_present
-            self._last_gas_level = None
             self._last_motion = motion
 
     def scenario_car_arrival(self):
@@ -110,5 +107,4 @@ class AutomationEngine:
   1. 🚗 'Прибуття авто' (команда: 'я приїхав', 'сценарій прибуття')
   2. 🔒 'Від'їзд' (команда: 'я поїхав', 'сценарій від'їзд')
   3. 🌙 'Нічний режим' (команда: 'добраніч', 'нічний режим')
-  4. 🍿 'Кінотеатр у гаражі' (команда: 'кінотеатр', 'режим кіно')
-  5. 🚨 'Безпека / Газ' (недоступно: датчик газу не встановлений)"""
+  4. 🍿 'Кінотеатр у гаражі' (команда: 'кінотеатр', 'режим кіно')"""

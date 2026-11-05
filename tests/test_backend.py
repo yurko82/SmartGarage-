@@ -644,13 +644,13 @@ class TestAutomationEngine(unittest.TestCase):
     def test_arrival_scenario(self):
         success, msg = self.engine.scenario_car_arrival()
         self.assertTrue(success)
-        self.assertEqual(self.esp.state["door"], "unknown")
+        self.assertNotIn("door", self.esp.state)
         self.assertTrue(self.esp.state["light"])
 
     def test_night_scenario(self):
         success, msg = self.engine.scenario_night_mode()
         self.assertTrue(success)
-        self.assertEqual(self.esp.state["door"], "unknown")
+        self.assertNotIn("door", self.esp.state)
         self.assertFalse(self.esp.state["light"])
 
     def test_gas_alarm_scenario(self):
@@ -1218,19 +1218,13 @@ class TestMQTTBridge(unittest.TestCase):
         asyncio.run(bridge.publish_discovery(MockClient()))
 
         # Check essential discovery topics
-        self.assertIn("homeassistant/sensor/smartgarage/door_status/config", published)
+        self.assertNotIn("homeassistant/sensor/smartgarage/door_status/config", published)
         self.assertNotIn("homeassistant/cover/smartgarage/door/config", published)
         self.assertNotIn("homeassistant/sensor/smartgarage/gas_sensor/config", published)
         self.assertIn("homeassistant/switch/smartgarage/light/config", published)
         self.assertIn("homeassistant/switch/smartgarage/fan/config", published)
         self.assertIn("homeassistant/sensor/smartgarage/basement_temperature/config", published)
         self.assertIn("homeassistant/sensor/smartgarage/ai_status/config", published)
-
-        # Validate read-only door sensor payload
-        door_payload = json.loads(published["homeassistant/sensor/smartgarage/door_status/config"]["payload"])
-        self.assertEqual(door_payload["name"], "Стан воріт (Read-Only)")
-        self.assertEqual(door_payload["device"]["name"], "Smart Garage Antigravity")
-        self.assertTrue(published["homeassistant/sensor/smartgarage/door_status/config"]["retain"])
 
     def test_message_handling(self):
         from server.services.mqtt_bridge import SmartGarageMQTTBridge
@@ -1673,13 +1667,13 @@ class TestOwnerSecurityConstraints(unittest.TestCase):
         # Car arrival does not open door
         success, msg = auto.scenario_car_arrival()
         self.assertTrue(success)
-        self.assertEqual(esp.state.get("door"), "unknown")
+        self.assertNotIn("door", esp.state)
         self.assertNotIn("Ворота відкрито", msg)
 
         # Departure does not close door
         success, msg = auto.scenario_departure()
         self.assertTrue(success)
-        self.assertEqual(esp.state.get("door"), "unknown")
+        self.assertNotIn("door", esp.state)
         self.assertNotIn("Ворота закрито", msg)
 
         # Gas alarm scenario is disabled
@@ -1718,7 +1712,7 @@ class TestOwnerSecurityConstraints(unittest.TestCase):
             ("/api/scenarios/night", "post", None),
             ("/api/media/delete", "post", {"filename": "test.mp4"}),
             ("/api/speaker/volume", "post", {"value": 40}),
-            ("/command", "post", {"command": "тест"}),
+            ("/api/esp32/clear_logs", "post", None),
             ("/api/presence/scan", "post", None),
             ("/api/radio/play", "post", {"url": "http://stream.example.com"}),
             ("/api/ytmusic/next", "post", None),
@@ -2115,6 +2109,89 @@ class TestSensorFreshnessAndTelemetryTruth(unittest.TestCase):
             self.assertEqual(st["floors"]["basement"]["last_known_temperature"], 16.0)
             self.assertEqual(st["floors"]["basement"]["status"], "stale")
             self.assertEqual(st["floors"]["floor1"]["status"], "not_installed")
+
+
+class TestMusicStopRegression(unittest.TestCase):
+    """Verifies complete fix for the regression:
+    'грає радіо, кажу виключ музику, а він включає пісню, даю команду повторно він включає щось з ютуба'.
+    """
+
+    def setUp(self):
+        from server.commands.processor import CommandProcessor
+        from server.logger.logger import Logger
+        self.mock_speaker = MagicMock()
+        self.mock_projector = MagicMock()
+        self.mock_esp32 = MagicMock()
+        self.processor = CommandProcessor(
+            logger=Logger(),
+            speaker=self.mock_speaker,
+            projector=self.mock_projector,
+            esp32=self.mock_esp32
+        )
+
+    def test_stop_music_commands_do_not_trigger_youtube_fallback(self):
+        """Commands like 'виключ музику' must immediately halt playback and never trigger play_youtube."""
+        stop_variations = [
+            "виключ музику",
+            "виключи музику",
+            "виключити музику",
+            "вимкни музику",
+            "зупини музику",
+            "вируби музику",
+            "заглуши музику",
+            "стоп музика",
+            "виключ радіо",
+            "вимкни радіо",
+            "зупини радіо",
+            "виключ все",
+            "тиша"
+        ]
+
+        for phrase in stop_variations:
+            self.mock_speaker.reset_mock()
+            self.mock_projector.reset_mock()
+
+            handled, resp = self.processor.execute(phrase)
+            self.assertTrue(handled, f"Phrase '{phrase}' was not handled by processor")
+            self.assertIn("зупинено", resp.lower())
+
+            # Speaker stop must be called
+            self.mock_speaker.stop.assert_called_once()
+            # YouTube or stream must NEVER be called
+            self.mock_speaker.play_youtube.assert_not_called()
+            self.mock_speaker.play_stream.assert_not_called()
+            self.mock_speaker.play_song.assert_not_called()
+
+    def test_repeated_stop_command_consistently_stops(self):
+        """Repeated stop commands must not fall through to media search keywords."""
+        for _ in range(3):
+            self.mock_speaker.reset_mock()
+            handled, resp = self.processor.execute("виключ музику")
+            self.assertTrue(handled)
+            self.assertIn("зупинено", resp.lower())
+            self.mock_speaker.stop.assert_called_once()
+            self.mock_speaker.play_youtube.assert_not_called()
+
+    def test_ai_tools_stop_music_and_guard(self):
+        """ToolDispatcher must provide stop_music and guard play_song against stop intents."""
+        from server.ai.tools import ToolDispatcher
+        mock_garage = MagicMock()
+        mock_garage.speaker = MagicMock()
+        mock_garage.projector = MagicMock()
+        dispatcher = ToolDispatcher(mock_garage)
+
+        # 1. Direct tool call stop_music
+        res = dispatcher.execute("stop_music", {})
+        self.assertTrue(res["success"])
+        mock_garage.speaker.stop.assert_called_once()
+
+        # 2. Guard in play_song if LLM mistakenly passes stop query
+        mock_garage.speaker.reset_mock()
+        res_guard = dispatcher.execute("play_song", {"query": "виключ музику"})
+        self.assertTrue(res_guard["success"])
+        self.assertEqual(res_guard["action"], "stop")
+        mock_garage.speaker.stop.assert_called_once()
+        mock_garage.speaker.play_youtube.assert_not_called()
 
 
 if __name__ == "__main__":

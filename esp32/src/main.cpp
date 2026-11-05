@@ -65,7 +65,6 @@ WebServer server(80);
 // --- Device State ---
 bool lightState = false;
 bool fanState = false;
-String doorState = "unknown";
 float temperature = 0.0;
 float humidity = 0.0;
 
@@ -285,8 +284,6 @@ void readSensors() {
 
 String buildTelemetryJson() {
   JsonDocument doc;
-  doc["door"] = doorState;
-  doc["door_installed"] = false;
   doc["light"] = lightState;
   doc["fan"] = fanState;
   doc["distance_cm"] = nullptr;
@@ -294,8 +291,6 @@ String buildTelemetryJson() {
   doc["car_sensor_installed"] = false;
   doc["motion_detected"] = nullptr;
   doc["motion_installed"] = false;
-  doc["gas_ppm"] = nullptr;
-  doc["gas_installed"] = false;
   doc["online"] = true;
   doc["wifi_ip"] = (WiFi.status() == WL_CONNECTED) ? WiFi.localIP().toString() : "offline";
 
@@ -389,11 +384,6 @@ void handleTelemetry() {
   server.send(200, "application/json", response);
 }
 
-void triggerDoorPulse(const String& targetState) {
-  // Gate drive uninstalled / disabled: do not pulse relay pin
-  Serial.println("WARN: Door relay disabled - drive not installed");
-}
-
 bool isRequestAuthorized() {
   if (strcmp(ESP32_API_KEY, "YOUR_ESP32_API_KEY") == 0) {
     return true; // Default placeholder for initial setup
@@ -405,14 +395,6 @@ bool isRequestAuthorized() {
     return true;
   }
   return false;
-}
-
-void handleDoorOpen() {
-  server.send(400, "application/json", "{\"status\":\"error\",\"error\":\"Door drive not installed\",\"door\":\"unknown\"}");
-}
-
-void handleDoorClose() {
-  server.send(400, "application/json", "{\"status\":\"error\",\"error\":\"Door drive not installed\",\"door\":\"unknown\"}");
 }
 
 void handleLightOn() {
@@ -480,13 +462,7 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
   }
 
   const char* action = doc["action"] | "";
-  if (strcmp(action, "open_door") == 0 || strcmp(action, "OPEN") == 0) {
-    triggerDoorPulse("open");
-  } else if (strcmp(action, "close_door") == 0 || strcmp(action, "CLOSE") == 0) {
-    triggerDoorPulse("closed");
-  } else if (strcmp(action, "toggle_door") == 0) {
-    triggerDoorPulse(doorState == "closed" ? "open" : "closed");
-  } else if (strcmp(action, "light_on") == 0 || strcmp(action, "LIGHT_ON") == 0) {
+  if (strcmp(action, "light_on") == 0 || strcmp(action, "LIGHT_ON") == 0) {
     lightState = true;
     digitalWrite(PIN_RELAY_LIGHT, HIGH);
     Serial.println("LIGHT_EVENT:1");
@@ -545,11 +521,7 @@ void processSerialCommand(String cmd) {
   cmd.trim();
   if (cmd.length() == 0) return;
 
-  if (cmd.equalsIgnoreCase("DOOR_OPEN") || cmd.equalsIgnoreCase("CMD:DOOR_OPEN") || cmd == "{\"command\":\"door_open\"}") {
-    Serial.println("RESP:{\"status\":\"error\",\"error\":\"Door drive not installed\",\"door\":\"unknown\"}");
-  } else if (cmd.equalsIgnoreCase("DOOR_CLOSE") || cmd.equalsIgnoreCase("CMD:DOOR_CLOSE") || cmd == "{\"command\":\"door_close\"}") {
-    Serial.println("RESP:{\"status\":\"error\",\"error\":\"Door drive not installed\",\"door\":\"unknown\"}");
-  } else if (cmd.equalsIgnoreCase("LIGHT_ON") || cmd.equalsIgnoreCase("CMD:LIGHT_ON") || cmd == "{\"command\":\"light_on\"}") {
+  if (cmd.equalsIgnoreCase("LIGHT_ON") || cmd.equalsIgnoreCase("CMD:LIGHT_ON") || cmd == "{\"command\":\"light_on\"}") {
     handleLightOn();
     Serial.println("RESP:{\"status\":\"ok\",\"light\":true}");
   } else if (cmd.equalsIgnoreCase("LIGHT_OFF") || cmd.equalsIgnoreCase("CMD:LIGHT_OFF") || cmd == "{\"command\":\"light_off\"}") {
@@ -753,8 +725,6 @@ void setup() {
     runBleScan(duration);
     server.send(200, "application/json", "{\"status\":\"ok\",\"message\":\"BLE scan completed\"}");
   });
-  server.on("/api/door/open", HTTP_POST, handleDoorOpen);
-  server.on("/api/door/close", HTTP_POST, handleDoorClose);
   server.on("/api/light/on", HTTP_POST, handleLightOn);
   server.on("/api/light/off", HTTP_POST, handleLightOff);
   server.on("/api/fan/on", HTTP_POST, handleFanOn);

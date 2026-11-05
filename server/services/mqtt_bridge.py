@@ -90,22 +90,7 @@ class SmartGarageMQTTBridge:
         """Publish retained Home Assistant MQTT Discovery configuration topics."""
         logger.info(f"Publishing Home Assistant discovery configs (prefix='{self.discovery_prefix}')...")
 
-        # 1. Door Status Sensor (Read-Only; gate drive uninstalled)
-        door_sensor_config = {
-            "name": "Стан воріт (Read-Only)",
-            "unique_id": "smartgarage_door_status_sensor",
-            "state_topic": f"{self.topic_prefix}/door/state",
-            "icon": "mdi:garage-variant-lock",
-            "availability_topic": f"{self.topic_prefix}/bridge/status",
-            "device": self.device_info
-        }
-        await client.publish(
-            f"{self.discovery_prefix}/sensor/{self.topic_prefix}/door_status/config",
-            payload=json.dumps(door_sensor_config, ensure_ascii=False),
-            retain=True
-        )
-
-        # 3. Light Switch
+        # 1. Light Switch
         light_config = {
             "name": "Освітлення Гаража",
             "unique_id": "smartgarage_light_switch",
@@ -380,12 +365,8 @@ class SmartGarageMQTTBridge:
                     floors = self.garage.get_floors_telemetry()
                     doc = {
                         "device": "smartgarage-core",
-                        "door_status": "unknown",
                         "light": bool(st.get("light", False)),
                         "fan": bool(st.get("fan", False)),
-                        "gas_ppm": None,
-                        "gas_installed": False,
-                        "gas_status": "not_installed",
                         "floors": floors,
                         "timestamp": time.time()
                     }

@@ -239,11 +239,11 @@ class TestFollowUpAndMusicToolHandling(unittest.TestCase):
         """Агент пам’ятає трек, не стверджує що пісня грає до підтвердження, і повторює з тим самим запитом."""
         # 1. Колонка недоступна
         self.mock_garage.speaker.is_connected.return_value = False
-        res1 = self.dispatcher.execute("play_song", {"query": "Бумбокс - Вахтерам"}, session_id=self.sid)
+        res1 = self.dispatcher.execute("play_song", {"query": "Бумбокс - Люди"}, session_id=self.sid)
 
         self.assertFalse(res1["success"])
         self.assertEqual(res1["status"], "device_unavailable")
-        self.assertEqual(res1["query"], "Бумбокс - Вахтерам")
+        self.assertEqual(res1["query"], "Бумбокс - Люди")
         # Не стверджуємо, що грає!
         self.assertIn("не підключена", res1["error"])
 
@@ -259,13 +259,13 @@ class TestFollowUpAndMusicToolHandling(unittest.TestCase):
 
         retry_ok = self.ai.chat("повтори", session_id=self.sid)
         self.assertIn("Повторна спроба успішна", retry_ok)
-        self.assertIn("Бумбокс - Вахтерам", retry_ok)
+        self.assertIn("Бумбокс - Люди", retry_ok)
         self.assertIn("JBL Clip 5", retry_ok)
 
         # 3. Тепер пісня вже грає. Користувач знову каже «ще раз»
         retry_already_playing = self.ai.chat("ще раз", session_id=self.sid)
         self.assertIn("уже успішно відтворюється", retry_already_playing)
-        self.assertIn("Бумбокс - Вахтерам", retry_already_playing)
+        self.assertIn("Бумбокс - Люди", retry_already_playing)
 
     def test_safety_boundary_cannot_be_bypassed_via_retry(self):
         """Заблокована фізична дія (ворота) не може бути виконана чи обійдена через 'спробуй ще раз'."""

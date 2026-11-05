@@ -94,8 +94,6 @@ class SmartGarage:
                     alerts = []
                     if hasattr(self, "esp32") and self.esp32:
                         st = self.esp32.get_telemetry()
-                        if st.get("door") == "open":
-                            alerts.append("🚪 Ворота залишилися ВІДЧИНЕНИМИ")
                         if st.get("light"):
                             alerts.append("💡 Світло залишилося УВІМКНЕНИМ")
 
@@ -218,10 +216,9 @@ class SmartGarage:
         if hasattr(self, "esp32") and self.esp32:
             st = self.esp32.get_telemetry()
             esp_status = "онлайн (USB-Serial)" if st.get("online") else "офлайн"
-            door = st.get("door", "зачинено")
             light = "увімкнено" if st.get("light") else "вимкнено"
             fan = "увімкнено" if st.get("fan") else "вимкнено"
-            lines.append(f"- Обладнання ESP32-S3: {esp_status} | Ворота: {door} | Світло: {light} | Вентиляція: {fan}")
+            lines.append(f"- Обладнання ESP32-S3: {esp_status} | Світло: {light} | Вентиляція: {fan}")
 
         # 2. Climate across floors
         floors = self.get_floors_telemetry()

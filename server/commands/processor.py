@@ -172,11 +172,10 @@ class CommandProcessor:
   memory
   remember <key> <value>
   forget <key>
-  door open | close | toggle | status
   light on | off | toggle
   fan on | off | toggle
   sensors / telemetry
-  scenarios / scenario <arrival | departure | night | cinema | safety>
+  scenarios / scenario <arrival | departure | night | cinema>
   project screen | stop | status | slide | stream <query>
   exit""")
 
@@ -248,13 +247,44 @@ class CommandProcessor:
         # -----------------------
         # SPEAKER CONTROLS (STOP, PAUSE, RESUME, VOLUME)
         # -----------------------
-        if any(cmd.startswith(k) or cmd == k for k in (
-            "зупини музику", "стоп музика", "вимкни музику", "виключи музику",
-            "колонка стоп", "speaker stop", "stop music",
-            "зупини радіо", "вимкни радіо", "виключи радіо", "стоп радіо", "radio stop", "stop radio"
-        )):
+        stop_verbs = (
+            "виключ", "виключи", "виключити", "вимкни", "вимкнути",
+            "зупини", "зупинити", "зупинись", "стоп", "вируби", "вирубити",
+            "заглуши", "заглушити", "замовкни", "тиша", "досить", "годі", "stop", "pause"
+        )
+        media_stop_targets = (
+            "музику", "музика", "музон", "радіо", "пісню", "пісня", "пісні",
+            "трек", "треки", "звук", "відтворення", "трансляцію", "колонку", "колонки",
+            "все", "всі", "music", "radio", "song", "audio", "speaker"
+        )
+
+        is_stop_intent = (
+            cmd in (
+                "стоп", "stop", "зупини", "зупинити", "зупинись", "замовкни", "тиша", "досить", "годі",
+                "виключ", "вимкни", "виключи", "вируби", "виключити", "вимкнути",
+                "колонка стоп", "speaker stop", "stop music", "stop radio"
+            )
+            or any(cmd == f"{v} {t}" or cmd.startswith(f"{v} {t} ") for v in stop_verbs for t in media_stop_targets)
+            or any(cmd == f"{t} {v}" or cmd.startswith(f"{t} {v} ") for v in stop_verbs for t in media_stop_targets)
+            or any(p in cmd for p in (
+                "не грай", "не включай", "не вмикай", "без музики", "без звуку", "досить музики", "годі музики",
+                "перестань грати", "досить грати", "годі грати",
+                "вимкни музику", "виключ музику", "виключи музику", "зупини музику", "вируби музику", "заглуши музику", "стоп музика", "стоп музику",
+                "вимкни радіо", "виключ радіо", "виключи радіо", "зупини радіо", "вируби радіо", "заглуши радіо", "стоп радіо",
+                "вимкни звук", "виключ звук", "виключи звук", "заглуши звук",
+                "вимкни колонку", "виключ колонку", "виключи колонку",
+                "вимкни все", "виключ все", "виключи все", "вируби все", "зупини все"
+            ))
+        )
+
+        if is_stop_intent:
             self.speaker.stop()
-            return True, "⏹️ Відтворення на колонці зупинено."
+            if hasattr(self, "projector") and self.projector:
+                try:
+                    self.projector.stop_video()
+                except Exception:
+                    pass
+            return True, "⏹️ Відтворення музики та радіо зупинено."
 
         if any(cmd.startswith(k) or cmd == k for k in (
             "пауза музика", "пауза музику", "колонка пауза", "speaker pause", "пауза радіо", "радіо пауза"
@@ -645,7 +675,10 @@ class CommandProcessor:
                     break
 
             # 3. Keyword matching if not matched by prefix
-            if not matched_media:
+            is_stop_or_negated = any(w in cmd.split() for w in stop_verbs + ("не", "без")) or any(
+                p in cmd for p in ("не грай", "не включай", "не вмикай", "без музики", "без звуку", "досить", "годі")
+            )
+            if not matched_media and not is_stop_or_negated:
                 for kw in ("кліп", "пісню", "пісня", "трек", "музику", "відео"):
                     if f" {kw} " in f" {cmd} " or f" {kw}" in f" {cmd}" or f"{kw} " in f"{cmd} ":
                         import re
@@ -952,26 +985,15 @@ class CommandProcessor:
         # ESP32 / HARDWARE & VOICE
         # -----------------------
 
-        if cmd in (
-            "door open", "open door", "open gate", "open the door", "open the gate",
-            "ворота відкрити", "відкрий ворота", "відчини ворота", "відчинити ворота",
-            "відкрий двері", "відчини двері", "відкрий гараж", "відчини гараж"
-        ):
-            return True, "Керування воротами вимкнено: привід воріт не планується / не встановлений."
-
-        if cmd in (
-            "door close", "close door", "close gate", "close the door", "close the gate",
-            "ворота закрити", "закрий ворота", "зачини ворота", "зачинити ворота",
-            "закрий двері", "зачини двері", "закрий гараж", "зачини гараж"
-        ):
-            return True, "Керування воротами вимкнено: привід воріт не планується / не встановлений."
-
-        if cmd in ("door toggle", "toggle door", "ворота перемкнути", "перемкни ворота"):
-            return True, "Керування воротами вимкнено: привід воріт не планується / не встановлений."
-
-        if cmd in ("door status", "стан воріт", "чи закриті ворота", "чи відкриті ворота"):
-            tel = self.esp32.get_telemetry()
-            return True, f"Статус воріт: {tel.get('door', 'unknown').upper()} (привід не встановлений)"
+        # Gate / Door commands: explicitly rejected with safe refusal
+        if any(cmd.startswith(p) or cmd == p for p in (
+            "door open", "door close", "door toggle", "door status",
+            "open door", "close door", "toggle door",
+            "відкрий ворота", "відчини ворота", "закрий ворота", "зачини ворота",
+            "відкрити ворота", "відчинити ворота", "закрити ворота", "зачинити ворота",
+            "ворота відкрий", "ворота відчини", "ворота закрий", "ворота зачини"
+        )):
+            return True, "Керування воротами вимкнено: датчик та привід воріт не підтримуються у проєкті."
 
         if cmd in (
             "light on", "turn on light", "turn on lights", "lights on",
@@ -1062,7 +1084,6 @@ class CommandProcessor:
             online_str = "Онлайн" if tel.get("online") else "Офлайн"
             light_str = "Увімкнено" if tel.get("light") else "Вимкнено"
             fan_str = "Увімкнено" if tel.get("fan") else "Вимкнено"
-            door_ua = "ВІДКРИТО" if tel.get("door") == "open" else "ЗАКРИТО"
 
             def _fmt_floor(fl, default_offline="Офлайн"):
                 if fl.get("online") and fl.get("temperature") is not None:
@@ -1102,10 +1123,6 @@ class CommandProcessor:
 
         if cmd in ("scenario cinema", "кінотеатр", "режим кіно", "кінотеатр у гаражі"):
             _, msg = self.automation.scenario_cinema_mode()
-            return True, msg
-
-        if cmd in ("scenario safety", "провітрити", "безпека", "аварійне провітрювання", "тривога"):
-            _, msg = self.automation.scenario_gas_alarm()
             return True, msg
 
         if cmd in ("scenarios", "scenario list", "сценарії", "список сценаріїв"):

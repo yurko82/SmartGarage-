@@ -4,27 +4,6 @@
   "description": "JSON Schema declarations of all available tools for Antigravity Core and Open Interpreter",
   "tools": [
     {
-      "name": "garage_door_control",
-      "description": "Control garage physical door mechanisms or query their real-time state via ESP32-S3 bridge.",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "action": {
-            "type": "string",
-            "enum": ["open", "close", "status"],
-            "description": "Action to perform on the door: 'open' to raise door, 'close' to lower door, 'status' to check current state."
-          },
-          "target_door": {
-            "type": "string",
-            "enum": ["main_gate"],
-            "default": "main_gate",
-            "description": "The target garage door identifier."
-          }
-        },
-        "required": ["action"]
-      }
-    },
-    {
       "name": "climate_sensor_read",
       "description": "Read temperature, relative humidity, or battery levels from BLE climate sensors and telemetry database.",
       "parameters": {

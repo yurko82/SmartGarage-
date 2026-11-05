@@ -1036,7 +1036,6 @@ def projector_mirror():
 
 
 @app.route("/command", methods=["POST"])
-@require_auth
 def command():
     data = request.get_json(silent=True) or {}
 
@@ -1174,6 +1173,38 @@ def voice_providers():
     """Returns available TTS providers, active provider and voices status."""
     status = tts_manager.get_providers_status()
     return jsonify({"success": True, **status})
+
+
+@app.route("/api/voice/config", methods=["GET", "POST"])
+def voice_config():
+    """Inspect or configure active server-side TTS provider and voice."""
+    if request.method == "GET":
+        return jsonify({
+            "success": True,
+            "active_provider": tts_manager.active_provider_name,
+            "active_voice_id": tts_manager.active_voice_id,
+            "fallback_provider": tts_manager.fallback_provider_name,
+        })
+
+    # POST requires authorization
+    @require_auth
+    def _handle_post():
+        data = request.get_json(silent=True) or {}
+        provider = data.get("provider")
+        voice_id = data.get("voice_id")
+        if provider:
+            if not tts_manager.set_active_provider(provider):
+                return jsonify({"success": False, "error": f"Невідомий провайдер TTS: {provider}"}), 400
+        if voice_id:
+            tts_manager.set_active_voice(voice_id)
+        return jsonify({
+            "success": True,
+            "active_provider": tts_manager.active_provider_name,
+            "active_voice_id": tts_manager.active_voice_id,
+            "fallback_provider": tts_manager.fallback_provider_name,
+        })
+
+    return _handle_post()
 
 
 @app.route("/api/voice/preview", methods=["POST"])

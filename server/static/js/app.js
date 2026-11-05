@@ -40,7 +40,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const quickBtns = document.querySelectorAll('.quick-btn');
 
     // Sidebar & Telemetry badges
-    const telDoor = document.getElementById('telDoor');
     const telLight = document.getElementById('telLight');
     const telTemp = document.getElementById('telTemp');
     const telHum = document.getElementById('telHum');
@@ -179,17 +178,6 @@ document.addEventListener('DOMContentLoaded', () => {
             .then(data => {
                 if (data.success && data.state) {
                     const s = data.state;
-                    if (telDoor) {
-                        if (s.door === 'not_installed' || s.door === 'unknown' || s.door_installed === false) {
-                            telDoor.textContent = 'Невідомо';
-                            telDoor.className = 'val-badge';
-                            telDoor.title = 'Привід воріт не планується / не встановлений';
-                        } else {
-                            const isOpen = s.door === 'open';
-                            telDoor.textContent = isOpen ? 'Відкрито' : 'Закрито';
-                            telDoor.className = isOpen ? 'val-badge warning' : 'val-badge';
-                        }
-                    }
                     if (telLight) {
                         if (s.relays_installed === false) {
                             telLight.textContent = 'Очікує реле';
