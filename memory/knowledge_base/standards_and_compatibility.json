@@ -36,5 +36,11 @@
     "ec_external_cup": "Чашки запресовані зовні рульового стакана (традиційні сталеві або алюмінієві рами).",
     "zs_zero_stack": "Напівінтегрована: чашки запресовані всередину стакана врівень з рамою (найпоширеніший стандарт MTB).",
     "is_integrated": "Інтегрована: промпідшипники лягають безпосередньо у внутрішні фаски карбонової або алюмінієвої рами (зазвичай фаска 45°/45° або 36°/45°)."
-  }
+  },
+  "sources": [
+    "Standard Headset Identification System (S.H.I.S.) Specification Chart",
+    "SRAM DUB Bottom Bracket and Crankset Technical Specifications",
+    "Shimano Micro Spline License & Freehub Technical Documentation",
+    "Park Tool Bottom Bracket Standards and Compatibility Guide"
+  ]
 }

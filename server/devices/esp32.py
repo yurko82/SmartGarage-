@@ -282,21 +282,35 @@ class ESP32Controller:
                         self._serial = serial.Serial(port_to_try, self.baudrate, timeout=1.0, write_timeout=1.0)
                         self.serial_port_name = port_to_try
                         with self._lock:
-                            self.state["online"] = True
+                            self._serial_handshake_verified = False
+                            # Port opened, but not online until verified handshake!
                             self.state["transport"] = "serial"
-                            self.state["last_seen"] = time.time()
-                        self.log_event("connection", "success", "Підключено через USB Serial", f"Порт: {self.serial_port_name}")
-                        time.sleep(0.5)
-                        self._send_serial_command("CMD:GET_TELEMETRY")
+                        self.log_event("connection", "info", "Відкрито USB Serial порт", f"Порт: {self.serial_port_name}. Очікування handshake...")
+                        time.sleep(0.3)
+                        # Send PING handshake to verify ESP32 identity
+                        self._send_raw_serial("CMD:PING")
                         last_poll_cmd = time.time()
                     else:
                         time.sleep(2)
                         continue
 
-                # Periodically query telemetry in background every 5 seconds
+                # Check Heartbeat TTL (20s)
                 now = time.time()
-                if now - last_poll_cmd > 5.0:
+                last_seen = self.state.get("last_seen") or 0
+                if getattr(self, "_serial_handshake_verified", False) and (now - last_seen > 20.0):
+                    with self._lock:
+                        self._serial_handshake_verified = False
+                        self.state["online"] = False
+                        if self.state.get("transport") == "serial":
+                            self.state["transport"] = "none"
+                    self.log_event("connection", "warning", "ESP32 Heartbeat TTL вичерпано", "Втрачено підтверджений зв'язок з ESP32")
+
+                # Periodically query telemetry in background every 5 seconds if verified
+                if getattr(self, "_serial_handshake_verified", False) and (now - last_poll_cmd > 5.0):
                     self._send_serial_command("CMD:GET_TELEMETRY")
+                    last_poll_cmd = now
+                elif not getattr(self, "_serial_handshake_verified", False) and (now - last_poll_cmd > 3.0):
+                    self._send_raw_serial("CMD:PING")
                     last_poll_cmd = now
 
                 line = self._serial.readline().decode("utf-8", errors="ignore").strip()
@@ -309,14 +323,41 @@ class ESP32Controller:
                     except Exception:
                         pass
                     self._serial = None
+                    self._serial_handshake_verified = False
+                    with self._lock:
+                        self.state["online"] = False
                     self.log_event("connection", "warning", "Втрата зв'язку USB Serial", f"Порт {self.serial_port_name} відключено")
                 time.sleep(2)
 
+    def _send_raw_serial(self, cmd: str) -> bool:
+        """Send raw line over serial port without handshake requirement."""
+        with self._lock:
+            if self._serial and self._serial.is_open:
+                try:
+                    self._serial.write(f"{cmd}\n".encode("utf-8"))
+                    self._serial.flush()
+                    return True
+                except Exception:
+                    return False
+            return False
+
     def _parse_serial_line(self, line: str):
+        # 1. Handshake verification response
+        if "PONG:ESP32_SMARTGARAGE" in line or line == "PONG" or "esp32_smartgarage" in line or "[SmartGarage] ESP32" in line:
+            with self._lock:
+                self._serial_handshake_verified = True
+                self.state["online"] = True
+                self.state["last_seen"] = time.time()
+                self.state["transport"] = "serial"
+            self.log_event("connection", "success", "Підключено та верифіковано через USB Serial", f"Порт: {self.serial_port_name}")
+            return
+
         if line.startswith("TELEMETRY:"):
             raw_json = line[len("TELEMETRY:"):].strip()
             try:
                 data = json.loads(raw_json)
+                with self._lock:
+                    self._serial_handshake_verified = True
                 self.update_from_webhook(data, transport="serial")
             except Exception:
                 pass
@@ -362,17 +403,15 @@ class ESP32Controller:
                     with self._lock:
                         self.last_ble_scan_results = devices
                 else:
+                    with self._lock:
+                        self._serial_handshake_verified = True
                     self.update_from_webhook(data, transport="serial")
             except Exception:
                 pass
         else:
             if line:
-                print(f"[ESP32 RAW] {line}")
-                self.log_event("connection", "info", "ESP32", line)
-                with self._lock:
-                    self.state["online"] = True
-                    self.state["last_seen"] = time.time()
-                    self.state["transport"] = "serial"
+                # Arbitrary serial line does NOT verify port or make online
+                self.log_event("connection", "info", "ESP32 RAW", line)
 
     def scan_ble(self, duration: int = 15, timeout: Optional[float] = None) -> list:
         """Запустити активне сканування BLE на ESP32 та повернути знайдені пристрої."""
@@ -437,6 +476,8 @@ class ESP32Controller:
 
     def _send_serial_command(self, cmd: str) -> bool:
         with self._lock:
+            if not getattr(self, "_serial_handshake_verified", False):
+                return False
             if self._serial and self._serial.is_open:
                 try:
                     self._serial.write(f"{cmd}\n".encode("utf-8"))
@@ -655,14 +696,31 @@ class ESP32Controller:
     def update_from_webhook(self, telemetry_dict: dict, transport: str = "http") -> bool:
         """
         Обробка вхідного пакету телеметрії від ESP32.
-        Зберігає реальні часові мітки опитування датчиків та фіксує події в журналі.
+        Чітко розділяє sample_timestamp (час фізичного виміру на сенсорі),
+        heartbeat_timestamp (час зв'язку/отримання payload) та last_known_* значення.
         """
         if not isinstance(telemetry_dict, dict):
             return False
 
         now = time.time()
         with self._lock:
-            # Збереження попередніх поверхів для об'єднання
+            # Обчислення базового sample_timestamp пакета
+            base_sample_ts = None
+            if "sample_timestamp" in telemetry_dict:
+                try:
+                    cand = float(telemetry_dict["sample_timestamp"])
+                    if cand <= now + 60:  # Захист від майбутніх міток часу
+                        base_sample_ts = cand
+                except (ValueError, TypeError):
+                    base_sample_ts = None
+            elif "last_read_ago_sec" in telemetry_dict:
+                try:
+                    ago = float(telemetry_dict["last_read_ago_sec"])
+                    if ago >= 0:
+                        base_sample_ts = max(0.0, now - ago)
+                except (ValueError, TypeError):
+                    base_sample_ts = None
+
             current_floors = self.state.get("floors", {})
             new_floors = telemetry_dict.get("floors")
 
@@ -677,12 +735,44 @@ class ESP32Controller:
                         mac = fval.get("mac", "")
 
                         fval["source"] = SOURCE_ESP32_BRIDGE
+                        fval["heartbeat_timestamp"] = now
 
+                        # Визначення sample_timestamp для конкретного датчика
+                        f_sample_ts = None
+                        if "last_read_ago_sec" in fval:
+                            try:
+                                ago = float(fval["last_read_ago_sec"])
+                                if ago >= 0:
+                                    f_sample_ts = max(0.0, now - ago)
+                            except (ValueError, TypeError):
+                                f_sample_ts = None
+                        elif "sample_timestamp" in fval:
+                            try:
+                                cand = float(fval["sample_timestamp"])
+                                if cand <= now + 60:
+                                    f_sample_ts = cand
+                            except (ValueError, TypeError):
+                                f_sample_ts = None
+
+                        if f_sample_ts is None:
+                            f_sample_ts = base_sample_ts or now
+
+                        # Якщо мітка часу в майбутньому (> 60 с) — вважаємо недійсною
+                        if f_sample_ts > now + 60:
+                            f_online = False
+                            f_temp = None
+
+                        # Battery-only read: якщо температури немає (None), оновлення клімату не відбувається
                         if f_online and f_temp is not None:
-                            fval["last_read_ts"] = now
-                            fval["last_updated"] = now
-                            fval["last_read_formatted"] = time.strftime("%H:%M:%S (%d.%m.%Y)", time.localtime(now))
-                            fval["last_read_time"] = time.strftime("%H:%M:%S", time.localtime(now))
+                            fval["sample_timestamp"] = f_sample_ts
+                            fval["last_read_ts"] = f_sample_ts
+                            fval["last_updated"] = f_sample_ts
+                            fval["current_temperature"] = f_temp
+                            fval["current_humidity"] = f_hum
+                            fval["last_known_temperature"] = f_temp
+                            fval["last_known_humidity"] = f_hum
+                            fval["last_read_formatted"] = time.strftime("%H:%M:%S (%d.%m.%Y)", time.localtime(f_sample_ts))
+                            fval["last_read_time"] = time.strftime("%H:%M:%S", time.localtime(f_sample_ts))
                             self.log_event(
                                 "sensor_read",
                                 "success",
@@ -690,27 +780,34 @@ class ESP32Controller:
                                 f"Температура: {f_temp}°C, Вологість: {f_hum}%, Заряд: {f_bat or 100}%",
                                 {"floor": fk, "mac": mac, "temp": f_temp, "hum": f_hum, "battery": f_bat, "transport": transport}
                             )
-                        elif not f_online:
-                            # Preserve last known reading and timestamp from current_floors if available
-                            if fk in current_floors and current_floors[fk].get("temperature") is not None:
-                                prev = current_floors[fk]
-                                if fval.get("temperature") is None:
-                                    fval["temperature"] = prev.get("temperature")
-                                    fval["humidity"] = prev.get("humidity")
-                                    fval["battery"] = prev.get("battery")
-                                fval["last_read_ts"] = prev.get("last_read_ts")
-                                fval["last_updated"] = prev.get("last_updated") or prev.get("last_read_ts")
-                                fval["last_read_formatted"] = prev.get("last_read_formatted", "--")
-                                fval["last_read_time"] = prev.get("last_read_time", "--:--")
+                        else:
+                            # Офлайн, застарілий або battery-only стан: current_temperature strictly None
+                            fval["online"] = False
+                            fval["current_temperature"] = None
+                            fval["current_humidity"] = None
+
+                            prev = current_floors.get(fk, {})
+                            prev_temp = prev.get("last_known_temperature") or prev.get("temperature")
+                            prev_hum = prev.get("last_known_humidity") or prev.get("humidity")
+                            prev_ts = prev.get("sample_timestamp") or prev.get("last_read_ts")
+
+                            fval["last_known_temperature"] = prev_temp
+                            fval["last_known_humidity"] = prev_hum
+                            fval["sample_timestamp"] = prev_ts
+                            fval["last_read_ts"] = prev_ts
+                            fval["last_updated"] = prev_ts
+                            fval["temperature"] = prev_temp  # Історичне значення для backward-compatibility
+                            fval["humidity"] = prev_hum
+
                             self.log_event(
                                 "sensor_read",
                                 "warning",
                                 f"Датчик {f_name} недоступний для ESP32",
-                                f"ESP32 не зміг встановити BLE-з'єднання з {mac}",
+                                f"ESP32 не зміг отримати свіжий вимір з {mac}",
                                 {"floor": fk, "mac": mac, "transport": transport}
                             )
 
-            # Clean out any legacy door or gas keys if present in telemetry
+            # Очищення застарілих / заборонених ключів воріт та газу
             telemetry_dict.pop("door", None)
             telemetry_dict.pop("door_installed", None)
             telemetry_dict.pop("door_status", None)
@@ -719,8 +816,10 @@ class ESP32Controller:
             telemetry_dict.pop("gas_status", None)
 
             self.state.update(telemetry_dict)
-            self.state["online"] = True
+            self.state["online"] = bool(telemetry_dict.get("online", True))
             self.state["last_seen"] = now
+            self.state["heartbeat_timestamp"] = now
+            self.state["sample_timestamp"] = base_sample_ts
             self.state["transport"] = transport
 
         if hasattr(self, "on_telemetry_callback") and callable(self.on_telemetry_callback):

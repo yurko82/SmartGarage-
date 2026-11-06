@@ -389,80 +389,112 @@ class AIManager:
             past_turns = self.conversation_buffer.get_messages(session_id)
             messages.extend(past_turns)
 
-            # Current user prompt
-            messages.append({"role": "user", "content": prompt})
+            # Current user prompt with untrusted framing
+            user_content = prompt
+            messages.append({"role": "user", "content": user_content})
 
+            MAX_TOOL_ROUNDS = 3
             tools_param = self.tools if (self.tool_dispatcher and self.tools) else None
-            data = self.openrouter_client.send_chat_completion(messages, tools=tools_param, tool_choice="auto")
+            first_assistant_tc_msg = None
+            all_tool_responses = []
+            final_answer = None
 
-            choices = data.get("choices", [])
-            if choices:
+            for round_idx in range(MAX_TOOL_ROUNDS):
+                # Validate message sequence before sending to OpenRouter
+                val_ok, val_err = validate_openrouter_messages(messages)
+                if not val_ok:
+                    logger.warning(f"OpenRouter message sequence validation warning: {val_err}")
+                    break
+
+                allow_tools = tools_param if (round_idx < MAX_TOOL_ROUNDS - 1) else None
+                data = self.openrouter_client.send_chat_completion(
+                    messages,
+                    tools=allow_tools,
+                    tool_choice="auto" if allow_tools else None
+                )
+
+                choices = data.get("choices", [])
+                if not choices:
+                    break
+
                 msg = choices[0].get("message", {})
                 tool_calls = msg.get("tool_calls")
-                if tool_calls:
-                    # 1. Execute tools
-                    tool_summaries = []
-                    tool_messages = []
-                    execution_results = []
+
+                if tool_calls and allow_tools:
                     assistant_tc_msg = {
                         "role": "assistant",
                         "content": msg.get("content") or None,
                         "tool_calls": tool_calls
                     }
+                    if first_assistant_tc_msg is None:
+                        first_assistant_tc_msg = assistant_tc_msg
                     messages.append(assistant_tc_msg)
+
                     for tc in tool_calls:
                         fn = tc.get("function", {})
                         fn_name = fn.get("name")
-                        try:
-                            fn_args = json.loads(fn.get("arguments", "{}"))
-                        except Exception:
-                            fn_args = {}
+                        tc_id = tc.get("id") or f"call_{uuid.uuid4().hex[:8]}"
 
-                        result = self.tool_dispatcher.execute(fn_name, fn_args, session_id=session_id)
-                        execution_results.append((fn_name, fn_args, result))
-                        tool_summaries.append(result.get("message") or result.get("error") or str(result))
+                        raw_args = fn.get("arguments", "{}")
+                        try:
+                            fn_args = json.loads(raw_args)
+                            if not isinstance(fn_args, dict):
+                                raise ValueError("аргументи мають бути передані як JSON-об'єкт")
+                            result = self.tool_dispatcher.execute(fn_name, fn_args, session_id=session_id)
+                        except Exception as e_parse:
+                            result = {
+                                "success": False,
+                                "error": f"Помилка валідації аргументів інструменту '{fn_name}': {e_parse}"
+                            }
+
                         t_msg = {
                             "role": "tool",
-                            "tool_call_id": tc.get("id"),
+                            "tool_call_id": tc_id,
                             "name": fn_name,
                             "content": json.dumps(result, ensure_ascii=False)
                         }
                         messages.append(t_msg)
-                        tool_messages.append(t_msg)
+                        all_tool_responses.append(t_msg)
+                    # Next round for natural language synthesis
+                    continue
+                else:
+                    raw_content = msg.get("content")
+                    content = (raw_content or "").strip() if isinstance(raw_content, str) else ""
+                    if content:
+                        final_answer = content
+                    break
 
-                    # 2. Natural language confirmation from LLM
-                    final_answer = None
+            if first_assistant_tc_msg and all_tool_responses:
+                has_error = False
+                summaries = []
+                for tr in all_tool_responses:
                     try:
-                        f_data = self.openrouter_client.send_chat_completion(messages, tools=None)
-                        f_choices = f_data.get("choices", [])
-                        if f_choices:
-                            f_content = f_choices[0].get("message", {}).get("content", "").strip()
-                            if f_content:
-                                final_answer = f_content
-                    except Exception as ef:
-                        logger.debug(f"Follow-up tool completion failed: {ef}")
+                        c = json.loads(tr.get("content", "{}"))
+                        if not c.get("success", False):
+                            has_error = True
+                        summaries.append(c.get("message") or c.get("error") or str(c))
+                    except Exception:
+                        pass
 
-                    has_error = any(not r[2].get("success", False) for r in execution_results)
-                    if not final_answer:
-                        final_answer = "\n".join(tool_summaries)
-                    elif has_error:
-                        clean_final = final_answer.lower()
-                        if any(w in clean_final for w in ("команду виконано", "успішно", "грає", "відтворюється")) and not any(e in clean_final for e in ("помилк", "не вдалося", "не підключен", "вимкнен", "недоступн")):
-                            final_answer = "\n".join(tool_summaries)
+                if not final_answer:
+                    final_answer = "\n".join(summaries) or "Дію виконано."
+                elif has_error:
+                    clean_final = final_answer.lower()
+                    if any(w in clean_final for w in ("команду виконано", "успішно", "грає", "відтворюється")) and not any(e in clean_final for e in ("помилк", "не вдалося", "не підключен", "вимкнен", "недоступн")):
+                        final_answer = "\n".join(summaries)
 
-                    self.conversation_buffer.add_tool_turn(
-                        session_id=session_id,
-                        user_content=prompt,
-                        assistant_tool_call_msg=assistant_tc_msg,
-                        tool_responses=tool_messages,
-                        final_assistant_content=final_answer
-                    )
-                    return final_answer
+                self.conversation_buffer.add_tool_turn(
+                    session_id=session_id,
+                    user_content=prompt,
+                    assistant_tool_call_msg=first_assistant_tc_msg,
+                    tool_responses=all_tool_responses,
+                    final_assistant_content=final_answer
+                )
+                return final_answer
 
-                content = msg.get("content", "").strip()
-                if content:
-                    self.conversation_buffer.add_simple_turn(session_id, prompt, content)
-                    return content
+            if final_answer:
+                self.conversation_buffer.add_simple_turn(session_id, prompt, final_answer)
+                return final_answer
 
         except OpenRouterError as oe:
             logger.warning(f"OpenRouter client handled error: {oe}")

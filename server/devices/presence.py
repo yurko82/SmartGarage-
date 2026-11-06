@@ -94,10 +94,12 @@ class PresenceManager:
             self.logger.error(f"Error saving presence_devices.json: {e}")
 
     def _save_log(self):
-        """Save presence log to disk (retaining latest 500 events)."""
+        """Save presence log to disk (retaining entries within 7 days TTL, max 100 entries)."""
         try:
             self.log_path.parent.mkdir(parents=True, exist_ok=True)
-            trimmed = self.log[-500:]
+            now = time.time()
+            cutoff = now - (7 * 86400)
+            trimmed = [e for e in self.log if (e.get("timestamp") or 0) > cutoff][-100:]
             with open(self.log_path, "w", encoding="utf-8") as f:
                 json.dump(trimmed, f, indent=4, ensure_ascii=False)
         except Exception as e:
@@ -109,41 +111,45 @@ class PresenceManager:
             changed = False
             now = time.time()
 
-            # 1. Owner's Smartphone (Motorola Edge 50 Pro)
+            # 1. Owner's Smartphone (Synthetic Default)
             if "owner_phone" not in self.devices:
                 self.devices["owner_phone"] = {
                     "id": "owner_phone",
-                    "name": "Юрій (Власник)",
+                    "name": "Власник (Смартфон)",
                     "role": "owner",
                     "device_type": "phone",
-                    "device_name": "Motorola Edge 50 Pro",
-                    "classic_mac": "B8:7E:39:88:22:9B",
-                    "ble_services": ["3e1d50cd-7e3e-427d-8e1c-b78aa87fe624"],
-                    "recent_ble_rpa": ["62:FD:D0:F6:F2:CF"],
-                    "status": "present",
-                    "last_seen": now,
-                    "last_rssi": -47,
-                    "proximity": "immediate",
-                    "auto_welcome": True
+                    "device_name": "Смартфон",
+                    "classic_mac": "00:11:22:33:44:55",
+                    "ble_services": [],
+                    "recent_ble_rpa": [],
+                    "status": "away",
+                    "last_seen": None,
+                    "last_rssi": None,
+                    "proximity": "unknown",
+                    "auto_welcome": False,
+                    "notify_owner": False,
+                    "opt_in": False
                 }
                 changed = True
 
-            # 2. Owner's Smartwatch
+            # 2. Owner's Smartwatch (Synthetic Default)
             if "owner_watch" not in self.devices:
                 self.devices["owner_watch"] = {
                     "id": "owner_watch",
-                    "name": "Юрій (Смарт-годинник)",
+                    "name": "Власник (Годинник)",
                     "role": "owner",
                     "device_type": "watch",
                     "device_name": "Смарт-годинник",
                     "classic_mac": "",
                     "ble_services": [],
-                    "recent_ble_rpa": ["5C:56:EB:EC:CE:AB"],
-                    "status": "present",
-                    "last_seen": now,
-                    "last_rssi": -80,
-                    "proximity": "near",
-                    "auto_welcome": False
+                    "recent_ble_rpa": [],
+                    "status": "away",
+                    "last_seen": None,
+                    "last_rssi": None,
+                    "proximity": "unknown",
+                    "auto_welcome": False,
+                    "notify_owner": False,
+                    "opt_in": False
                 }
                 changed = True
 
@@ -209,30 +215,31 @@ class PresenceManager:
         matched_device_id = None
 
         with self._lock:
-            # 1. Match by static Classic MAC
+            match_reason = None
+            # 1. Match by static Classic MAC (reliable, confirmed)
             for dev_id, dev in self.devices.items():
                 if dev.get("classic_mac") and dev["classic_mac"].upper() == mac_upper:
                     matched_device_id = dev_id
+                    match_reason = "classic_mac"
                     break
 
-            # 2. Match by registered MAC / RPA
+            # 2. Match by registered static MAC / verified RPA
             if not matched_device_id:
                 for dev_id, dev in self.devices.items():
                     if mac_upper in [r.upper() for r in dev.get("recent_ble_rpa", [])]:
                         matched_device_id = dev_id
+                        match_reason = "registered_mac"
                         break
 
-            # 4. Match by Device Name if explicitly broadcasted
+            # 3. Match by Device Name if explicitly broadcasted (Heuristic)
             if not matched_device_id and name:
                 for dev_id, dev in self.devices.items():
                     if dev.get("device_name") and dev["device_name"].lower() == name.lower():
                         matched_device_id = dev_id
+                        match_reason = "device_name"
                         break
 
-            # 5. Match by Service UUID overlap. Many BLE-only peripherals (earbuds,
-            # fitness bands) keep advertising the same custom Service UUID across RPA
-            # rotations, even though the MAC itself changes every ~15 minutes.
-            match_reason = "mac_or_name"
+            # 4. Match by Service UUID overlap (Heuristic)
             if not matched_device_id and service_uuids:
                 incoming_uuids = {u.lower() for u in service_uuids if u}
                 if incoming_uuids:
@@ -243,11 +250,7 @@ class PresenceManager:
                             match_reason = "service_uuid"
                             break
 
-            # 6. "Continuity" heuristic fallback: an unrecognized MAC that appears shortly
-            # after a known device went quiet, with a similar RSSI, is most likely that same
-            # device having rotated its RPA. Only applied as a last resort, and only against
-            # devices that were "present" (not devices that have been away a long time), to
-            # avoid falsely reassigning a stranger's device to someone's profile.
+            # 5. "Continuity" heuristic fallback (Uncertain heuristic)
             if not matched_device_id:
                 now_probe = time.time()
                 best_candidate = None
@@ -265,7 +268,6 @@ class PresenceManager:
                     rssi_delta = abs(last_rssi - rssi)
                     if rssi_delta > self.rpa_continuity_rssi_tolerance:
                         continue
-                    # Prefer the closest RSSI match if multiple devices are candidates.
                     if best_delta is None or rssi_delta < best_delta:
                         best_candidate = dev_id
                         best_delta = rssi_delta
@@ -291,15 +293,28 @@ class PresenceManager:
                         rpa_list.pop(0)
 
                 if not was_present:
-                    self._add_log_entry(
-                        event="ARRIVED",
-                        device_id=matched_device_id,
-                        person_name=dev.get("name", "Невідомий"),
-                        device_name=dev.get("device_name", ""),
-                        rssi=rssi,
-                        source=source,
-                        note="Пристрій з'явився в радіусі гаража"
-                    )
+                    if match_reason in ("classic_mac", "registered_mac"):
+                        self._add_log_entry(
+                            event="ARRIVED",
+                            device_id=matched_device_id,
+                            person_name=dev.get("name", "Невідомий"),
+                            device_name=dev.get("device_name", ""),
+                            rssi=rssi,
+                            source=source,
+                            note="Пристрій з'явився в радіусі гаража"
+                        )
+                    else:
+                        # Heuristic match (device_name, service_uuid, rpa_continuity):
+                        # Treat as sighting without triggering arrival automations/alerts
+                        self._add_log_entry(
+                            event="SIGHTING",
+                            device_id=matched_device_id,
+                            person_name=dev.get("name", "Невідомий"),
+                            device_name=dev.get("device_name", ""),
+                            rssi=rssi,
+                            source=source,
+                            note=f"Евристичний збіг ({match_reason}): автоматизація не запускається"
+                        )
                 elif match_reason in ("service_uuid", "rpa_continuity"):
                     # Not a new arrival, but log a low-noise SIGHTING so RPA rotations
                     # are traceable in the presence log for debugging/tuning.
@@ -342,10 +357,11 @@ class PresenceManager:
                         device_type: str = "phone", device_name: str = "",
                         classic_mac: str = "", ble_mac: str = "",
                         ble_services: Optional[List[str]] = None,
-                        auto_welcome: bool = True,
+                        auto_welcome: bool = False,
                         telegram_chat_id: Optional[str] = None,
                         absence_voice_message: str = "",
-                        notify_owner: bool = True) -> Dict[str, Any]:
+                        notify_owner: bool = False,
+                        opt_in: bool = False) -> Dict[str, Any]:
         """Register a new device / guest entity with optional absence automation rules."""
         with self._lock:
             clean_id = device_id.lower().replace(" ", "_").strip()
@@ -365,7 +381,8 @@ class PresenceManager:
                 "auto_welcome": bool(auto_welcome),
                 "telegram_chat_id": str(telegram_chat_id).strip() if telegram_chat_id else "",
                 "absence_voice_message": str(absence_voice_message or "").strip(),
-                "notify_owner": bool(notify_owner)
+                "notify_owner": bool(notify_owner),
+                "opt_in": bool(opt_in)
             }
             self.devices[clean_id] = item
             self._save_devices()
@@ -393,7 +410,7 @@ class PresenceManager:
             allowed_fields = [
                 "name", "role", "device_type", "device_name", "classic_mac",
                 "ble_services", "auto_welcome", "telegram_chat_id",
-                "absence_voice_message", "notify_owner"
+                "absence_voice_message", "notify_owner", "opt_in"
             ]
             for field in allowed_fields:
                 if field in kwargs:
@@ -402,7 +419,7 @@ class PresenceManager:
                         item[field] = str(val).upper().strip()
                     elif field in ("telegram_chat_id",):
                         item[field] = str(val).strip() if val else ""
-                    elif field in ("auto_welcome", "notify_owner"):
+                    elif field in ("auto_welcome", "notify_owner", "opt_in"):
                         item[field] = bool(val)
                     else:
                         item[field] = val
@@ -417,13 +434,20 @@ class PresenceManager:
             return item
 
     def remove_device(self, device_id: str) -> bool:
-        """Remove a registered device from registry."""
+        """Remove a registered device and cascadingly delete all related sightings and history."""
         with self._lock:
+            found = False
             if device_id in self.devices:
                 del self.devices[device_id]
                 self._save_devices()
-                return True
-            return False
+                found = True
+
+            orig_len = len(self.log)
+            self.log = [entry for entry in self.log if entry.get("device_id") != device_id]
+            if len(self.log) != orig_len:
+                self._save_log()
+                found = True
+            return found
 
     def _check_classic_mac(self, mac: str) -> Optional[str]:
         """Check if device is responding to Classic Bluetooth inquiry/name request."""
@@ -576,9 +600,7 @@ class PresenceManager:
                         if dev.get("last_seen") else "Ніколи"
                     ),
                     "proximity": dev.get("proximity", "unknown"),
-                    "telegram_chat_id": dev.get("telegram_chat_id", ""),
-                    "absence_voice_message": dev.get("absence_voice_message", ""),
-                    "notify_owner": dev.get("notify_owner", True),
+                    "opt_in": bool(dev.get("opt_in", False)),
                     "total_visits": 0
                 }
 
@@ -589,15 +611,25 @@ class PresenceManager:
                     if d_id in visitor_stats:
                         visitor_stats[d_id]["total_visits"] += 1
 
-            recent_arrivals = [
-                e for e in reversed(self.log[-limit:])
-                if e.get("event") == "ARRIVED"
-            ]
+            # Sanitize recent arrivals: exclude raw MAC and notes
+            clean_recent = []
+            for e in reversed(self.log[-limit:]):
+                if e.get("event") == "ARRIVED":
+                    clean_recent.append({
+                        "event": "ARRIVED",
+                        "formatted_time": e.get("formatted_time"),
+                        "person_name": e.get("person_name"),
+                        "device_name": e.get("device_name"),
+                        "proximity": e.get("proximity")
+                    })
 
             return {
                 "generated_at": datetime.now().strftime("%H:%M:%S (%d.%m.%Y)"),
+                "retention_policy": "TTL 7 днів, автоматичне каскадне очищення",
+                "consent_notice": "Збір даних відвідувачів вимагає явного opt-in від власника",
+                "deletion_method": "DELETE /api/presence/devices/<device_id>",
                 "total_registered_guests": len(visitor_stats),
                 "visits_today_count": len(visits_today),
                 "visitors": list(visitor_stats.values()),
-                "recent_arrivals": recent_arrivals[:limit]
+                "recent_arrivals": clean_recent[:limit]
             }

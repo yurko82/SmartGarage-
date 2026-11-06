@@ -93,5 +93,11 @@
       "torque_nm": "9 - 13.5 Нм",
       "notes": "Змастити різьбу осі тонким шаром мастила. Не перетягувати понад зазначене на самій осі маркування."
     }
+  ],
+  "sources": [
+    "Shimano General Specifications & Tightening Torques Technical Document",
+    "SRAM Component Specification and Frame Fit Specifications",
+    "Park Tool BBB-4 Torque Values Guide",
+    "Fox Factory Thru-Axle and Steerer Clamp Specifications"
   ]
 }

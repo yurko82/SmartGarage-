@@ -3,6 +3,7 @@ __pycache__/
 *.pyc
 .env
 .env.*
+!.env.example
 logs/
 *.log
 *.pid
@@ -23,3 +24,4 @@ devices/ytmusic_playlists.json
 output/
 memory/dialog_sessions.json
 memory/openrouter_usage.json
+memory/tts_settings.json

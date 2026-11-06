@@ -1139,6 +1139,52 @@ class CommandProcessor:
   • ⚓ Підвал     : {tb_str}
   • 💡 Освітлення : {light_str} | 💨 Вентиляція: {fan_str}""")
 
+        # Specific battery inquiry for climate sensors
+        is_battery_query = any(w in cmd for w in ("батаре", "акумулятор", "заряд", "батарейк")) and (
+            any(w in cmd for w in ("датчик", "сенсор", "клімат", "підвал", "поверх", "гараж", "термометр", "рівень", "стан", "всі", "покажи", "який", "скільки"))
+            or cmd in ("батарея", "батарейки", "стан батарей", "стан батарейок", "заряд батареї", "заряд батарей", "рівень заряду", "заряд", "акумулятори")
+        )
+        if is_battery_query:
+            floors = self._get_floors()
+            fb = floors.get("basement", {})
+            f2 = floors.get("floor2", {})
+            f1 = floors.get("floor1", {})
+
+            # Basement-specific
+            if any(w in cmd for w in ("підвал", "підвалі", "підвалу", "basement")):
+                b = fb.get("battery")
+                if b is not None:
+                    return True, f"🔋 Заряд батареї датчика у підвалі: {b}%."
+                return True, "🔋 Дані про заряд батареї датчика у підвалі наразі відсутні."
+
+            # Floor 2-specific
+            if any(w in cmd for w in ("2 поверх", "2-й поверх", "2-му повер", "2 повер", "другий поверх", "другому повер", "floor2", "2-й", "2-му")):
+                b = f2.get("battery")
+                if b is not None:
+                    return True, f"🔋 Заряд батареї датчика на 2-му поверсі: {b}%."
+                return True, "🔋 Дані про заряд батареї датчика на 2-му поверсі наразі відсутні."
+
+            # Floor 1-specific
+            if any(w in cmd for w in ("1 поверх", "1-й поверх", "1-му повер", "1 повер", "перший поверх", "першому повер", "floor1", "1-й", "1-му")):
+                b = f1.get("battery")
+                if b is not None:
+                    return True, f"🔋 Заряд батареї датчика на 1-му поверсі: {b}%."
+                return True, "🔋 Датчик на 1-му поверсі ще очікує встановлення."
+
+            # All sensors
+            def _fmt_bat(fl, name):
+                b = fl.get("battery")
+                if b is not None:
+                    return f"{name}: {b}%"
+                if not fl.get("mac"):
+                    return f"{name}: датчик не встановлено"
+                return f"{name}: немає даних"
+
+            b_b = _fmt_bat(fb, "⚓ Підвал")
+            b_2 = _fmt_bat(f2, "🏢 2-й поверх")
+            b_1 = _fmt_bat(f1, "🏠 1-й поверх")
+            return True, f"🔋 Заряд батарей датчиків:\n  • {b_b}\n  • {b_2}\n  • {b_1}"
+
 
         # -----------------------
         # AUTOMATION SCENARIOS

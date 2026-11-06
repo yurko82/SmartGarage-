@@ -38,5 +38,10 @@
     "zero_service": "Новий велосипед / вилка: перевірка наявності мастила в штанах (з заводу часто не доливають мастило).",
     "lower_leg_service_50h": "Кожні 50 годин катання: зняття штанів, промивка від бруду, очищення та просочення поролонових кілець оливою, заміна оливи в штанах (Fox 20wt Gold або RockShox 0w-30), змащування пильовиків мастилом типу Slick Honey / SRAM Butter.",
     "full_service_200h": "Кожні 100-200 годин катання: повне перебирання демпфера із заміною гідравлічної оливи, заміна всіх гумових ущільнювачів (O-rings), оновлення пильовиків (wipers)."
-  }
+  },
+  "sources": [
+    "RockShox Front Suspension Service Manual (2020-2024)",
+    "FOX Factory Service Guidelines: 32/34/36/38 Forks (2020-2024)",
+    "SRAM Butter & Suspension Fluid Technical Specifications"
+  ]
 }

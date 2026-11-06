@@ -274,7 +274,7 @@ document.addEventListener('DOMContentLoaded', () => {
             } else {
                 btnTts.classList.remove('active');
                 btnTts.querySelector('.btn-label').textContent = 'Голос: Вимк';
-                if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+                stopTtsPlaybackDash();
             }
         });
     }
@@ -548,6 +548,25 @@ document.addEventListener('DOMContentLoaded', () => {
 
     let currentTtsAudio = null;
     let currentTtsUrl = null;
+
+    function stopTtsPlaybackDash() {
+        if (currentTtsAudio) {
+            try {
+                currentTtsAudio.pause();
+                currentTtsAudio.currentTime = 0;
+            } catch (_) {}
+            currentTtsAudio = null;
+        }
+        if (currentTtsUrl) {
+            try { URL.revokeObjectURL(currentTtsUrl); } catch (_) {}
+            currentTtsUrl = null;
+        }
+        if ('speechSynthesis' in window) {
+            try { window.speechSynthesis.cancel(); } catch (_) {}
+        }
+        isSpeaking = false;
+        if (btnMicHero) btnMicHero.classList.remove('speaking');
+    }
 
     function playBrowserSpeechSynthesisDash(clean, onEnded) {
         if (!('speechSynthesis' in window)) {
@@ -2565,6 +2584,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let activeModalFloor = 'basement';
     let activeModalHours = 24;
     let climateChart = null;
+    let climateModalInterval = null;
 
     function openClimateModal(floorKey) {
         if (!climateModal) return;
@@ -2586,9 +2606,20 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         loadClimateHistory();
+
+        if (climateModalInterval) clearInterval(climateModalInterval);
+        climateModalInterval = setInterval(() => {
+            if (climateModal && climateModal.classList.contains('open')) {
+                loadClimateHistory();
+            }
+        }, 1800000); // Оновлення графіка кожні 30 хвилин
     }
 
     function closeClimateModal() {
+        if (climateModalInterval) {
+            clearInterval(climateModalInterval);
+            climateModalInterval = null;
+        }
         if (!climateModal) return;
         climateModal.classList.remove('open');
         setTimeout(() => {

@@ -1,5 +1,7 @@
 import os
 os.environ["TESTING"] = "1"
+os.environ["ADMIN_PIN"] = "9876"
+os.environ["ESP32_API_KEY"] = "test_esp32_secret_key_12345"
 import unittest
 import tempfile
 import time
@@ -1218,6 +1220,7 @@ class TestPresenceGreetingDebounce(unittest.TestCase):
         from server.core.core import SmartGarage
 
         garage = SmartGarage(start_workers=False)
+        garage.presence.update_device("owner_phone", auto_welcome=True, opt_in=True)
         garage.telegram.notify_admin = MagicMock()
         garage.ai.chat = MagicMock(return_value="Привіт, Юрію!")
         garage.get_context_snapshot = MagicMock(return_value="Контекст гаража")
@@ -1266,21 +1269,44 @@ class TestPresenceGreetingDebounce(unittest.TestCase):
             for d in garage.presence.devices.values():
                 d["status"] = "away"
 
-        # Register guest Max with custom absence message and Telegram ID
+        # 1. Without opt-in (default privacy), guest arrival triggers NO notifications or TTS
+        garage.presence.register_device(
+            device_id="guest_no_optin",
+            name="Анонімний Гість",
+            role="guest",
+            device_name="iPhone",
+            ble_mac="11:22:33:44:55:77",
+            notify_owner=True,
+            opt_in=False
+        )
+        cb = garage.presence.event_callback
+        self.assertIsNotNone(cb)
+        with patch("server.services.neural_tts.neural_tts.speak_locally") as mock_speak_default:
+            cb({
+                "event": "ARRIVED",
+                "device_id": "guest_no_optin",
+                "person_name": "Анонімний Гість",
+                "device_name": "iPhone",
+                "role": "guest",
+                "proximity": "near",
+                "source": "esp32_ble"
+            })
+            garage.telegram.notify_admin.assert_not_called()
+            mock_speak_default.assert_not_called()
+
+        # 2. With explicit opt-in and notify_owner:
+        # Neutral Telegram notification to owner, NO absence broadcast over speaker
         garage.presence.register_device(
             device_id="guest_max",
             name="Макс",
             role="guest",
             device_name="iPhone Макса",
             ble_mac="11:22:33:44:55:66",
-            absence_voice_message="Макс, Юри в гаражі немає, гуляйте собі далі...",
-            telegram_chat_id="987654321",
-            notify_owner=True
+            notify_owner=True,
+            opt_in=True
         )
 
         with patch("server.services.neural_tts.neural_tts.speak_locally") as mock_speak:
-            cb = garage.presence.event_callback
-            self.assertIsNotNone(cb)
             cb({
                 "event": "ARRIVED",
                 "device_id": "guest_max",
@@ -1291,20 +1317,14 @@ class TestPresenceGreetingDebounce(unittest.TestCase):
                 "source": "esp32_ble"
             })
 
-            # 1. Owner notified via Telegram that guest arrived while owner is away
+            # Owner notified neutrally via Telegram without leaking absence to guest or speaker
             garage.telegram.notify_admin.assert_called_once()
             args, _ = garage.telegram.notify_admin.call_args
             self.assertIn("Макс", args[0])
-            self.assertIn("Вас зараз немає в гаражі", args[0])
 
-            # 2. TTS spoken over speaker with custom message
-            mock_speak.assert_called_once_with("Макс, Юри в гаражі немає, гуляйте собі далі...")
-
-            # 3. Direct message sent to guest's Telegram
-            garage.telegram.send_message.assert_called_once()
-            tg_args, _ = garage.telegram.send_message.call_args
-            self.assertEqual(tg_args[0], 987654321)
-            self.assertIn("Юрія зараз немає в гаражі", tg_args[1])
+            # Privacy constraint: speaker must NOT announce owner absence
+            mock_speak.assert_not_called()
+            garage.telegram.send_message.assert_not_called()
 
 
 
@@ -1971,7 +1991,7 @@ class TestOwnerSecurityConstraints(unittest.TestCase):
 
     def test_presence_api_crud_and_report_workflow(self):
         """Full CRUD and reporting workflow for guest presence."""
-        headers_pin = {"X-Admin-PIN": "7777"}
+        headers_pin = {"X-Admin-PIN": "9876"}
 
         # 1. Register guest Max
         res_post = self.client.post("/api/presence/devices", json={
@@ -1979,7 +1999,8 @@ class TestOwnerSecurityConstraints(unittest.TestCase):
             "role": "guest",
             "ble_mac": "11:22:33:44:55:66",
             "absence_voice_message": "Макс, Юри в гаражі немає, гуляйте собі далі...",
-            "telegram_chat_id": "987654321"
+            "telegram_chat_id": "987654321",
+            "opt_in": True
         }, headers=headers_pin)
         self.assertEqual(res_post.status_code, 200)
         self.assertTrue(res_post.get_json()["success"])
@@ -1993,7 +2014,7 @@ class TestOwnerSecurityConstraints(unittest.TestCase):
         self.assertEqual(res_put.get_json()["device"]["absence_voice_message"], "Оновлена фраза")
 
         # 3. Get presence report
-        res_rep = self.client.get("/api/presence/report?days=7")
+        res_rep = self.client.get("/api/presence/report?days=7", headers=headers_pin)
         self.assertEqual(res_rep.status_code, 200)
         self.assertTrue(res_rep.get_json()["success"])
         self.assertIn("report", res_rep.get_json())
@@ -2004,13 +2025,18 @@ class TestOwnerSecurityConstraints(unittest.TestCase):
         self.assertTrue(res_del.get_json()["success"])
 
     def test_server_auth_with_valid_api_pin(self):
-        """Valid PIN via header (X-Admin-PIN or Bearer) allows execution."""
-        headers_pin = {"X-Enforce-Auth": "true", "X-Admin-PIN": "7777"}
+        """Valid PIN via header (X-Admin-PIN or Bearer) allows execution, forbidden PIN fails closed."""
+        # Forbidden default PIN 7777 fails closed (401)
+        res_forbidden = self.client.post("/api/device/light/toggle", headers={"X-Enforce-Auth": "true", "X-Admin-PIN": "7777"})
+        self.assertEqual(res_forbidden.status_code, 401)
+
+        # Configured admin PIN 9876 allows execution
+        headers_pin = {"X-Enforce-Auth": "true", "X-Admin-PIN": "9876"}
         res = self.client.post("/api/device/light/toggle", headers=headers_pin)
         self.assertEqual(res.status_code, 200)
         self.assertTrue(res.get_json()["success"])
 
-        headers_bearer = {"X-Enforce-Auth": "true", "Authorization": "Bearer 7777"}
+        headers_bearer = {"X-Enforce-Auth": "true", "Authorization": "Bearer 9876"}
         res2 = self.client.post("/api/speaker/volume", json={"value": 35}, headers=headers_bearer)
         self.assertEqual(res2.status_code, 200)
         self.assertTrue(res2.get_json()["success"])
@@ -2177,7 +2203,7 @@ class TestSensorFreshnessAndTelemetryTruth(unittest.TestCase):
         self.assertTrue(payload["status_text"].startswith("Офлайн — останній вимір"))
 
     def test_3_cache_older_than_threshold(self):
-        """When cached data age exceeds threshold (1200s), status must be 'stale' and current_temperature None."""
+        """When cached data age exceeds threshold (2400s), status must be 'stale' and current_temperature None."""
         now = time.time()
         payload = self.build_sensor_payload(
             floor="floor2",
@@ -2187,7 +2213,7 @@ class TestSensorFreshnessAndTelemetryTruth(unittest.TestCase):
             temperature=20.0,
             humidity=50.0,
             battery=80,
-            last_updated=now - 1500,  # 25 minutes ago (> 20 min threshold)
+            last_updated=now - (self.threshold + 100),  # > 40 min threshold
             is_online_reported=True,
             source="cache"
         )
@@ -2511,6 +2537,106 @@ class TestBleScanFiltering(unittest.TestCase):
             self.assertIn("AA:BB:CC:DD:EE:11", all_macs)
             self.assertIn("A4:C1:38:CC:CA:49", all_macs)
 
+
+class TestTemperatureAndBatteryBehavior(unittest.TestCase):
+    """Verifies that temperature queries do NOT output battery percentage,
+    and dedicated battery inquiries DO output battery levels."""
+
+    def setUp(self):
+        self.mock_logger = MagicMock()
+        self.mock_memory = MagicMock()
+        self.mock_projector = MagicMock()
+        self.mock_esp32 = MagicMock()
+        self.mock_automation = MagicMock()
+        self.mock_bt = MagicMock()
+        self.mock_speaker = MagicMock()
+
+        self.mock_bt.get_telemetry.return_value = {
+            "floors": {
+                "basement": {
+                    "online": True,
+                    "temperature": 18.5,
+                    "humidity": 60.0,
+                    "battery": 87,
+                    "mac": "A4:C1:38:CC:CA:49"
+                },
+                "floor2": {
+                    "online": True,
+                    "temperature": 21.0,
+                    "humidity": 52.0,
+                    "battery": 92,
+                    "mac": "A4:C1:38:EC:EC:6C"
+                },
+                "floor1": {
+                    "online": False,
+                    "temperature": None,
+                    "humidity": None,
+                    "battery": None,
+                    "mac": None
+                }
+            }
+        }
+        self.mock_esp32.get_telemetry.return_value = {
+            "online": True,
+            "relays_installed": False,
+            "floors": {}
+        }
+
+        self.processor = CommandProcessor(
+            self.mock_logger,
+            self.mock_memory,
+            self.mock_projector,
+            self.mock_esp32,
+            self.mock_automation,
+            self.mock_bt,
+            speaker=self.mock_speaker
+        )
+
+    def test_temperature_queries_do_not_contain_battery(self):
+        # Basement temperature
+        handled, resp = self.processor.execute("температура в підвалі")
+        self.assertTrue(handled)
+        self.assertIn("18.5°C", resp)
+        self.assertIn("60.0%", resp)
+        self.assertNotIn("батаре", resp.lower())
+        self.assertNotIn("🔋", resp)
+
+        # Floor 2 temperature
+        handled, resp = self.processor.execute("яка температура на 2 поверсі")
+        self.assertTrue(handled)
+        self.assertIn("21.0°C", resp)
+        self.assertIn("52.0%", resp)
+        self.assertNotIn("батаре", resp.lower())
+        self.assertNotIn("🔋", resp)
+
+        # Sensor status / telemetry
+        handled, resp = self.processor.execute("стан датчиків")
+        self.assertTrue(handled)
+        self.assertIn("18.5°C", resp)
+        self.assertIn("21.0°C", resp)
+        self.assertNotIn("батаре", resp.lower())
+        self.assertNotIn("🔋", resp)
+
+    def test_battery_inquiries_return_battery_percentage(self):
+        # Basement battery query
+        handled, resp = self.processor.execute("який заряд батареї в підвалі")
+        self.assertTrue(handled)
+        self.assertIn("87%", resp)
+        self.assertIn("підвал", resp.lower())
+
+        # Floor 2 battery query
+        handled, resp = self.processor.execute("який заряд батарейки на другому поверсі")
+        self.assertTrue(handled)
+        self.assertIn("92%", resp)
+        self.assertIn("2-му поверсі", resp)
+
+        # General battery query
+        handled, resp = self.processor.execute("стан батарейок у датчиках")
+        self.assertTrue(handled)
+        self.assertIn("87%", resp)
+        self.assertIn("92%", resp)
+        self.assertIn("Підвал", resp)
+        self.assertIn("2-й поверх", resp)
 
 
 if __name__ == "__main__":

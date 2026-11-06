@@ -258,9 +258,9 @@ def generate_html_content() -> str:
         </div>
         <div class="meta-row">
             <div class="meta-cell meta-label">Головний сервер:</div>
-            <div class="meta-cell">ThinkPad Linux Mint (24/7 Host, IP: 192.168.100.198)</div>
+            <div class="meta-cell">Сервер Linux Mint (24/7 Host, IP: 192.0.2.10)</div>
             <div class="meta-cell meta-label">Мікроконтролер:</div>
-            <div class="meta-cell">ESP32-S3 (IP: 192.168.100.114, HTTP + MQTT + Serial)</div>
+            <div class="meta-cell">ESP32-S3 (IP: 192.0.2.20, HTTP + MQTT + Serial)</div>
         </div>
         <div class="meta-row">
             <div class="meta-cell meta-label">Базовий ШІ:</div>
@@ -381,7 +381,7 @@ def generate_html_content() -> str:
                 </tr>
                 <tr>
                     <td><b>Проектор</b></td>
-                    <td>HY350MAX<br>IP: <code>192.168.100.191</code></td>
+                    <td>HY350MAX<br>IP: <code>192.0.2.30</code></td>
                     <td>AirPlay (57000), REST (8899), DLNA</td>
                     <td>Живлення, Screen Mirroring, HDMI</td>
                     <td><span class="badge badge-blue">Медіа</span><br>Трансляція екрану та медіафайлів на великий екран.</td>
@@ -573,7 +573,7 @@ def generate_html_content() -> str:
                 </tr>
                 <tr>
                     <td><b>Кнопка замка (Адмін-авторизація)</b></td>
-                    <td>Іконка замка 🔒/🔓. Відкриває модальне вікно вводу PIN-коду (7777).</td>
+                    <td>Іконка замка 🔒/🔓. Відкриває модальне вікно вводу PIN-коду адміністратора.</td>
                     <td><code>POST /api/admin/verify</code><br>Видає підписаний токен сесії.</td>
                     <td><code>server/security/auth.py</code><br><code>server/webapp.py</code></td>
                 </tr>
@@ -707,7 +707,7 @@ def generate_html_content() -> str:
                 </tr>
                 <tr>
                     <td><b>Бейдж статусу проектора</b></td>
-                    <td>«Онлайн» або «Вимкнено» (перевірка IP <code>192.168.100.191</code>).</td>
+                    <td>«Онлайн» або «Вимкнено» (перевірка IP <code>192.0.2.30</code>).</td>
                     <td><code>GET /api/projector/status</code></td>
                     <td><code>server/devices/projector.py</code></td>
                 </tr>
@@ -813,7 +813,7 @@ def generate_html_content() -> str:
                 </tr>
                 <tr>
                     <td><b>Мережеві IP-адреси</b></td>
-                    <td>Локальний IP (<code>192.168.100.198</code>) та безпечний Mesh IP Tailscale.</td>
+                    <td>Локальний IP (<code>192.0.2.10</code>) та безпечний Mesh IP Tailscale.</td>
                     <td><code>GET /api/system/stats</code> (системні інтерфейси <code>wlan0</code> / <code>tailscale0</code>).</td>
                     <td><code>server/webapp.py</code></td>
                 </tr>
@@ -920,10 +920,10 @@ def compile_pdf() -> bool:
 def send_to_telegram() -> bool:
     print(f"[4/4] Відправка PDF інструкції в Telegram...")
     token = os.getenv("TELEGRAM_BOT_TOKEN")
-    admin_chat_id = os.getenv("TELEGRAM_ADMIN_CHAT_ID", "464515219")
+    admin_chat_id = os.getenv("TELEGRAM_ADMIN_CHAT_ID", "")
     
-    if not token:
-        print("Помилка: TELEGRAM_BOT_TOKEN не задано в .env")
+    if not token or not admin_chat_id:
+        print("Повідомлення: TELEGRAM_BOT_TOKEN або TELEGRAM_ADMIN_CHAT_ID не задано. Відправка пропущена.")
         return False
         
     url = f"https://api.telegram.org/bot{token}/sendDocument"

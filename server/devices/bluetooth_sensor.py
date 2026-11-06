@@ -129,9 +129,8 @@ class BluetoothSensorManager:
                 for mac, vals in cached.items():
                     mac_u = mac.upper().strip()
                     if mac_u in self.sensors:
-                        last = vals.get("last_updated")
-                        is_fresh = bool(last and (time.time() - last < SENSOR_FRESHNESS_THRESHOLD_SECONDS) and vals.get("online"))
-                        self.sensors[mac_u]["online"] = is_fresh
+                        # On restart/load, cached data is strictly last_known; sensor remains offline until fresh measurement
+                        self.sensors[mac_u]["online"] = False
                         self.sensors[mac_u]["source"] = SOURCE_CACHE
                         # Always preserve last known physical measurements from cache
                         for k in ("temperature", "humidity", "battery", "last_updated"):
@@ -151,12 +150,12 @@ class BluetoothSensorManager:
                         if f_key in latest_floors and s.get("temperature") is None:
                             db_rec = latest_floors[f_key]
                             last_ts = db_rec.get("timestamp")
-                            is_db_fresh = bool(last_ts and (time.time() - last_ts < SENSOR_FRESHNESS_THRESHOLD_SECONDS))
                             s["temperature"] = db_rec.get("temperature")
                             s["humidity"] = db_rec.get("humidity")
                             s["battery"] = db_rec.get("battery")
                             s["last_updated"] = last_ts
-                            s["online"] = is_db_fresh
+                            # Historical SQLite data is strictly last_known, not online
+                            s["online"] = False
                             s["source"] = SOURCE_SQLITE_HISTORY
             except Exception as e:
                 logger.error(f"Error falling back to telemetry DB in sensor manager: {e}")
@@ -179,8 +178,8 @@ class BluetoothSensorManager:
         except Exception as e:
             logger.error(f"Error saving sensor cache: {e}")
 
-    def start(self, interval_seconds: int = 900):
-        """Initialize sensor manager with 15-minute background polling cycle."""
+    def start(self, interval_seconds: int = SENSOR_POLL_INTERVAL_SECONDS):
+        """Initialize sensor manager with 30-minute background polling cycle."""
         self._load_config()
         self._load_cache()
         if not self._running:
@@ -188,7 +187,7 @@ class BluetoothSensorManager:
             self.poll_interval = interval_seconds
             self._thread = threading.Thread(target=self._worker_loop, daemon=True, name="BluetoothSensorWorker")
             self._thread.start()
-            logger.info(f"BluetoothSensorManager started with {interval_seconds}s (15 min) periodic cycle.")
+            logger.info(f"BluetoothSensorManager started with {interval_seconds}s (30 min) periodic cycle.")
 
     def stop(self):
         """Stop background worker if active."""
@@ -221,7 +220,7 @@ class BluetoothSensorManager:
         return t
 
     def _worker_loop(self):
-        """Worker loop polling sensors every 15 minutes."""
+        """Worker loop polling sensors every 30 minutes."""
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         time.sleep(3)
@@ -231,7 +230,7 @@ class BluetoothSensorManager:
                 loop.run_until_complete(self._poll_all_sensors())
             except Exception as e:
                 logger.error(f"Error in Bluetooth sensor polling cycle: {e}")
-            interval = getattr(self, "poll_interval", 900)
+            interval = getattr(self, "poll_interval", SENSOR_POLL_INTERVAL_SECONDS)
             for _ in range(interval):
                 if not self._running:
                     break
@@ -340,24 +339,25 @@ class BluetoothSensorManager:
                 s = self.sensors[mac]
                 if temp_found is not None:
                     s["temperature"] = temp_found
-                    updated = True
-                if hum_found is not None:
-                    s["humidity"] = hum_found
-                    updated = True
-                if battery_found is not None:
-                    s["battery"] = battery_found
-                    updated = True
-                if temp_found is not None or battery_found is not None:
+                    if hum_found is not None:
+                        s["humidity"] = hum_found
+                    if battery_found is not None:
+                        s["battery"] = battery_found
                     s["online"] = True
                     s["source"] = SOURCE_BLE_DIRECT
                     s["last_updated"] = time.time()
-                    logger.info(f"Updated BLE sensor {mac}: Temp={s['temperature']}°C, Hum={s['humidity']}%, Bat={s['battery']}%")
+                    updated = True
+                    logger.info(f"Updated BLE sensor {mac}: Temp={s['temperature']}°C, Hum={s.get('humidity')}%, Bat={s.get('battery')}%")
+                elif battery_found is not None:
+                    # Battery-only read does NOT update climate freshness and does not make climate sensor online
+                    s["battery"] = battery_found
+                    s["heartbeat_timestamp"] = time.time()
                 else:
                     last = s.get("last_updated")
                     if not last or (time.time() - last > SENSOR_FRESHNESS_THRESHOLD_SECONDS):
                         s["online"] = False
 
-        if updated:
+        if updated and temp_found is not None:
             self._save_cache()
             if hasattr(self, "telemetry_db") and self.telemetry_db:
                 try:

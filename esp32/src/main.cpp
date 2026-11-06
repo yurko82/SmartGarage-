@@ -364,6 +364,7 @@ void sendTelemetryToServer() {
     HTTPClient http;
     http.begin(SERVER_TELEMETRY_URL);
     http.addHeader("Content-Type", "application/json");
+    http.addHeader("X-API-Key", ESP32_API_KEY);
     http.setTimeout(2000);
     int httpCode = http.POST(jsonBody);
     if (httpCode > 0) {
@@ -385,8 +386,10 @@ void handleTelemetry() {
 }
 
 bool isRequestAuthorized() {
-  if (strcmp(ESP32_API_KEY, "YOUR_ESP32_API_KEY") == 0) {
-    return true; // Default placeholder for initial setup
+  if (!ESP32_API_KEY || strlen(ESP32_API_KEY) == 0 ||
+      strcmp(ESP32_API_KEY, "YOUR_ESP32_API_KEY") == 0 ||
+      strcmp(ESP32_API_KEY, "placeholder") == 0) {
+    return false; // Fail-closed when unset or default placeholder
   }
   if (server.hasHeader("X-API-Key") && server.header("X-API-Key") == ESP32_API_KEY) {
     return true;
@@ -556,8 +559,10 @@ void processSerialCommand(String cmd) {
     }
   } else if (cmd.equalsIgnoreCase("ENTER_BOOTLOADER") || cmd.equalsIgnoreCase("CMD:ENTER_BOOTLOADER")) {
     enterBootloader();
-  } else if (cmd.equalsIgnoreCase("PING")) {
-    Serial.println("PONG");
+  } else if (cmd.equalsIgnoreCase("PING") || cmd.equalsIgnoreCase("CMD:PING")) {
+    Serial.println("PONG:ESP32_SMARTGARAGE");
+  } else if (cmd.equalsIgnoreCase("IDENTIFY") || cmd.equalsIgnoreCase("CMD:IDENTIFY")) {
+    Serial.println("RESP:{\"device\":\"esp32_smartgarage\",\"version\":\"1.0\",\"status\":\"ready\"}");
   }
 }
 
@@ -715,10 +720,18 @@ void setup() {
     server.send(200, "application/json", resp);
   });
   server.on("/api/ble/refresh", HTTP_POST, []() {
+    if (!isRequestAuthorized()) {
+      server.send(401, "application/json", "{\"status\":\"error\",\"error\":\"Unauthorized\"}");
+      return;
+    }
     pollAllBleSensors();
     server.send(200, "application/json", "{\"status\":\"ok\",\"message\":\"BLE sensors polled by ESP32\"}");
   });
   server.on("/api/ble/scan", HTTP_GET, []() {
+    if (!isRequestAuthorized()) {
+      server.send(401, "application/json", "{\"status\":\"error\",\"error\":\"Unauthorized\"}");
+      return;
+    }
     int duration = 15;
     if (server.hasArg("duration")) {
       int d = server.arg("duration").toInt();

@@ -27,7 +27,7 @@ logs:
   path: ./logs
 esp32:
   enabled: true
-  host: 192.168.100.114
+  host: 127.0.0.1
   port: 80
 server:
   host: 0.0.0.0
@@ -35,7 +35,7 @@ server:
 projector:
   enabled: true
   name: HY350MAX
-  ip: 192.168.100.191
+  ip: 127.0.0.1
   airplay_port: 57000
   rest_port: 8899
   dlna_port: 39235
@@ -43,14 +43,14 @@ projector:
   primary_protocol: airplay
   auto_discover: true
 admin:
-  pin: '7777'
+  pin: '' # Налаштовується виключно через ADMIN_PIN у .env
 telegram:
   enabled: true
   bot_token: ''
-  admin_chat_id: 464515219
-  admin_pin: '7777'
-  notify_presence: true
-  notify_door: true
+  admin_chat_id: ''
+  admin_pin: ''
+  notify_presence: false
+  notify_door: false
 presence:
   rpa_continuity_window_sec: 90
   rpa_continuity_rssi_tolerance: 10

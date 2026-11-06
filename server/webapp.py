@@ -21,8 +21,12 @@ from server.security import (
     init_session_security,
     verify_pin_secure,
     rate_limiter,
+    tts_rate_limiter,
+    command_rate_limiter,
+    telemetry_rate_limiter,
     generate_csrf_token,
     get_client_ip,
+    verify_esp32_auth,
     audit_log
 )
 from server.sensors.freshness import (
@@ -83,6 +87,32 @@ init_session_security(app)
 garage = SmartGarage()
 telemetry_history = TelemetryHistory()
 MEDIA_DIR = Path(__file__).parent.parent / "media"
+_seen_telemetry_nonces = deque(maxlen=1000)
+_seen_nonces_lock = threading.Lock()
+
+
+def create_app(test_config=None, garage_instance=None):
+    """Application factory pattern for test isolation and dependency injection."""
+    global garage, telemetry_history
+    if garage_instance is not None:
+        garage = garage_instance
+    if test_config:
+        app.config.update(test_config)
+    return app
+
+
+def get_tailscale_ip() -> Optional[str]:
+    """Detect Tailscale IPv4 address dynamically from tailscale0 interface without hardcoded IPs."""
+    try:
+        addrs = psutil.net_if_addrs()
+        for iface_name, iface_addrs in addrs.items():
+            if "tailscale" in iface_name.lower():
+                for a in iface_addrs:
+                    if getattr(a, "family", None) == 2:  # AF_INET
+                        return a.address
+    except Exception:
+        pass
+    return None
 
 
 def get_system_stats():
@@ -129,7 +159,7 @@ def get_system_stats():
         "uptime_str": f"{uptime_hours} год {uptime_minutes} хв",
         "uptime_seconds": uptime_seconds,
         "local_ip": get_local_ip(),
-        "tailscale_ip": "100.122.57.39"
+        "tailscale_ip": get_tailscale_ip()
     }
 
 
@@ -163,6 +193,7 @@ def serve_manifest():
 
 
 @app.route("/api/system/stats", methods=["GET"])
+@require_auth
 def system_stats():
     return jsonify({
         "success": True,
@@ -320,6 +351,7 @@ def get_consolidated_floors_telemetry() -> Dict[str, Dict[str, Any]]:
 
 
 @app.route("/api/garage/state", methods=["GET"])
+@require_auth
 def garage_state():
     state = garage.esp32.get_telemetry()
     bt_telemetry = garage.bt_sensors.get_telemetry() if hasattr(garage, "bt_sensors") and garage.bt_sensors else {}
@@ -405,6 +437,7 @@ def garage_state():
 
 
 @app.route("/api/sensors/floors", methods=["GET"])
+@require_auth
 def sensors_floors():
     floors = get_consolidated_floors_telemetry()
     return jsonify({
@@ -439,6 +472,7 @@ def sensors_refresh():
 
 
 @app.route("/api/esp32/status", methods=["GET"])
+@require_auth
 def esp32_status():
     if hasattr(garage, "esp32") and garage.esp32:
         return jsonify({
@@ -500,6 +534,7 @@ def bind_sensor_route():
 
 
 @app.route("/api/telemetry/history", methods=["GET"])
+@require_auth
 def get_telemetry_history():
     floor = request.args.get("floor")
     try:
@@ -527,7 +562,109 @@ def get_telemetry_history():
 
 @app.route("/api/esp32/telemetry", methods=["POST"])
 def esp32_telemetry():
-    data = request.get_json(silent=True) or {}
+    ip = get_client_ip()
+
+    # 1. Device authentication
+    if not verify_esp32_auth():
+        audit_log("esp32", "telemetry_auth_failed", "DENIED", {"ip": ip})
+        return jsonify({
+            "success": False,
+            "error": "Неавторизований доступ ESP32 (недійсний або відсутній API-ключ)"
+        }), 401
+
+    # 2. Rate limit check
+    is_limited, wait_sec = telemetry_rate_limiter.is_rate_limited(ip)
+    if is_limited:
+        audit_log("esp32", "telemetry_ratelimited", "BLOCKED", {"ip": ip, "wait_sec": wait_sec})
+        return jsonify({
+            "success": False,
+            "error": f"Занадто часті запити телеметрії. Зачекайте {wait_sec} сек."
+        }), 429
+
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"success": False, "error": "Некоректний формат JSON"}), 400
+
+    now = time.time()
+
+    # 3. Replay protection: timestamp check (+/- 300s window)
+    ts = data.get("timestamp")
+    if ts is not None:
+        try:
+            ts_float = float(ts)
+            if ts_float < now - 300.0 or ts_float > now + 60.0:
+                audit_log("esp32", "telemetry_stale_timestamp", "BLOCKED", {"ts": ts_float, "server_now": now, "ip": ip})
+                return jsonify({"success": False, "error": "Застаріла або некоректна мітка часу телеметрії"}), 400
+        except (ValueError, TypeError):
+            return jsonify({"success": False, "error": "Некоректний формат мітки часу"}), 400
+
+    # 4. Replay protection: nonce / seq deduplication
+    nonce = data.get("nonce") or data.get("seq")
+    if nonce is not None:
+        nonce_str = str(nonce).strip()
+        with _seen_nonces_lock:
+            if nonce_str in _seen_telemetry_nonces:
+                audit_log("esp32", "telemetry_replay_detected", "BLOCKED", {"nonce": nonce_str, "ip": ip})
+                return jsonify({"success": False, "error": "Повторний запит телеметрії (replay attack detected)"}), 400
+            _seen_telemetry_nonces.append(nonce_str)
+
+    # 5. Schema & Range validation
+    temp = data.get("temperature")
+    if temp is not None:
+        try:
+            t_val = float(temp)
+            if not (-50.0 <= t_val <= 100.0):
+                return jsonify({"success": False, "error": "Температура поза допустимим діапазоном (-50..100°C)"}), 400
+        except (ValueError, TypeError):
+            return jsonify({"success": False, "error": "Некоректне значення температури"}), 400
+
+    hum = data.get("humidity")
+    if hum is not None:
+        try:
+            h_val = float(hum)
+            if not (0.0 <= h_val <= 100.0):
+                return jsonify({"success": False, "error": "Вологість поза допустимим діапазоном (0..100%)"}), 400
+        except (ValueError, TypeError):
+            return jsonify({"success": False, "error": "Некоректне значення вологості"}), 400
+
+    bat = data.get("battery")
+    if bat is not None:
+        try:
+            b_val = float(bat)
+            if not (0.0 <= b_val <= 100.0):
+                return jsonify({"success": False, "error": "Рівень батареї поза допустимим діапазоном (0..100%)"}), 400
+        except (ValueError, TypeError):
+            return jsonify({"success": False, "error": "Некоректний рівень батареї"}), 400
+
+    floors = data.get("floors")
+    if isinstance(floors, dict):
+        for fk, fval in floors.items():
+            if isinstance(fval, dict):
+                ftemp = fval.get("temperature")
+                if ftemp is not None:
+                    try:
+                        ft_val = float(ftemp)
+                        if not (-50.0 <= ft_val <= 100.0):
+                            return jsonify({"success": False, "error": f"Температура для {fk} поза допустимим діапазоном"}), 400
+                    except (ValueError, TypeError):
+                        return jsonify({"success": False, "error": f"Некоректна температура для {fk}"}), 400
+                fhum = fval.get("humidity")
+                if fhum is not None:
+                    try:
+                        fh_val = float(fhum)
+                        if not (0.0 <= fh_val <= 100.0):
+                            return jsonify({"success": False, "error": f"Вологість для {fk} поза допустимим діапазоном"}), 400
+                    except (ValueError, TypeError):
+                        return jsonify({"success": False, "error": f"Некоректна вологість для {fk}"}), 400
+                fbat = fval.get("battery")
+                if fbat is not None:
+                    try:
+                        fb_val = float(fbat)
+                        if not (0.0 <= fb_val <= 100.0):
+                            return jsonify({"success": False, "error": f"Батарея для {fk} поза допустимим діапазоном"}), 400
+                    except (ValueError, TypeError):
+                        return jsonify({"success": False, "error": f"Некоректна батарея для {fk}"}), 400
+
     success = garage.esp32.update_from_webhook(data, transport="http")
     if success:
         garage.automation.evaluate_telemetry(data)
@@ -738,6 +875,7 @@ def esp32_scan_ble():
 
 
 @app.route("/api/presence/status", methods=["GET"])
+@require_auth
 def presence_status():
     if not hasattr(garage, "presence") or not garage.presence:
         return jsonify({"success": False, "error": "Presence manager not available"}), 500
@@ -748,6 +886,7 @@ def presence_status():
 
 
 @app.route("/api/presence/log", methods=["GET"])
+@require_auth
 def presence_log():
     if not hasattr(garage, "presence") or not garage.presence:
         return jsonify({"success": False, "error": "Presence manager not available"}), 500
@@ -759,6 +898,7 @@ def presence_log():
 
 
 @app.route("/api/presence/report", methods=["GET"])
+@require_auth
 def presence_report():
     if not hasattr(garage, "presence") or not garage.presence:
         return jsonify({"success": False, "error": "Presence manager not available"}), 500
@@ -791,10 +931,11 @@ def presence_register_device():
         classic_mac=data.get("classic_mac", ""),
         ble_mac=data.get("ble_mac", ""),
         ble_services=data.get("ble_services", []),
-        auto_welcome=data.get("auto_welcome", True),
+        auto_welcome=data.get("auto_welcome", False),
         telegram_chat_id=data.get("telegram_chat_id", ""),
         absence_voice_message=data.get("absence_voice_message", ""),
-        notify_owner=data.get("notify_owner", True)
+        notify_owner=data.get("notify_owner", False),
+        opt_in=data.get("opt_in", False)
     )
     return jsonify({"success": True, "device": item})
 
@@ -876,6 +1017,7 @@ def admin_verify():
 
 
 @app.route("/api/admin/logout", methods=["POST"])
+@require_auth
 def admin_logout():
     ip = get_client_ip()
     session.clear()
@@ -911,6 +1053,7 @@ def trigger_scenario(name):
 
 # --- MEDIA HUB & PROJECTOR API ---
 @app.route("/api/media/list", methods=["GET"])
+@require_auth
 def media_list():
     media_files = []
     stream_files = []
@@ -1072,6 +1215,7 @@ def media_stream_url():
 
 
 @app.route("/api/projector/status", methods=["GET"])
+@require_auth
 def projector_status():
     status = garage.projector.get_status()
     status["local_ip"] = get_local_ip()
@@ -1097,6 +1241,15 @@ def projector_mirror():
 
 @app.route("/command", methods=["POST"])
 def command():
+    ip = get_client_ip()
+    is_limited, wait_sec = command_rate_limiter.is_rate_limited(ip)
+    if is_limited:
+        audit_log("web", "command_ratelimited", "BLOCKED", {"ip": ip, "wait_sec": wait_sec})
+        return jsonify({
+            "success": False,
+            "response": f"Забагато команд. Зачекайте {wait_sec} сек."
+        }), 429
+
     data = request.get_json(silent=True) or {}
 
     command_text = data.get("command")
@@ -1110,7 +1263,7 @@ def command():
     import secrets
 
     client_sid = data.get("session_id")
-    is_browser_session = bool(session.get("authenticated") or "csrf_token" in session or "dialog_session_id" in session)
+    is_browser_session = bool(session.get("authenticated"))
 
     if is_browser_session:
         if "dialog_session_id" not in session or not is_safe_session_id(session.get("dialog_session_id", "")):
@@ -1191,6 +1344,7 @@ def voice_command():
 
 
 @app.route("/api/voice/status", methods=["GET"])
+@require_auth
 def voice_status():
     """Status and metrics of the voice interface queue."""
     stats = garage.voice_queue.get_stats() if hasattr(garage, "voice_queue") else {}
@@ -1201,8 +1355,18 @@ def voice_status():
 
 
 @app.route("/api/voice/tts", methods=["GET", "POST"])
+@require_auth
 def voice_tts():
     """Generates and streams high-definition neural Ukrainian speech (MP3/WAV) for web clients."""
+    ip = get_client_ip()
+    is_limited, wait_sec = tts_rate_limiter.is_rate_limited(ip)
+    if is_limited:
+        audit_log("web", "tts_ratelimited", "BLOCKED", {"ip": ip, "wait_sec": wait_sec})
+        return jsonify({
+            "success": False,
+            "error": f"Перевищено ліміт запитів генерації мовлення. Зачекайте {wait_sec} сек."
+        }), 429
+
     if request.method == "POST":
         data = request.get_json(silent=True) or {}
         text = data.get("text") or ""
@@ -1236,6 +1400,7 @@ def voice_tts():
 
 
 @app.route("/api/voice/providers", methods=["GET"])
+@require_auth
 def voice_providers():
     """Returns available TTS providers, active provider and voices status."""
     status = tts_manager.get_providers_status()
@@ -1243,6 +1408,7 @@ def voice_providers():
 
 
 @app.route("/api/voice/config", methods=["GET", "POST"])
+@require_auth
 def voice_config():
     """Inspect or configure active server-side TTS provider and voice."""
     if request.method == "GET":
@@ -1253,30 +1419,35 @@ def voice_config():
             "fallback_provider": tts_manager.fallback_provider_name,
         })
 
-    # POST requires authorization
-    @require_auth
-    def _handle_post():
-        data = request.get_json(silent=True) or {}
-        provider = data.get("provider")
-        voice_id = data.get("voice_id")
-        if provider:
-            if not tts_manager.set_active_provider(provider):
-                return jsonify({"success": False, "error": f"Невідомий провайдер TTS: {provider}"}), 400
-        if voice_id:
-            tts_manager.set_active_voice(voice_id)
-        return jsonify({
-            "success": True,
-            "active_provider": tts_manager.active_provider_name,
-            "active_voice_id": tts_manager.active_voice_id,
-            "fallback_provider": tts_manager.fallback_provider_name,
-        })
-
-    return _handle_post()
+    data = request.get_json(silent=True) or {}
+    provider = data.get("provider")
+    voice_id = data.get("voice_id")
+    if provider:
+        if not tts_manager.set_active_provider(provider):
+            return jsonify({"success": False, "error": f"Невідомий провайдер TTS: {provider}"}), 400
+    if voice_id:
+        tts_manager.set_active_voice(voice_id)
+    return jsonify({
+        "success": True,
+        "active_provider": tts_manager.active_provider_name,
+        "active_voice_id": tts_manager.active_voice_id,
+        "fallback_provider": tts_manager.fallback_provider_name,
+    })
 
 
 @app.route("/api/voice/preview", methods=["POST"])
+@require_auth
 def voice_preview():
     """Developer preview endpoint to synthesize test phrases with chosen provider/voice."""
+    ip = get_client_ip()
+    is_limited, wait_sec = tts_rate_limiter.is_rate_limited(ip)
+    if is_limited:
+        audit_log("web", "tts_ratelimited", "BLOCKED", {"ip": ip, "wait_sec": wait_sec})
+        return jsonify({
+            "success": False,
+            "error": f"Перевищено ліміт запитів генерації мовлення. Зачекайте {wait_sec} сек."
+        }), 429
+
     data = request.get_json(silent=True) or {}
     text = (data.get("text") or "").strip()
     provider = data.get("provider")
@@ -1316,6 +1487,7 @@ def voice_speak():
 
 # --- BLUETOOTH SPEAKER API (JBL Clip 5) ---
 @app.route("/api/speaker/status", methods=["GET"])
+@require_auth
 def speaker_status():
     status = garage.speaker.get_status()
     return jsonify({"success": True, "speaker": status})
@@ -1407,35 +1579,30 @@ def speaker_play():
 
 
 @app.route("/api/speaker/control", methods=["POST"])
+@require_auth
 def speaker_control():
     data = request.get_json(silent=True) or {}
     action = data.get("action", "stop")
-    # Immediate silence / stop / pause allowed from all interfaces for safety
     if action == "stop":
         garage.speaker.stop()
         return jsonify({"success": True, "response": "Зупинено"})
     elif action == "pause":
         garage.speaker.pause()
         return jsonify({"success": True, "response": "Пауза"})
-
-    @require_auth
-    def _handle_protected():
-        if action == "resume":
-            garage.speaker.resume()
-            return jsonify({"success": True, "response": "Продовжено"})
-        elif action == "next":
-            ok, p_title, t_title = garage.speaker.play_next()
-            return jsonify({"success": ok, "track_title": t_title, "response": f"Наступний: {t_title}" if ok else "Помилка перемикання"})
-        elif action == "prev":
-            ok, p_title, t_title = garage.speaker.play_prev()
-            return jsonify({"success": ok, "track_title": t_title, "response": f"Попередній: {t_title}" if ok else "Помилка перемикання"})
-        elif action == "seek":
-            pos = data.get("position", 0)
-            ok = garage.speaker.seek(int(pos))
-            return jsonify({"success": ok, "position": pos, "response": f"Перемотано на {pos}с"})
-        return jsonify({"success": False, "response": f"Невідома дія: {action}"}), 400
-
-    return _handle_protected()
+    elif action == "resume":
+        garage.speaker.resume()
+        return jsonify({"success": True, "response": "Продовжено"})
+    elif action == "next":
+        ok, p_title, t_title = garage.speaker.play_next()
+        return jsonify({"success": ok, "track_title": t_title, "response": f"Наступний: {t_title}" if ok else "Помилка перемикання"})
+    elif action == "prev":
+        ok, p_title, t_title = garage.speaker.play_prev()
+        return jsonify({"success": ok, "track_title": t_title, "response": f"Попередній: {t_title}" if ok else "Помилка перемикання"})
+    elif action == "seek":
+        pos = data.get("position", 0)
+        ok = garage.speaker.seek(int(pos))
+        return jsonify({"success": ok, "position": pos, "response": f"Перемотано на {pos}с"})
+    return jsonify({"success": False, "response": f"Невідома дія: {action}"}), 400
 
 
 @app.route("/api/speaker/seek", methods=["POST"])
@@ -1482,6 +1649,7 @@ def speaker_prev():
 
 # --- INTERNET RADIO API (Radio Browser) ---
 @app.route("/api/radio/stations", methods=["GET"])
+@require_auth
 def radio_stations():
     limit = request.args.get("limit", default=24, type=int)
     country = request.args.get("country", default="UA", type=str)
@@ -1490,6 +1658,7 @@ def radio_stations():
 
 
 @app.route("/api/radio/search", methods=["GET"])
+@require_auth
 def radio_search():
     q = request.args.get("q", default="", type=str).strip()
     limit = request.args.get("limit", default=20, type=int)
@@ -1524,6 +1693,7 @@ def radio_play():
 
 # --- YOUTUBE MUSIC API ---
 @app.route("/api/ytmusic/playlists", methods=["GET"])
+@require_auth
 def ytmusic_playlists():
     refresh = request.args.get("refresh", default="0").lower() in ("1", "true", "yes")
     playlists = ytmusic_service.get_user_playlists(force_refresh=refresh)
@@ -1535,6 +1705,7 @@ def ytmusic_playlists():
 
 
 @app.route("/api/ytmusic/playlist/<playlist_id>/tracks", methods=["GET"])
+@require_auth
 def ytmusic_playlist_tracks(playlist_id):
     refresh = request.args.get("refresh", default="0").lower() in ("1", "true", "yes")
     tracks = ytmusic_service.get_playlist_tracks(playlist_id, force_refresh=refresh)
@@ -1662,6 +1833,7 @@ def ytmusic_prev():
 
 
 @app.route("/api/ytmusic/status", methods=["GET"])
+@require_auth
 def ytmusic_status():
     spk_status = garage.speaker.get_status() if hasattr(garage, "speaker") else {}
     autoplay = getattr(garage.speaker, "_playlist_autoplay", False) if hasattr(garage, "speaker") else False

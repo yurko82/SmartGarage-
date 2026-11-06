@@ -6,6 +6,7 @@ import logging
 import os
 from pathlib import Path
 import re
+import threading
 import time
 import uuid
 from typing import Dict, Any, List, Optional, Tuple
@@ -98,6 +99,7 @@ class CostTracker:
             self.storage_path = Path(storage_path)
         else:
             self.storage_path = Path(__file__).resolve().parent.parent.parent / "memory" / "openrouter_usage.json"
+        self._lock = threading.Lock()
         self._load()
 
     def _today_key(self) -> str:
@@ -122,54 +124,112 @@ class CostTracker:
         except Exception as e:
             logger.debug(f"Помилка збереження історії витрат: {e}")
 
-    def add_usage(self, model: str, prompt_tokens: int, completion_tokens: int) -> float:
-        """Розраховує вартість запиту, додає до денного обліку та повертає вартість у USD."""
+    def reserve_budget(self, daily_budget_usd: float, estimated_cost_usd: float = 0.005) -> Tuple[bool, float]:
+        """
+        Atomically checks budget and reserves estimated cost before sending request.
+        Returns (success, reserved_amount).
+        """
+        if daily_budget_usd <= 0:
+            return True, 0.0
+
+        with self._lock:
+            self._load()
+            today = self._today_key()
+            if today not in self._data:
+                self._data[today] = {
+                    "requests": 0,
+                    "prompt_tokens": 0,
+                    "completion_tokens": 0,
+                    "total_tokens": 0,
+                    "total_cost_usd": 0.0,
+                    "reserved_usd": 0.0
+                }
+            rec = self._data[today]
+            spent = rec.get("total_cost_usd", 0.0)
+            reserved = rec.get("reserved_usd", 0.0)
+
+            if (spent + reserved + estimated_cost_usd) > daily_budget_usd:
+                return False, 0.0
+
+            rec["reserved_usd"] = round(reserved + estimated_cost_usd, 6)
+            self._save()
+            return True, estimated_cost_usd
+
+    def release_reservation(self, reserved_amount_usd: float):
+        """Releases unspent reservation on error or cancellation."""
+        if reserved_amount_usd <= 0:
+            return
+        with self._lock:
+            today = self._today_key()
+            if today in self._data:
+                rec = self._data[today]
+                cur_res = rec.get("reserved_usd", 0.0)
+                rec["reserved_usd"] = max(0.0, round(cur_res - reserved_amount_usd, 6))
+                self._save()
+
+    def commit_usage(self, model: str, prompt_tokens: int, completion_tokens: int, reserved_amount_usd: float = 0.0) -> float:
+        """
+        Commits actual usage, adjusts reserved budget, and returns cost in USD.
+        """
         pricing = MODEL_PRICING.get(model, MODEL_PRICING["default"])
         p_cost = (prompt_tokens / 1_000_000.0) * pricing["prompt"]
         c_cost = (completion_tokens / 1_000_000.0) * pricing["completion"]
         req_cost = round(p_cost + c_cost, 6)
 
-        today = self._today_key()
-        if today not in self._data:
-            self._data[today] = {
-                "requests": 0,
-                "prompt_tokens": 0,
-                "completion_tokens": 0,
-                "total_tokens": 0,
-                "total_cost_usd": 0.0
-            }
+        with self._lock:
+            today = self._today_key()
+            if today not in self._data:
+                self._data[today] = {
+                    "requests": 0,
+                    "prompt_tokens": 0,
+                    "completion_tokens": 0,
+                    "total_tokens": 0,
+                    "total_cost_usd": 0.0,
+                    "reserved_usd": 0.0
+                }
+            rec = self._data[today]
+            rec["requests"] += 1
+            rec["prompt_tokens"] += prompt_tokens
+            rec["completion_tokens"] += completion_tokens
+            rec["total_tokens"] += (prompt_tokens + completion_tokens)
+            rec["total_cost_usd"] = round(rec["total_cost_usd"] + req_cost, 6)
+            if reserved_amount_usd > 0:
+                cur_res = rec.get("reserved_usd", 0.0)
+                rec["reserved_usd"] = max(0.0, round(cur_res - reserved_amount_usd, 6))
+            self._save()
+            return req_cost
 
-        rec = self._data[today]
-        rec["requests"] += 1
-        rec["prompt_tokens"] += prompt_tokens
-        rec["completion_tokens"] += completion_tokens
-        rec["total_tokens"] += (prompt_tokens + completion_tokens)
-        rec["total_cost_usd"] = round(rec["total_cost_usd"] + req_cost, 6)
-
-        self._save()
-        return req_cost
+    def add_usage(self, model: str, prompt_tokens: int, completion_tokens: int) -> float:
+        """Розраховує вартість запиту, додає до денного обліку та повертає вартість у USD (аліас до commit_usage)."""
+        return self.commit_usage(model, prompt_tokens, completion_tokens, reserved_amount_usd=0.0)
 
     def is_budget_exceeded(self, daily_budget_usd: float) -> bool:
         """Перевіряє, чи не перевищено денний ліміт витрат."""
         if daily_budget_usd <= 0:
             return False
-        today = self._today_key()
-        spent = self._data.get(today, {}).get("total_cost_usd", 0.0)
-        return spent >= daily_budget_usd
+        with self._lock:
+            self._load()
+            today = self._today_key()
+            spent = self._data.get(today, {}).get("total_cost_usd", 0.0)
+            reserved = self._data.get(today, {}).get("reserved_usd", 0.0)
+            return (spent + reserved) >= daily_budget_usd
 
     def get_today_cost(self) -> float:
         today = self._today_key()
-        return float(self._data.get(today, {}).get("total_cost_usd", 0.0))
+        with self._lock:
+            return float(self._data.get(today, {}).get("total_cost_usd", 0.0))
 
     def get_today_stats(self) -> Dict[str, Any]:
         today = self._today_key()
-        return dict(self._data.get(today, {
-            "requests": 0,
-            "prompt_tokens": 0,
-            "completion_tokens": 0,
-            "total_tokens": 0,
-            "total_cost_usd": 0.0
-        }))
+        with self._lock:
+            return dict(self._data.get(today, {
+                "requests": 0,
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "total_tokens": 0,
+                "total_cost_usd": 0.0,
+                "reserved_usd": 0.0
+            }))
 
 
 class OpenRouterClient:
@@ -259,7 +319,8 @@ class OpenRouterClient:
         messages: List[Dict[str, Any]],
         tools: Optional[List[Dict[str, Any]]] = None,
         tool_choice: str = "auto",
-        timeout: Optional[float] = None
+        timeout: Optional[float] = None,
+        reserved_amount: float = 0.0
     ) -> Dict[str, Any]:
         req_id = f"gen_{uuid.uuid4().hex[:10]}"
         req_timeout = timeout or self.timeout
@@ -303,7 +364,7 @@ class OpenRouterClient:
                     usage = data.get("usage", {})
                     p_tok = int(usage.get("prompt_tokens", 0))
                     c_tok = int(usage.get("completion_tokens", 0))
-                    cost = self.cost_tracker.add_usage(target_model, p_tok, c_tok)
+                    cost = self.cost_tracker.commit_usage(target_model, p_tok, c_tok, reserved_amount_usd=reserved_amount)
 
                     # Структурований лог без витоку промпту чи ключів
                     logger.info(
@@ -418,8 +479,12 @@ class OpenRouterClient:
         if not self.has_api_key():
             raise OpenRouterAuthError("Відсутній ключ авторизації OPENROUTER_API_KEY у .env.")
 
-        # Перевірка бюджету
-        if self.cost_tracker.is_budget_exceeded(self.daily_budget_usd):
+        # Атомарне попереднє резервування бюджету перед виконанням запиту
+        reserved_ok, reserved_amount = self.cost_tracker.reserve_budget(
+            daily_budget_usd=self.daily_budget_usd,
+            estimated_cost_usd=0.005
+        )
+        if not reserved_ok:
             spent = self.cost_tracker.get_today_cost()
             raise OpenRouterBudgetExceededError(
                 f"⚠️ Досягнуто денного ліміту витрат на AI (${self.daily_budget_usd:.2f} USD, витрачено ${spent:.4f}). "
@@ -428,7 +493,9 @@ class OpenRouterClient:
 
         target_model = model or self.model
         try:
-            return self._send_single_model_completion(target_model, messages, tools, tool_choice, timeout)
+            return self._send_single_model_completion(
+                target_model, messages, tools, tool_choice, timeout, reserved_amount=reserved_amount
+            )
         except (OpenRouterRateLimitError, OpenRouterServerError, OpenRouterTimeoutError, OpenRouterConnectionError) as err:
             if target_model != self.fallback_model and self.fallback_model:
                 logger.warning(
@@ -436,10 +503,17 @@ class OpenRouterClient:
                     f"Attempting fallback to '{self.fallback_model}'..."
                 )
                 try:
-                    return self._send_single_model_completion(self.fallback_model, messages, tools, tool_choice, timeout)
+                    return self._send_single_model_completion(
+                        self.fallback_model, messages, tools, tool_choice, timeout, reserved_amount=reserved_amount
+                    )
                 except Exception as fb_err:
+                    self.cost_tracker.release_reservation(reserved_amount)
                     logger.error(f"[OpenRouter] Fallback model '{self.fallback_model}' also failed: {fb_err}")
                     raise err
+            self.cost_tracker.release_reservation(reserved_amount)
+            raise
+        except Exception:
+            self.cost_tracker.release_reservation(reserved_amount)
             raise
 
 

@@ -57,18 +57,20 @@ class SmartGarage:
             if source == "paired_with_owner":
                 return
 
-            # Check device-specific auto_welcome setting if available
+            # Check device-specific settings if available
             dev = {}
             if hasattr(self, "presence") and self.presence and device_id in self.presence.devices:
                 dev = self.presence.devices[device_id]
-                if not dev.get("auto_welcome", True):
-                    return
 
             now = time.time()
             time_str = datetime.fromtimestamp(now).strftime("%H:%M")
 
             if event == "ARRIVED":
                 if is_owner:
+                    # Opt-in check for automatic welcome greeting
+                    if not bool(dev.get("auto_welcome", False) and dev.get("opt_in", False)):
+                        return
+
                     with _presence_lock:
                         # Debounce owner greetings to at most once every 10 minutes (600s)
                         if now - _last_owner_greeting_ts < 600:
@@ -86,60 +88,20 @@ class SmartGarage:
                     except Exception:
                         self.telegram.notify_admin(f"🔔 *Smart Garage:* Помічено прибуття: `{name}` (зона: `{zone}`)")
                 else:
-                    # Guest or family member arrived
+                    # Guest arrival: notifications and automations disabled by default (opt-in required)
+                    if not bool(dev.get("opt_in", False) and dev.get("notify_owner", False)):
+                        return
+
                     with _guest_alert_lock:
                         last_guest_ts = _guest_alerts_ts.get(device_id, 0.0)
                         if now - last_guest_ts < 300:  # Debounce to max 1 alert per 5 minutes per device
                             return
                         _guest_alerts_ts[device_id] = now
 
-                    # Determine if owner (Yuri) is currently present in garage
-                    owner_present = False
-                    if hasattr(self, "presence") and self.presence:
-                        with self.presence._lock:
-                            for d_k, d_val in self.presence.devices.items():
-                                dk_role = str(d_val.get("role", "")).lower()
-                                dk_name = str(d_val.get("name", "")).lower()
-                                if "owner" in dk_role or "юрій" in dk_name or "власник" in dk_name:
-                                    if d_val.get("status") == "present":
-                                        owner_present = True
-                                        break
-
-                    # 1. Telegram notification to owner (Yuri)
-                    if dev.get("notify_owner", True):
-                        if not owner_present:
-                            self.telegram.notify_admin(
-                                f"🔔 *Smart Garage:* До гаража підходив *{name}* (виявлено о {time_str}, зона: {zone}). Вас зараз немає в гаражі."
-                            )
-                        else:
-                            self.telegram.notify_admin(
-                                f"👋 *Smart Garage:* До гаража підійшов *{name}* (виявлено о {time_str}, зона: {zone})."
-                            )
-
-                    # 2. Automation when owner is absent
-                    if not owner_present:
-                        # Audio voice message via garage speaker (TTS)
-                        absence_msg = dev.get("absence_voice_message", "").strip()
-                        if not absence_msg:
-                            absence_msg = f"{name}, Юри в гаражі немає, гуляйте собі далі."
-
-                        try:
-                            from server.services.neural_tts import neural_tts
-                            neural_tts.speak_locally(absence_msg)
-                            self.logger.info(f"🔊 [GUEST_TTS] Промовлено через динамік для {name}: '{absence_msg}'")
-                        except Exception as e:
-                            self.logger.warning(f"Error speaking guest absence message: {e}")
-
-                        # Direct Telegram notification to guest if chat_id configured
-                        guest_chat_id = dev.get("telegram_chat_id")
-                        if guest_chat_id:
-                            try:
-                                clean_cid = int(str(guest_chat_id).strip())
-                                guest_txt = f"Привіт, {name}! Юрія зараз немає в гаражі. Якщо маєте термінове питання, зателефонуйте або залиште повідомлення."
-                                self.telegram.send_message(clean_cid, guest_txt)
-                                self.logger.info(f"📨 [GUEST_TG] Надіслано Telegram гостю {name} (chat_id: {clean_cid})")
-                            except Exception as e:
-                                self.logger.warning(f"Error sending guest Telegram notification: {e}")
+                    # Neutral Telegram notification to owner (never announce absence to visitor or play absence audio)
+                    self.telegram.notify_admin(
+                        f"👋 *Smart Garage:* До гаража наблизився пристрій: *{name}* (виявлено о {time_str}, зона: {zone})."
+                    )
 
             elif event == "DEPARTED":
                 if is_owner:

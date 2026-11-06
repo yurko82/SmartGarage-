@@ -30,6 +30,12 @@ jobs:
         run: |
           python -m compileall server tests scripts
 
+      - name: Валідація JSON файлів (Конфігурація та база знань)
+        run: |
+          for f in $(find memory/ config/ devices/ -name "*.json" 2>/dev/null); do
+            python -m json.tool "$f" > /dev/null || (echo "Invalid JSON: $f" && exit 1)
+          done
+
       - name: Запуск модульних тестів (Pytest)
         run: |
           PYTHONPATH=. pytest -v tests/
@@ -37,6 +43,8 @@ jobs:
           OPENROUTER_API_KEY: ""
           HEYGEN_API_KEY: ""
           ELEVENLABS_API_KEY: ""
+          ADMIN_PIN: "9876"
+          ESP32_API_KEY: "ci_test_esp32_key_12345"
           TESTING: "true"
 
   platformio-compile:

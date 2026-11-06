@@ -206,7 +206,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         const lastTime = floorObj ? (floorObj.last_updated_time || '--:--') : '--:--';
                         const lastRel = floorObj ? (floorObj.last_updated_relative || '') : '';
                         const srcName = floorObj && floorObj.source_name ? floorObj.source_name : 'BLE';
-                        const batStr = (floorObj && floorObj.battery !== null && floorObj.battery !== undefined) ? ` • 🔋 ${floorObj.battery}%` : '';
+                        const batStr = '';
 
                         let tempText = '-- °C';
                         let humText = '-- %';
@@ -228,7 +228,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                 ? `${Number(floorObj.current_humidity).toFixed(0)} %` : '-- %';
                             badgeText = 'Актуально';
                             badgeClass = 'floor-badge active';
-                            subText = `Актуально • ${lastTime}${batStr}`;
+                            subText = `Актуально • ${lastTime}`;
                             tooltip = `${defaultName}: Актуально (${srcName}) • Оновлено о ${lastTime}`;
                         } else if (status === 'stale') {
                             tempText = '-- °C';
@@ -1221,6 +1221,12 @@ document.addEventListener('DOMContentLoaded', () => {
             loadPresenceData();
         }
     }, 20000);
+    // Auto-update climate chart every 30 minutes (1800000 ms)
+    setInterval(() => {
+        if (document.getElementById('chartsTab')?.classList.contains('active')) {
+            initOrUpdateChart();
+        }
+    }, 1800000);
 
     // --- FORMAT TIME ---
     function getCurrentTime() {
@@ -1285,6 +1291,24 @@ document.addEventListener('DOMContentLoaded', () => {
 
     let currentTtsAudioApp = null;
     let currentTtsUrlApp = null;
+
+    function stopTtsPlaybackApp() {
+        if (currentTtsAudioApp) {
+            try {
+                currentTtsAudioApp.pause();
+                currentTtsAudioApp.currentTime = 0;
+            } catch (_) {}
+            currentTtsAudioApp = null;
+        }
+        if (currentTtsUrlApp) {
+            try { URL.revokeObjectURL(currentTtsUrlApp); } catch (_) {}
+            currentTtsUrlApp = null;
+        }
+        if ('speechSynthesis' in window) {
+            try { window.speechSynthesis.cancel(); } catch (_) {}
+        }
+        isSpeakingApp = false;
+    }
 
     function playBrowserSpeechSynthesisApp(clean, onEnded) {
         if (!('speechSynthesis' in window)) {
@@ -1598,7 +1622,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (label) label.textContent = 'Озвучення: Увімк';
                 ttsToggleBtn.classList.remove('disabled');
             } else {
-                window.speechSynthesis.cancel();
+                stopTtsPlaybackApp();
                 ttsIcon.textContent = '🔇';
                 if (label) label.textContent = 'Озвучення: Вимк';
                 ttsToggleBtn.classList.add('disabled');

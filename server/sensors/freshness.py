@@ -8,11 +8,11 @@ import time
 from typing import Dict, Any, Optional, Tuple
 
 # Configuration Constants
-# Default polling cycle is 15 minutes (900 seconds)
-SENSOR_POLL_INTERVAL_SECONDS = 900
+# Default polling cycle is 30 minutes (1800 seconds)
+SENSOR_POLL_INTERVAL_SECONDS = 1800
 
-# Freshness window: 15 min poll interval + 5 min grace window for BLE connection retries
-SENSOR_FRESHNESS_THRESHOLD_SECONDS = 1200
+# Freshness window: 30 min poll interval + 10 min grace window for BLE connection retries
+SENSOR_FRESHNESS_THRESHOLD_SECONDS = 2400
 
 # Sensor Status Enum Constants
 STATUS_ONLINE = "online"
@@ -92,6 +92,10 @@ def get_sensor_status(
 
     rel_str = format_relative_time_ua(last_updated, now=cur)
 
+    # 0. Future timestamp protection (reject future timestamps from setting online)
+    if last_updated is not None and (last_updated > cur + 60):
+        return STATUS_STALE, "Помилка часової мітки: час виміру в майбутньому"
+
     # 1. If reading is older than freshness threshold, status is strictly stale
     if age > threshold:
         return STATUS_STALE, f"Дані застаріли ({rel_str})"
@@ -151,6 +155,9 @@ def build_sensor_payload(
     last_known_temp = round(temperature, 1) if temperature is not None else None
     last_known_hum = round(humidity, 1) if humidity is not None else None
 
+    sample_ts = last_updated if (has_reading and not (last_updated and last_updated > cur + 60)) else None
+    heartbeat_ts = cur
+
     iso_str = format_iso_timestamp(last_updated)
 
     return {
@@ -161,6 +168,9 @@ def build_sensor_payload(
         "status": status_code,
         "online": is_online,
         "is_stale": is_stale,
+        "sample_timestamp": sample_ts,
+        "heartbeat_timestamp": heartbeat_ts,
+        "last_known_sample_timestamp": sample_ts,
         "current_temperature": current_temp,
         "current_humidity": current_hum,
         "last_known_temperature": last_known_temp,

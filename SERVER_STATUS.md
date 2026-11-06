@@ -20,10 +20,10 @@
 
 ## 2. Мережева конфігурація
 
-- **Локальна мережа (Wi-Fi `wlo1`):** `192.168.0.117/24`
-- **Tailscale Mesh IP (IPv4):** `100.85.119.95`
-- **Tailscale Mesh IP (IPv6):** `fd7a:115c:a1e0::8b32:7760`
-- **Tailscale Hostname:** `yurko-vivobook-asuslaptop-x421eay-x413ea`
+- **Локальна мережа (Wi-Fi `wlo1`):** `192.0.2.100/24` (Documentation IP / LAN DHCP)
+- **Tailscale Mesh IP (IPv4):** `100.64.0.1` (CGNAT / Tailscale documentation placeholder)
+- **Tailscale Mesh IP (IPv6):** `fd7a:115c:a1e0::xxxx:xxxx`
+- **Tailscale Hostname:** `smartgarage-server`
 - **Docker Networks:** `172.17.0.1/16` (bridge), `172.18.0.1/16` (`n8n_default`)
 
 ---
@@ -85,9 +85,9 @@
 
 ### Підключення через SSH (з будь-якої точки світу через Tailscale):
 ```bash
-ssh yurko@100.85.119.95
+ssh user@100.64.0.1
 # або за Tailscale ім'ям:
-ssh yurko@yurko-vivobook-asuslaptop-x421eay-x413ea
+ssh user@smartgarage-server
 ```
 
 ### Перевірка стану ключових сервісів:

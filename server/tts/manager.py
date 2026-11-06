@@ -10,6 +10,8 @@ Smart Garage - Centralized TTS Manager & Fallback Orchestrator
 """
 
 import os
+import json
+import time
 import logging
 import threading
 import subprocess
@@ -71,8 +73,42 @@ class TTSManager:
             max_items=max_items,
         )
 
+        self.settings_file = Path(__file__).resolve().parent.parent.parent / "memory" / "tts_settings.json"
         self._providers: Dict[str, TTSProvider] = {}
         self._init_providers()
+        self._load_settings(explicit_provider=active_provider, explicit_voice=active_voice_id)
+
+    def _load_settings(self, explicit_provider: Optional[str] = None, explicit_voice: Optional[str] = None):
+        """Loads persisted active provider and voice settings from disk."""
+        try:
+            if self.settings_file.exists():
+                content = self.settings_file.read_text(encoding="utf-8").strip()
+                if content:
+                    data = json.loads(content)
+                    if isinstance(data, dict):
+                        saved_prov = data.get("active_provider")
+                        if explicit_provider is None and saved_prov and saved_prov in self._providers:
+                            self.active_provider_name = saved_prov
+                        saved_voice = data.get("active_voice_id")
+                        if explicit_voice is None and saved_voice:
+                            self.active_voice_id = saved_voice
+        except Exception as e:
+            logger.warning(f"Не вдалося завантажити збережені налаштування TTS: {e}")
+
+    def _save_settings(self):
+        """Persists active provider and voice settings to disk."""
+        try:
+            self.settings_file.parent.mkdir(parents=True, exist_ok=True)
+            payload = {
+                "active_provider": self.active_provider_name,
+                "active_voice_id": self.active_voice_id,
+                "updated_at": time.time()
+            }
+            tmp = self.settings_file.with_suffix(".tmp")
+            tmp.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+            tmp.replace(self.settings_file)
+        except Exception as e:
+            logger.debug(f"Помилка збереження налаштувань TTS: {e}")
 
     def _init_providers(self):
         """Ініціалізує доступні провайдери з конфігурації та безпечного оточення."""
@@ -113,17 +149,31 @@ class TTSManager:
         return self._providers.get(name.lower())
 
     def set_active_provider(self, name: str) -> bool:
-        """Встановлює активний провайдер синтезу."""
+        """Встановлює активний провайдер синтезу з персистенцією."""
         clean = (name or "").lower().strip()
         if clean in self._providers:
             self.active_provider_name = clean
+            self._save_settings()
             return True
         return False
 
-    def set_active_voice(self, voice_id: str) -> None:
-        """Встановлює активний ідентифікатор голосу."""
-        if voice_id and isinstance(voice_id, str):
-            self.active_voice_id = voice_id.strip()
+    def set_active_voice(self, voice_id: str, provider_name: Optional[str] = None) -> bool:
+        """Встановлює активний ідентифікатор голосу з валідацією та персистенцією."""
+        if not voice_id or not isinstance(voice_id, str):
+            return False
+        clean_voice = voice_id.strip()
+        target_prov = (provider_name or self.active_provider_name).lower().strip()
+
+        # Validate Ukrainian language compatibility
+        if target_prov == "edge":
+            if not clean_voice.startswith("uk-"):
+                raise TTSVoiceNotFoundError(
+                    f"Голос '{clean_voice}' не підтримує українську мову для Edge TTS (дозволені 'uk-UA-PolinaNeural', 'uk-UA-OstapNeural')"
+                )
+
+        self.active_voice_id = clean_voice
+        self._save_settings()
+        return True
 
     def get_providers_status(self) -> Dict[str, Any]:
         """Повертає статус конфігурації провайдерів без розкриття секретних ключів."""
@@ -177,18 +227,28 @@ class TTSManager:
             primary_provider = self.get_provider(self.fallback_provider_name)
             chosen_prov_name = self.fallback_provider_name
 
-        chosen_voice = voice_id or self.active_voice_id
+        chosen_voice = voice_id
+        if not chosen_voice:
+            if chosen_prov_name == self.active_provider_name:
+                chosen_voice = self.active_voice_id
+            else:
+                prov_def = getattr(primary_provider, "default_voice_id", None)
+                if isinstance(prov_def, str) and prov_def:
+                    chosen_voice = prov_def
+                else:
+                    chosen_voice = self.active_voice_id
 
         # Перевірка кешу
         content_type = "audio/wav" if chosen_prov_name == "heygen" else "audio/mpeg"
+        cache_voice_key = chosen_voice or "default"
         if use_cache:
-            cached_bytes = self.cache.get(chosen_prov_name, chosen_voice or "default", clean_text, content_type)
+            cached_bytes = self.cache.get(chosen_prov_name, cache_voice_key, clean_text, content_type)
             if cached_bytes:
                 return TTSResult(
                     audio_bytes=cached_bytes,
                     content_type=content_type,
                     provider=chosen_prov_name,
-                    voice_id=chosen_voice or "default",
+                    voice_id=cache_voice_key,
                     cached=True,
                     fallback_used=False,
                 )
@@ -199,7 +259,8 @@ class TTSManager:
             try:
                 res = primary_provider.synthesize(clean_text, voice_id=chosen_voice, **kwargs)
                 if use_cache and res.audio_bytes:
-                    self.cache.put(chosen_prov_name, res.voice_id, clean_text, res.audio_bytes, res.content_type)
+                    put_voice = cache_voice_key if cache_voice_key != "default" else (res.voice_id or "default")
+                    self.cache.put(chosen_prov_name, put_voice, clean_text, res.audio_bytes, res.content_type)
                 return res
             except Exception as e:
                 primary_error = e

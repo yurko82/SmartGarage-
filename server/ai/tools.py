@@ -2,7 +2,7 @@
 import json
 import logging
 import uuid
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 from server.security.audit import audit_log
 
 logger = logging.getLogger(__name__)
@@ -448,6 +448,93 @@ class ToolDispatcher:
         self.garage = garage
         self.session_manager = session_mgr
 
+    def _validate_tool_arguments(self, tool_name: str, args: Dict[str, Any]) -> Tuple[bool, Optional[str]]:
+        """Strict validation of tool arguments against schema to prevent fallback to {} or defaults."""
+        if not isinstance(args, dict):
+            return False, "аргументи мають бути передані як JSON-об'єкт"
+
+        if tool_name == "control_device":
+            device = args.get("device")
+            action = args.get("action")
+            if device not in ("light", "fan", "door"):
+                return False, f"неприпустимий пристрій '{device}' (дозволено: 'light', 'fan')"
+            if action not in ("on", "off", "toggle", "open", "close"):
+                return False, f"неприпустима дія '{action}' (дозволено: 'on', 'off', 'toggle')"
+
+        elif tool_name == "play_song":
+            query = args.get("query")
+            if not query or not str(query).strip():
+                return False, "параметр 'query' є обов'язковим і не може бути порожнім"
+            spk = args.get("speaker")
+            if spk and str(spk).lower() not in ("jbl", "jx-bt", "jxbt", "xt-bt", "xtbt", "floor1", "garage", ""):
+                return False, f"невідома колонка '{spk}'"
+
+        elif tool_name == "play_user_playlist":
+            playlist = args.get("playlist")
+            if not playlist or not str(playlist).strip():
+                return False, "параметр 'playlist' є обов'язковим і не може бути порожнім"
+
+        elif tool_name == "run_scenario":
+            sc = args.get("scenario")
+            if not sc or str(sc).lower() not in ("arrival", "departure", "night", "cinema", "safety"):
+                return False, f"невідомий сценарій '{sc}' (дозволено: arrival, departure, night, cinema, safety)"
+
+        elif tool_name == "seek_music_track":
+            pos = args.get("position")
+            delta = args.get("delta")
+            if pos is None and delta is None:
+                return False, "необхідно вказати 'position' або 'delta'"
+            if pos is not None:
+                try:
+                    if float(pos) < 0:
+                        return False, "position не може бути від'ємною"
+                except (ValueError, TypeError):
+                    return False, "position має бути числовим значенням"
+            if delta is not None:
+                try:
+                    float(delta)
+                except (ValueError, TypeError):
+                    return False, "delta має бути числовим значенням"
+
+        elif tool_name == "play_radio":
+            station = args.get("station")
+            if not station or not str(station).strip():
+                return False, "параметр 'station' є обов'язковим і не може бути порожнім"
+
+        elif tool_name == "search_bike_knowledge":
+            query = args.get("query")
+            if not query or not str(query).strip():
+                return False, "параметр 'query' є обов'язковим і не може бути порожнім"
+
+        elif tool_name == "play_media":
+            query = args.get("query")
+            if not query or not str(query).strip():
+                return False, "параметр 'query' є обов'язковим і не може бути порожнім"
+
+        elif tool_name == "manage_presence_guest":
+            action = args.get("action")
+            if not action or str(action).lower() not in ("register", "list", "remove", "delete", "update"):
+                return False, f"невідома дія '{action}' (дозволено: register, list, remove, delete, update)"
+            if str(action).lower() == "register" and not args.get("name"):
+                return False, "для реєстрації гостя обов'язкове поле 'name'"
+
+        elif tool_name == "manage_workshop_profile":
+            action = args.get("action")
+            if not action or str(action).lower() not in ("get", "update", "clear", "add_client_bike", "remove_client_bike", "update_bike_status", "add_tool", "add_note"):
+                return False, f"невідома дія '{action}'"
+
+        elif tool_name == "get_visitor_report":
+            days = args.get("days")
+            if days is not None:
+                try:
+                    d_int = int(days)
+                    if d_int < 1 or d_int > 365:
+                        return False, "days має бути від 1 до 365"
+                except (ValueError, TypeError):
+                    return False, "days має бути цілим числом"
+
+        return True, None
+
     def execute(self, tool_name: str, arguments: Dict[str, Any], session_id: str = "default") -> Dict[str, Any]:
         """Execute a tool call and return structured result dict with strict allowlist enforcement."""
         cid = f"ai_{uuid.uuid4().hex[:8]}"
@@ -486,6 +573,21 @@ class ToolDispatcher:
                 "error": f"Виконання інструменту '{tool_name}' заборонено: відсутній у дозволеному переліку (allowlist)."
             }
             audit_log("ai", f"tool_blocked_{tool_name}", "BLOCKED", {"tool": tool_name}, cid, session_id)
+            session_mgr = getattr(self, "session_manager", None)
+            if not session_mgr:
+                from server.ai.session_manager import session_manager as global_sm
+                session_mgr = global_sm
+            session_mgr.record_tool_action(session_id, tool_name, arguments, res)
+            return res
+
+        # Strict argument schema validation
+        is_valid, val_err = self._validate_tool_arguments(tool_name, arguments)
+        if not is_valid:
+            res = {
+                "success": False,
+                "error": f"Помилка валідації аргументів інструменту '{tool_name}': {val_err}"
+            }
+            audit_log("ai", f"tool_val_failed_{tool_name}", "BLOCKED", {"error": val_err, "arguments": arguments}, cid, session_id)
             session_mgr = getattr(self, "session_manager", None)
             if not session_mgr:
                 from server.ai.session_manager import session_manager as global_sm

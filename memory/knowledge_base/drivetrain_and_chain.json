@@ -32,5 +32,11 @@
     "shimano_hg_plus": "Ланцюги Shimano 12sp мають специфічний внутрішній профіль ланок (Hyperglide+). Потребують сумісних передніх зірок Narrow-Wide, інакше ланцюг підклинює при сході з зірки.",
     "sram_eagle": "Стандартний діаметр роликів ланцюга. Сумісний з барабаном SRAM XD.",
     "sram_t_type_flattop": "Нова лінійка трансмісій SRAM Transmission (T-Type) використовує Flattop-ланцюг із більшими роликами. Працює тільки зі спеціальними зірками Transmission та кріпленням перемикача безпосередньо до рами (UDH Full Mount)."
-  }
+  },
+  "sources": [
+    "Park Tool BBB-4 Big Blue Book of Bicycle Repair (4th Edition)",
+    "Shimano Technical Service Instructions (DM-CN0001, DM-RD0004)",
+    "SRAM Eagle and Transmission (T-Type) Service Manual (2023-2024)",
+    "Zero Friction Cycling (ZFC) Chain & Wax Wear Test Protocol Data (2020-2024)"
+  ]
 }

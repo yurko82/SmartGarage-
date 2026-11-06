@@ -131,14 +131,14 @@ docker compose --profile all up -d
 # Перевірка синтаксису всього коду
 python3 -m compileall server tests scripts
 
-# Запуск модульних та інтеграційних тестів (186 тестів)
+# Запуск модульних та інтеграційних тестів (200 тестів)
 PYTHONPATH=. pytest -v
 
 # Компіляція прошивки ESP32-S3 через PlatformIO
 pio run -d esp32
 ```
 
-Автоматичний пайплайн GitHub Actions (`.github/workflows/ci.yml`) автоматично перевіряє синтаксис `compileall`, запускає 186 тестів `pytest` та виконує чисту збірку прошивки `pio run -d esp32` для кожного Pull Request та коміту в гілку `main`.
+Автоматичний пайплайн GitHub Actions (`.github/workflows/ci.yml`) автоматично перевіряє синтаксис `compileall`, валідність усіх JSON-файлів конфігурації, запускає 200 тестів `pytest` та виконує чисту збірку прошивки `pio run -d esp32` для кожного Pull Request та коміту в гілку `main`.
 
 ---
 
