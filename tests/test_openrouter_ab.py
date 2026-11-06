@@ -172,6 +172,35 @@ class TestOpenRouterConfigurationAndSecurity(unittest.TestCase):
             self.assertIsInstance(res, str)
             self.assertIn("Тимчасова помилка зв'язку", res)
 
+    def test_fallback_model_on_primary_failure(self):
+        """Збій основної моделі автоматично перемикає запит на резервну модель (fallback_model)."""
+        client = OpenRouterClient(
+            api_key="test_key_123",
+            model="google/gemini-2.5-flash",
+            max_retries=0
+        )
+        client.fallback_model = "openai/gpt-4o-mini"
+
+        resp_500 = MagicMock()
+        resp_500.status_code = 500
+
+        resp_200 = MagicMock()
+        resp_200.status_code = 200
+        resp_200.json.return_value = {
+            "id": "gen_fallback_success",
+            "choices": [{"message": {"role": "assistant", "content": "Успішна відповідь резервної моделі"}}],
+            "usage": {"prompt_tokens": 40, "completion_tokens": 15}
+        }
+
+        with patch("requests.post", side_effect=[resp_500, resp_200]) as mock_post:
+            res = client.send_chat_completion([{"role": "user", "content": "тест"}])
+            self.assertEqual(mock_post.call_count, 2)
+            first_call_body = mock_post.call_args_list[0][1]["json"]
+            second_call_body = mock_post.call_args_list[1][1]["json"]
+            self.assertEqual(first_call_body["model"], "google/gemini-2.5-flash")
+            self.assertEqual(second_call_body["model"], "openai/gpt-4o-mini")
+            self.assertEqual(res["choices"][0]["message"]["content"], "Успішна відповідь резервної моделі")
+
 
 class TestABEvaluationSuite(unittest.TestCase):
     """Контрольований A/B набір тестів для 8 обов'язкових сценаріїв українських команд."""

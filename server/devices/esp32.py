@@ -103,6 +103,7 @@ class ESP32Controller:
             "online": False,
             "light": False,
             "fan": False,
+            "relays_installed": False,
             "temperature": None,
             "humidity": None,
             "car_present": False,
@@ -180,13 +181,19 @@ class ESP32Controller:
                         is_online = (payload.lower() == "online")
                         with self._lock:
                             was_online = self.state.get("online", False)
-                            self.state["online"] = is_online
-                            if is_online:
-                                self.state["transport"] = "mqtt"
-                                self.state["last_seen"] = time.time()
+                            # Не вимикаємо статус, якщо контролер активно працює через USB Serial
+                            if not is_online and (self._serial and self._serial.is_open):
+                                pass
+                            else:
+                                self.state["online"] = is_online
+                                if is_online:
+                                    self.state["transport"] = "mqtt"
+                                    self.state["last_seen"] = time.time()
+                                elif self.state.get("transport") == "mqtt":
+                                    self.state["transport"] = "none"
                         if is_online and not was_online:
                             self.log_event("connection", "success", "ESP32 онлайн (MQTT)", "Контролер підключився до MQTT брокера", {"topic": msg.topic})
-                        elif not is_online and was_online:
+                        elif not is_online and was_online and not (self._serial and self._serial.is_open):
                             self.log_event("connection", "warning", "ESP32 офлайн (MQTT LWT)", "Брокер зафіксував втрату зв'язку з ESP32", {"topic": msg.topic})
                     elif msg.topic == f"{topic_prefix}/esp32/telemetry":
                         data = json.loads(payload)
@@ -251,6 +258,14 @@ class ESP32Controller:
                 self.stats["last_successful_poll"] = time.time()
             self.update_from_webhook(remote, transport="http")
 
+    def _find_available_serial_port(self) -> Optional[str]:
+        """Auto-discover available USB CDC / Serial ports for ESP32."""
+        if self.serial_port_name and os.path.exists(self.serial_port_name):
+            return self.serial_port_name
+        import glob
+        candidates = sorted(glob.glob("/dev/ttyACM*") + glob.glob("/dev/ttyUSB*"))
+        return candidates[0] if candidates else None
+
     def _start_serial_reader(self):
         if self._reader_thread and self._reader_thread.is_alive():
             return
@@ -262,8 +277,10 @@ class ESP32Controller:
         while self._running:
             try:
                 if self._serial is None:
-                    if os.path.exists(self.serial_port_name):
-                        self._serial = serial.Serial(self.serial_port_name, self.baudrate, timeout=1.0, write_timeout=1.0)
+                    port_to_try = self._find_available_serial_port()
+                    if port_to_try and os.path.exists(port_to_try):
+                        self._serial = serial.Serial(port_to_try, self.baudrate, timeout=1.0, write_timeout=1.0)
+                        self.serial_port_name = port_to_try
                         with self._lock:
                             self.state["online"] = True
                             self.state["transport"] = "serial"
@@ -352,6 +369,10 @@ class ESP32Controller:
             if line:
                 print(f"[ESP32 RAW] {line}")
                 self.log_event("connection", "info", "ESP32", line)
+                with self._lock:
+                    self.state["online"] = True
+                    self.state["last_seen"] = time.time()
+                    self.state["transport"] = "serial"
 
     def scan_ble(self, duration: int = 15, timeout: Optional[float] = None) -> list:
         """Запустити активне сканування BLE на ESP32 та повернути знайдені пристрої."""
@@ -433,6 +454,11 @@ class ESP32Controller:
             return {"online": True, "latency_ms": 1.2, "host": self.host, "port": self.port, "transport": "mock"}
 
         if self._serial and self._serial.is_open:
+            with self._lock:
+                self.state["online"] = True
+                self.state["transport"] = "serial"
+                if not self.state.get("last_seen"):
+                    self.state["last_seen"] = time.time()
             return {"online": True, "latency_ms": 0.5, "host": "USB-Serial", "port": self.serial_port_name, "transport": "serial"}
 
         t_start = time.time()

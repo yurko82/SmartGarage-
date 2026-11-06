@@ -246,6 +246,12 @@ class TestCommandProcessor(unittest.TestCase):
             self.assertTrue(handled, f"Failed for phrase: {phrase}")
             self.assertEqual(resp, "Що тобі потрібно?")
 
+        # Pure echo prompts must return None / empty to break any loop
+        for phrase in ("що тобі потрібно", "що тобі треба", "що треба", "що потрібно"):
+            handled, resp = self.processor.execute(phrase)
+            self.assertTrue(handled, f"Failed for echo phrase: {phrase}")
+            self.assertIsNone(resp)
+
         # Wake phrase with actual commands
         handled, resp = self.processor.execute("Альо гараж, відчини ворота")
         self.assertTrue(handled)
@@ -256,6 +262,16 @@ class TestCommandProcessor(unittest.TestCase):
         self.assertIn("Освітлення", resp)
 
         handled, resp = self.processor.execute("Ало гараж увімкни вентиляцію")
+        self.assertTrue(handled)
+        self.assertIn("Вентиляцію", resp)
+
+        # Echo prompt prefix stripped when microphone captured assistant's own voice before command
+        handled, resp = self.processor.execute("Що тобі потрібно, увімкни світло")
+        self.assertTrue(handled)
+        self.assertIn("Освітлення", resp)
+
+        self.processor._last_wake_prompt_time = 0.0
+        handled, resp = self.processor.execute("Що тобі треба увімкни вентиляцію")
         self.assertTrue(handled)
         self.assertIn("Вентиляцію", resp)
 
@@ -432,6 +448,13 @@ class TestCommandRouter(unittest.TestCase):
 
         res2 = self.router.execute("чому не грає хід фм")
         self.assertEqual(self.ai.called_with, "чому не грає хід фм")
+
+    def test_scan_and_complex_inquiry_routes_to_ai(self):
+        res = self.router.execute("Проскануй повністю bluetooth ефір що ти бачиш дай мені номінування датчиків в загальному")
+        self.assertEqual(self.ai.called_with, "Проскануй повністю bluetooth ефір що ти бачиш дай мені номінування датчиків в загальному")
+
+        res2 = self.router.execute("чому датчик у підвалі показує таку вологість")
+        self.assertEqual(self.ai.called_with, "чому датчик у підвалі показує таку вологість")
 
 
 class TestWebApp(unittest.TestCase):
@@ -826,6 +849,54 @@ class TestPresenceBLEMatching(unittest.TestCase):
         self.assertIsNotNone(result)
         self.assertEqual(result["id"], "owner_phone")
 
+    def test_guest_registration_with_custom_absence_rules(self):
+        """Guests can be registered with custom voice message and Telegram Chat ID."""
+        guest = self.presence.register_device(
+            device_id="guest_max",
+            name="Макс",
+            role="guest",
+            device_type="phone",
+            device_name="iPhone Макса",
+            ble_mac="11:22:33:44:55:66",
+            absence_voice_message="Макс, Юри в гаражі немає, гуляйте собі далі...",
+            telegram_chat_id="987654321",
+            notify_owner=True
+        )
+        self.assertEqual(guest["id"], "guest_max")
+        self.assertEqual(guest["name"], "Макс")
+        self.assertEqual(guest["absence_voice_message"], "Макс, Юри в гаражі немає, гуляйте собі далі...")
+        self.assertEqual(guest["telegram_chat_id"], "987654321")
+        self.assertTrue(guest["notify_owner"])
+
+        # Test update_device
+        updated = self.presence.update_device(
+            "guest_max",
+            absence_voice_message="Максе, гараж зачинено, подзвони Юрі."
+        )
+        self.assertIsNotNone(updated)
+        self.assertEqual(updated["absence_voice_message"], "Максе, гараж зачинено, подзвони Юрі.")
+
+    def test_visitor_report_generation(self):
+        """PresenceManager generates visitor report aggregating visits."""
+        self.presence.register_device(
+            device_id="guest_max",
+            name="Макс",
+            role="guest",
+            ble_mac="11:22:33:44:55:66"
+        )
+        self.presence._add_log_entry(
+            event="ARRIVED",
+            device_id="guest_max",
+            person_name="Макс",
+            device_name="iPhone",
+            rssi=-65
+        )
+        rep = self.presence.get_visitor_report(days=1)
+        self.assertTrue(rep["total_registered_guests"] >= 1)
+        self.assertTrue(rep["visits_today_count"] >= 1)
+        visitor_ids = [v["id"] for v in rep["visitors"]]
+        self.assertIn("guest_max", visitor_ids)
+
 
 class TestTelemetryDB(unittest.TestCase):
 
@@ -914,6 +985,119 @@ class TestAITools(unittest.TestCase):
         self.assertIn("speaker_control", names)
         self.assertIn("get_climate_history", names)
         self.assertIn("show_climate_chart", names)
+        self.assertIn("scan_bluetooth_devices", names)
+        self.assertIn("manage_workshop_profile", names)
+        self.assertIn("search_bike_knowledge", names)
+        self.assertIn("manage_presence_guest", names)
+        self.assertIn("get_visitor_report", names)
+
+    def test_scan_bluetooth_devices_tool(self):
+        with patch("server.webapp._scan_all_ble") as mock_scan:
+            mock_scan.return_value = [
+                {"mac": "A4:C1:38:CC:CA:49", "name": "LYWSD03MMC", "rssi": -55, "source": "ble"},
+                {"mac": "11:22:33:44:55:66", "name": "", "rssi": -85, "source": "ble"}
+            ]
+            res = self.dispatcher.execute("scan_bluetooth_devices", {"duration": 5})
+            self.assertTrue(res["success"])
+            self.assertEqual(res["count"], 2)
+            dev_names = [d["name"] for d in res["devices"]]
+            self.assertIn("Xiaomi Mijia (Підвал)", dev_names)
+            # Пристрої, яких не було в ефірі (JBL Clip 5, Motorola), категорично не повинні додаватися
+            self.assertNotIn("JBL Clip 5 (Гараж)", dev_names)
+            self.assertNotIn("Motorola Edge 50 Pro (Юрій)", dev_names)
+
+    def test_manage_workshop_profile_tool(self):
+        # 1. Get profile
+        res_get = self.dispatcher.execute("manage_workshop_profile", {"action": "get"})
+        self.assertTrue(res_get["success"])
+        self.assertIn("profile", res_get)
+
+        # 2. Add client bike
+        res_bike = self.dispatcher.execute("manage_workshop_profile", {
+            "action": "add_client_bike",
+            "bike_model": "Trek Marlin 7",
+            "client_name": "Олег",
+            "work_description": "Прокачування гальм та заміна ланцюга"
+        })
+        self.assertTrue(res_bike["success"])
+        bike_id = res_bike["bike"]["id"]
+
+        # 3. Update bike status
+        res_upd = self.dispatcher.execute("manage_workshop_profile", {
+            "action": "update_bike_status",
+            "bike_id": bike_id,
+            "status": "completed"
+        })
+        self.assertTrue(res_upd["success"])
+
+        # 4. Add tool
+        res_tool = self.dispatcher.execute("manage_workshop_profile", {
+            "action": "add_tool",
+            "tool_name": "Park Tool DAG-2.2"
+        })
+        self.assertTrue(res_tool["success"])
+
+        # 5. Add note
+        res_note = self.dispatcher.execute("manage_workshop_profile", {
+            "action": "add_note",
+            "note": "Перевірити запас колонок B01S"
+        })
+        self.assertTrue(res_note["success"])
+
+    def test_search_bike_knowledge_tool(self):
+        # 1. Search torque
+        res_t = self.dispatcher.execute("search_bike_knowledge", {"query": "винос кермо карбон"})
+        self.assertTrue(res_t["success"])
+        self.assertGreaterEqual(res_t["count"], 1)
+
+        # 2. Search brakes
+        res_b = self.dispatcher.execute("search_bike_knowledge", {"query": "sram dot fluid", "category": "brakes"})
+        self.assertTrue(res_b["success"])
+        self.assertGreaterEqual(res_b["count"], 1)
+
+        # 3. Search suspension sag
+        res_s = self.dispatcher.execute("search_bike_knowledge", {"query": "розрахунок sag вилки"})
+        self.assertTrue(res_s["success"])
+        self.assertGreaterEqual(res_s["count"], 1)
+
+    def test_manage_presence_guest_and_report_tools(self):
+        # 1. Register guest Max
+        res_reg = self.dispatcher.execute("manage_presence_guest", {
+            "action": "register",
+            "device_id": "guest_max",
+            "name": "Макс",
+            "mac": "11:22:33:44:55:66",
+            "absence_voice_message": "Макс, Юри в гаражі немає, гуляйте собі далі...",
+            "telegram_chat_id": "987654321"
+        })
+        self.assertTrue(res_reg["success"])
+        self.assertIn("Макс", res_reg["message"])
+
+        # 2. List guests
+        res_list = self.dispatcher.execute("manage_presence_guest", {"action": "list"})
+        self.assertTrue(res_list["success"])
+        self.assertIn("guest_max", res_list["devices"])
+
+        # 3. Update guest
+        res_up = self.dispatcher.execute("manage_presence_guest", {
+            "action": "update",
+            "device_id": "guest_max",
+            "absence_voice_message": "Оновлена фраза"
+        })
+        self.assertTrue(res_up["success"])
+        self.assertEqual(res_up["device"]["absence_voice_message"], "Оновлена фраза")
+
+        # 4. Get visitor report
+        res_rep = self.dispatcher.execute("get_visitor_report", {"days": 7})
+        self.assertTrue(res_rep["success"])
+        self.assertIn("report", res_rep)
+
+        # 5. Delete guest
+        res_del = self.dispatcher.execute("manage_presence_guest", {
+            "action": "delete",
+            "device_id": "guest_max"
+        })
+        self.assertTrue(res_del["success"])
 
     def test_control_device_door(self):
         res = self.dispatcher.execute("control_device", {"device": "door", "action": "open"})
@@ -1068,6 +1252,59 @@ class TestPresenceGreetingDebounce(unittest.TestCase):
         cb(event_watch)
         # Should still be exactly 1 call (no duplicate greeting)
         self.assertEqual(garage.telegram.notify_admin.call_count, 1)
+
+    def test_guest_arrival_automation_when_owner_away(self):
+        from unittest.mock import MagicMock, patch
+        from server.core.core import SmartGarage
+
+        garage = SmartGarage(start_workers=False)
+        garage.telegram.notify_admin = MagicMock()
+        garage.telegram.send_message = MagicMock()
+
+        # Mark all owner devices as away
+        with garage.presence._lock:
+            for d in garage.presence.devices.values():
+                d["status"] = "away"
+
+        # Register guest Max with custom absence message and Telegram ID
+        garage.presence.register_device(
+            device_id="guest_max",
+            name="Макс",
+            role="guest",
+            device_name="iPhone Макса",
+            ble_mac="11:22:33:44:55:66",
+            absence_voice_message="Макс, Юри в гаражі немає, гуляйте собі далі...",
+            telegram_chat_id="987654321",
+            notify_owner=True
+        )
+
+        with patch("server.services.neural_tts.neural_tts.speak_locally") as mock_speak:
+            cb = garage.presence.event_callback
+            self.assertIsNotNone(cb)
+            cb({
+                "event": "ARRIVED",
+                "device_id": "guest_max",
+                "person_name": "Макс",
+                "device_name": "iPhone Макса",
+                "role": "guest",
+                "proximity": "near",
+                "source": "esp32_ble"
+            })
+
+            # 1. Owner notified via Telegram that guest arrived while owner is away
+            garage.telegram.notify_admin.assert_called_once()
+            args, _ = garage.telegram.notify_admin.call_args
+            self.assertIn("Макс", args[0])
+            self.assertIn("Вас зараз немає в гаражі", args[0])
+
+            # 2. TTS spoken over speaker with custom message
+            mock_speak.assert_called_once_with("Макс, Юри в гаражі немає, гуляйте собі далі...")
+
+            # 3. Direct message sent to guest's Telegram
+            garage.telegram.send_message.assert_called_once()
+            tg_args, _ = garage.telegram.send_message.call_args
+            self.assertEqual(tg_args[0], 987654321)
+            self.assertIn("Юрія зараз немає в гаражі", tg_args[1])
 
 
 
@@ -1714,6 +1951,8 @@ class TestOwnerSecurityConstraints(unittest.TestCase):
             ("/api/speaker/volume", "post", {"value": 40}),
             ("/api/esp32/clear_logs", "post", None),
             ("/api/presence/scan", "post", None),
+            ("/api/presence/devices", "post", {"name": "Test"}),
+            ("/api/presence/devices/test_dev", "put", {"absence_voice_message": "test"}),
             ("/api/radio/play", "post", {"url": "http://stream.example.com"}),
             ("/api/ytmusic/next", "post", None),
         ]
@@ -1721,12 +1960,48 @@ class TestOwnerSecurityConstraints(unittest.TestCase):
         for ep, method, body in endpoints:
             if method == "post":
                 res = self.client.post(ep, json=body or {}, headers=headers)
+            elif method == "put":
+                res = self.client.put(ep, json=body or {}, headers=headers)
             elif method == "delete":
                 res = self.client.delete(ep, headers=headers)
             self.assertEqual(res.status_code, 401, f"Endpoint {ep} did not return 401 without auth")
             data = res.get_json()
             self.assertFalse(data["success"])
             self.assertIn("авторизація", data["error"])
+
+    def test_presence_api_crud_and_report_workflow(self):
+        """Full CRUD and reporting workflow for guest presence."""
+        headers_pin = {"X-Admin-PIN": "7777"}
+
+        # 1. Register guest Max
+        res_post = self.client.post("/api/presence/devices", json={
+            "name": "Макс",
+            "role": "guest",
+            "ble_mac": "11:22:33:44:55:66",
+            "absence_voice_message": "Макс, Юри в гаражі немає, гуляйте собі далі...",
+            "telegram_chat_id": "987654321"
+        }, headers=headers_pin)
+        self.assertEqual(res_post.status_code, 200)
+        self.assertTrue(res_post.get_json()["success"])
+        dev_id = res_post.get_json()["device"]["id"]
+
+        # 2. Update guest Max
+        res_put = self.client.put(f"/api/presence/devices/{dev_id}", json={
+            "absence_voice_message": "Оновлена фраза"
+        }, headers=headers_pin)
+        self.assertEqual(res_put.status_code, 200)
+        self.assertEqual(res_put.get_json()["device"]["absence_voice_message"], "Оновлена фраза")
+
+        # 3. Get presence report
+        res_rep = self.client.get("/api/presence/report?days=7")
+        self.assertEqual(res_rep.status_code, 200)
+        self.assertTrue(res_rep.get_json()["success"])
+        self.assertIn("report", res_rep.get_json())
+
+        # 4. Delete guest Max
+        res_del = self.client.delete(f"/api/presence/devices/{dev_id}", headers=headers_pin)
+        self.assertEqual(res_del.status_code, 200)
+        self.assertTrue(res_del.get_json()["success"])
 
     def test_server_auth_with_valid_api_pin(self):
         """Valid PIN via header (X-Admin-PIN or Bearer) allows execution."""
@@ -2192,6 +2467,50 @@ class TestMusicStopRegression(unittest.TestCase):
         self.assertEqual(res_guard["action"], "stop")
         mock_garage.speaker.stop.assert_called_once()
         mock_garage.speaker.play_youtube.assert_not_called()
+
+
+class TestBleScanFiltering(unittest.TestCase):
+    """Test get_bound_macs and only_new filtering in BLE scans."""
+
+    def test_get_bound_macs(self):
+        from server.webapp import get_bound_macs
+        bound = get_bound_macs()
+        self.assertIsInstance(bound, set)
+        # Verify climate sensors and speakers are present
+        self.assertIn("A4:C1:38:CC:CA:49", bound)
+        self.assertIn("A4:C1:38:EC:EC:6C", bound)
+        self.assertIn("41:42:62:69:51:9B", bound)
+        self.assertIn("F8:5C:7E:EE:7D:CC", bound)
+        self.assertIn("B8:7E:39:88:22:9B", bound)
+
+    @patch("server.webapp.garage")
+    def test_scan_all_ble_filters_bound_devices(self, mock_garage):
+        from server.webapp import _scan_all_ble
+
+        # Mock ESP32 returning known sensor + new guest phone
+        mock_esp = MagicMock()
+        mock_esp.is_connected = True
+        mock_esp.scan_ble.return_value = [
+            {"mac": "A4:C1:38:CC:CA:49", "name": "Basement Temp", "rssi": -65},
+            {"mac": "AA:BB:CC:DD:EE:11", "name": "Guest Phone", "rssi": -70}
+        ]
+        mock_garage.esp32 = mock_esp
+        mock_garage.presence = MagicMock()
+
+        # Patch bleak scanner host scan to return empty to isolate ESP32
+        with patch("bleak.BleakScanner.discover", return_value=[]):
+            # With only_new=True: only the unknown guest phone is returned
+            new_devices = _scan_all_ble(duration=1, only_new=True)
+            macs = [d["mac"] for d in new_devices]
+            self.assertIn("AA:BB:CC:DD:EE:11", macs)
+            self.assertNotIn("A4:C1:38:CC:CA:49", macs)
+
+            # With only_new=False: all devices are returned
+            all_devices = _scan_all_ble(duration=1, only_new=False)
+            all_macs = [d["mac"] for d in all_devices]
+            self.assertIn("AA:BB:CC:DD:EE:11", all_macs)
+            self.assertIn("A4:C1:38:CC:CA:49", all_macs)
+
 
 
 if __name__ == "__main__":

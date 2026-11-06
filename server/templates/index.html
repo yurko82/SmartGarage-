@@ -78,10 +78,6 @@
                         <span class="label">🔋 Датчики BLE:</span>
                         <span class="val-badge" id="telBat">-- %</span>
                     </div>
-                    <div class="telemetry-item">
-                        <span class="label">🚪 Ворота:</span>
-                        <span class="val-badge" id="telDoor" title="Привід воріт не планується / не встановлений">Не встановлено</span>
-                    </div>
                     <div class="telemetry-item full-width">
                         <span class="label">💡 Світло:</span>
                         <span class="val-badge" id="telLight">Очікує реле</span>
@@ -182,7 +178,7 @@
                         <input 
                             type="text" 
                             id="commandInput" 
-                            placeholder="Напишіть або скажіть команду ('відкрий ворота', 'увімкни світло', 'яка температура')..." 
+                            placeholder="Напишіть або скажіть команду ('увімкни світло', 'яка температура', 'увімкни радіо')..." 
                             autocomplete="off"
                             autofocus
                             aria-label="Введення текстової команди"
@@ -618,7 +614,7 @@
                                     </button>
                                 </div>
                             </div>
-                            <p class="admin-hint">ESP32 сканує BLE-ефір з 99% робочим циклом і виявляє телефони, годинники та мітки навколо гаража.</p>
+                            <p class="admin-hint">Сканування виявляє тільки нові невідомі пристрої для прив'язки до гостей. Всі наявні датчики клімату, колонки та ваші пристрої вже прив'язані і сюди не потрапляють.</p>
                             <div id="scanStatusIndicator" class="scan-status-indicator" style="display: none;">
                                 <div class="spinner"></div>
                                 <span id="scanStatusMsg">ESP32 сканує ефір... Будь ласка, зачекайте</span>
@@ -645,12 +641,14 @@
                         <!-- 3. ADD GUEST / DEVICE FORM -->
                         <div class="admin-section">
                             <div class="admin-section-header">
-                                <h3>➕ Додати гостя або новий пристрій</h3>
+                                <h3 id="formSectionTitle">➕ Додати гостя або новий пристрій</h3>
+                                <button type="button" class="btn-sm" id="btnCancelEdit" style="display: none;">❌ Скасувати редагування</button>
                             </div>
                             <form id="addDeviceForm" class="admin-form-grid">
+                                <input type="hidden" id="devEditId" value="">
                                 <div class="form-group">
-                                    <label>Ім'я особи / власника:</label>
-                                    <input type="text" id="devName" placeholder="напр., Оксана (Дружина), Андрій (Друг)" required>
+                                    <label>Ім'я гостя / особи:</label>
+                                    <input type="text" id="devName" placeholder="напр., Макс (Друг), Оксана (Дружина), Сергій" required>
                                 </div>
                                 <div class="form-group">
                                     <label>Роль:</label>
@@ -682,8 +680,22 @@
                                     <input type="text" id="devBleMac" placeholder="напр., 62:FD:D0:F6:F2:CF">
                                 </div>
                                 <div class="form-group full-width">
+                                    <label>🔊 Голосове повідомлення динаміка (якщо Юрія немає в гаражі):</label>
+                                    <input type="text" id="devAbsenceMsg" placeholder="напр., Макс, Юри в гаражі немає, гуляйте собі далі...">
+                                    <small class="admin-hint" style="margin-top: 4px; display: block;">Синтезується українською мовою та промовляється через динамік при появі гостя біля гаража за відсутності власника.</small>
+                                </div>
+                                <div class="form-group">
+                                    <label>💬 Telegram Chat ID гостя (опціонально):</label>
+                                    <input type="text" id="devTelegramChatId" placeholder="напр., 464515219">
+                                    <small class="admin-hint" style="margin-top: 4px; display: block;">Для прямого сповіщення гостя в Telegram про відсутність Юрія.</small>
+                                </div>
+                                <div class="form-group" style="display: flex; align-items: center; gap: 10px; margin-top: 20px;">
+                                    <input type="checkbox" id="devNotifyOwner" checked style="width: 20px; height: 20px; cursor: pointer;">
+                                    <label for="devNotifyOwner" style="cursor: pointer; margin-bottom: 0;">🔔 Сповіщати Юрія в Telegram про візит</label>
+                                </div>
+                                <div class="form-group full-width">
                                     <button type="submit" class="btn-primary" id="btnSaveDevice" aria-label="Зберегти пристрій у базі присутності">
-                                        <span>💾 Зберегти в базі присутності</span>
+                                        <span id="btnSaveDeviceText">💾 Зберегти в базі присутності</span>
                                     </button>
                                 </div>
                             </form>
@@ -702,22 +714,38 @@
                                             <th>Роль</th>
                                             <th>Пристрій</th>
                                             <th>Ідентифікатор / MAC</th>
+                                            <th>Фраза за відсутності / Telegram</th>
                                             <th>Статус</th>
                                             <th>Дія</th>
                                         </tr>
                                     </thead>
                                     <tbody id="devicesTableBody">
-                                        <tr><td colspan="6">Завантаження списку...</td></tr>
+                                        <tr><td colspan="7">Завантаження списку...</td></tr>
                                     </tbody>
                                 </table>
                             </div>
                         </div>
 
-                        <!-- 5. VISITOR LOG -->
+                        <!-- 5. VISITOR LOG & REPORTS -->
                         <div class="admin-section">
                             <div class="admin-section-header">
-                                <h3>📜 Журнал відвідувань (Access Log)</h3>
+                                <h3>📜 Журнал відвідувань та звіт (Access Log)</h3>
                                 <button class="btn-sm" id="btnRefreshLog" aria-label="Оновити журнал відвідувань">🔄 Оновити журнал</button>
+                            </div>
+
+                            <div class="presence-summary-grid" id="presenceSummaryGrid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 16px;">
+                                <div class="stat-card" style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 8px; padding: 12px;">
+                                    <div style="font-size: 13px; color: var(--text-muted);">👥 Зареєстрованих гостей:</div>
+                                    <div style="font-size: 22px; font-weight: bold; margin-top: 4px;" id="statTotalGuests">0</div>
+                                </div>
+                                <div class="stat-card" style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 8px; padding: 12px;">
+                                    <div style="font-size: 13px; color: var(--text-muted);">🚪 Візитів за сьогодні:</div>
+                                    <div style="font-size: 22px; font-weight: bold; color: var(--accent); margin-top: 4px;" id="statVisitsToday">0</div>
+                                </div>
+                                <div class="stat-card" style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 8px; padding: 12px;">
+                                    <div style="font-size: 13px; color: var(--text-muted);">🟢 Зараз поруч:</div>
+                                    <div style="font-size: 22px; font-weight: bold; color: var(--success); margin-top: 4px;" id="statPresentNow">0</div>
+                                </div>
                             </div>
 
                             <div class="admin-table-container">
@@ -744,7 +772,7 @@
         </main>
     </div>
 
-    <script src="/static/js/app.js?v=0.4.3"></script>
+    <script src="/static/js/app.js?v=0.4.4"></script>
 </body>
 </html>
 

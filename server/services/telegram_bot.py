@@ -409,14 +409,13 @@ class TelegramBot:
 
             temp_f2_str = f"{f2.get('temperature', '--')}°C" if f2.get("temperature") is not None else "--"
             hum_f2_str = f"{f2.get('humidity', '--')}%" if f2.get("humidity") is not None else "--"
-            bat_f2 = f2.get("battery", "--")
             f2_online_mark = "🟢" if f2.get("online") else "🔴"
-            f2_status_desc = f"{f2_online_mark} `{temp_f2_str}` (Вологість: `{hum_f2_str}`, 🔋 `{bat_f2}%`)" if f2.get("online") and f2.get("temperature") is not None else f"🔴 `{temp_f2_str}` (Офлайн)"
+            f2_status_desc = f"{f2_online_mark} `{temp_f2_str}` (Вологість: `{hum_f2_str}`)" if f2.get("online") and f2.get("temperature") is not None else f"🔴 `{temp_f2_str}` (Офлайн)"
 
             text = (
                 f"📊 *Стан Smart Garage:*\n\n"
                 f"• 📡 *ESP32-S3:* {esp_online}\n"
-                f"• ⚓ *Підвал (LYWSD03MMC):* `{temp_str}` (Вологість: `{hum_str}`, 🔋 `{fb.get('battery', '--')}%`)\n"
+                f"• ⚓ *Підвал (LYWSD03MMC):* `{temp_str}` (Вологість: `{hum_str}`)\n"
                 f"• 🏢 *2-й поверх (LYWSD03MMC):* {f2_status_desc}\n"
                 f"• 🏠 *1-й поверх:* Очікує датчик\n"
                 f"• 🚪 *Ворота:* Невідомо (привід не встановлений)\n"
@@ -500,7 +499,6 @@ class TelegramBot:
         f2 = floors.get("floor2", {})
         t2 = f"{f2.get('temperature')}°C" if f2.get('temperature') is not None else "--"
         h2 = f"{f2.get('humidity')}%" if f2.get('humidity') is not None else "--"
-        b2 = f"{f2.get('battery')}%" if f2.get('battery') is not None else "--"
         online2 = "🟢 Онлайн" if f2.get("online") else "🔴 Офлайн (останні збережені дані)"
 
         msg = (
@@ -508,7 +506,6 @@ class TelegramBot:
             "• Датчик: `Xiaomi Mijia LYWSD03MMC` (BLE)\n"
             f"• Температура: `{t2}`\n"
             f"• Вологість: `{h2}`\n"
-            f"• Заряд батареї: `🔋 {b2}`\n"
             f"• Стан зв'язку: {online2}"
         )
         reply_markup = {
@@ -530,7 +527,6 @@ class TelegramBot:
         fb = floors.get("basement", {})
         tb = f"{fb.get('temperature')}°C" if fb.get('temperature') is not None else "--"
         hb = f"{fb.get('humidity')}%" if fb.get('humidity') is not None else "--"
-        bb = f"{fb.get('battery')}%" if fb.get('battery') is not None else "--"
         online_b = "🟢 Онлайн" if fb.get("online") else "⚪ В базі даних"
 
         msg = (
@@ -538,7 +534,6 @@ class TelegramBot:
             "• Датчик: `Xiaomi Mijia LYWSD03MMC` (BLE)\n"
             f"• Температура: `{tb}`\n"
             f"• Вологість: `{hb}`\n"
-            f"• Заряд батареї: `🔋 {bb}`\n"
             f"• Стан зв'язку: {online_b}"
         )
         reply_markup = {

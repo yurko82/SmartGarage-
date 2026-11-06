@@ -46,6 +46,10 @@
                 <button class="btn-header" id="btnRefresh" title="Оновити дані" aria-label="Оновити дані дашборду">
                     <span>🔄</span>
                 </button>
+                <button class="btn-header" id="btnDashAuth" title="Авторизація PIN" aria-label="Авторизація PIN">
+                    <span id="dashAuthIcon">🔒</span>
+                    <span class="btn-label" id="dashAuthLabel">Вхід</span>
+                </button>
                 <a href="/#admin" class="btn-header" title="Закрита адмін-частина" aria-label="Перейти до адмін-панелі" style="text-decoration: none; color: inherit;">
                     <span>🔒</span>
                     <span class="btn-label">Адмінка</span>
@@ -107,14 +111,7 @@
                         </div>
                     </div>
 
-                    <!-- Gate / Door Tile (Uninstalled / Disabled) -->
-                    <div class="touch-tile tile-disabled" id="tileDoor" role="button" tabindex="0" aria-label="Ворота або двері: привід не встановлено">
-                        <div class="tile-icon-box">🚪</div>
-                        <div>
-                            <div class="tile-label">Ворота / Двері</div>
-                            <div class="tile-status" id="statusDoor">Не встановлено</div>
-                        </div>
-                    </div>
+
                 </div>
 
                 <!-- Quick Lighting Actions -->
@@ -738,7 +735,32 @@
         </div>
     </div>
 
+    <!-- PIN AUTH MODAL FOR DASHBOARD -->
+    <div class="esp32-modal-backdrop" id="dashPinModal" style="display: none; align-items: center; justify-content: center; z-index: 10000;">
+        <div class="esp32-modal-card" style="max-width: 380px; width: 90%;">
+            <div class="modal-header">
+                <div class="modal-title">
+                    <span class="modal-icon">🔐</span>
+                    <div>
+                        <h3 style="margin: 0; font-size: 1.1rem; color: #fff;">Авторизація</h3>
+                        <span class="modal-subtitle" style="font-size: 0.8rem; color: #94a3b8;">Введіть PIN-код адміністратора</span>
+                    </div>
+                </div>
+                <button class="btn-modal-close" id="btnDashPinClose" aria-label="Закрити">&times;</button>
+            </div>
+            <div class="modal-body" style="padding: 20px;">
+                <form id="dashPinForm" onsubmit="return false;">
+                    <div style="margin-bottom: 16px;">
+                        <input type="password" id="dashPinInput" maxlength="10" placeholder="••••" style="width: 100%; box-sizing: border-box; padding: 12px 16px; font-size: 1.3rem; border-radius: 10px; border: 1px solid rgba(255,255,255,0.2); background: rgba(0,0,0,0.5); color: #fff; text-align: center; letter-spacing: 6px;" autocomplete="off" required>
+                    </div>
+                    <div id="dashPinError" style="display: none; color: #ff4d4f; font-size: 0.88rem; margin-bottom: 12px; text-align: center;"></div>
+                    <button type="submit" id="btnDashPinSubmit" class="btn-pill" style="width: 100%; box-sizing: border-box; background: var(--accent-cyan, #00f2fe); color: #000; font-weight: bold; padding: 12px; cursor: pointer; text-align: center;">Підтвердити</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
     <script src="/static/js/chart.min.js"></script>
-    <script src="/static/js/dashboard.js?v=0.6.0"></script>
+    <script src="/static/js/dashboard.js?v=0.6.1"></script>
 </body>
 </html>

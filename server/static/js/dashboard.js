@@ -33,7 +33,6 @@ document.addEventListener('DOMContentLoaded', () => {
     let recognition = null;
     let isLightOn = false;
     let isFanOn = false;
-    let isDoorOpen = false;
 
     // --- DOM REFERENCES ---
     // Clock
@@ -45,6 +44,14 @@ document.addEventListener('DOMContentLoaded', () => {
     const btnFullscreen = document.getElementById('btnFullscreen');
     const btnTts = document.getElementById('btnTts');
     const btnRefresh = document.getElementById('btnRefresh');
+    const btnDashAuth = document.getElementById('btnDashAuth');
+    const dashAuthIcon = document.getElementById('dashAuthIcon');
+    const dashAuthLabel = document.getElementById('dashAuthLabel');
+    const dashPinModal = document.getElementById('dashPinModal');
+    const dashPinForm = document.getElementById('dashPinForm');
+    const dashPinInput = document.getElementById('dashPinInput');
+    const dashPinError = document.getElementById('dashPinError');
+    const btnDashPinClose = document.getElementById('btnDashPinClose');
 
     // Status pills
     const pillServerDot = document.getElementById('pillServerDot');
@@ -107,6 +114,11 @@ document.addEventListener('DOMContentLoaded', () => {
     let isManualMicSession = false;
     let isWaitingFollowup = false;
     let followupTimeoutTimer = null;
+    let isSpeaking = false;
+    let isProcessingCommand = false;
+    let autoRestartTimer = null;
+    let followupStartTimer = null;
+    let lastWakeWordTimestamp = 0;
 
     // Scenarios
     const scenarioBtns = document.querySelectorAll('.scenario-btn');
@@ -572,6 +584,10 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
+        // Система починає говорити: негайно вимикаємо мікрофон
+        isSpeaking = true;
+        stopMicrophone();
+
         // Cancel any browser speech synthesis
         if ('speechSynthesis' in window) {
             try { window.speechSynthesis.cancel(); } catch (_) {}
@@ -594,6 +610,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const fireEnded = () => {
             if (endedFired) return;
             endedFired = true;
+            isSpeaking = false;
             if (btnMicHero) btnMicHero.classList.remove('speaking');
             if (currentTtsUrl) {
                 try { URL.revokeObjectURL(currentTtsUrl); } catch (_) {}
@@ -663,6 +680,26 @@ document.addEventListener('DOMContentLoaded', () => {
             });
     }
 
+    // --- PROMPT ECHO IMMUNITY & WAKE PARSER ---
+    const PROMPT_ECHO_REGEX = /^(?:що\s*(?:тобі|вам)?\s*(?:потрібно|треба)|що\s*(?:потрібно|треба)|потрібно|треба|слухаю|я\s*слухаю)\s*[!?.]*$/i;
+
+    function isPurePromptEcho(text) {
+        if (!text || !text.trim()) return true;
+        const clean = text.trim().toLowerCase();
+        return PROMPT_ECHO_REGEX.test(clean);
+    }
+
+    // --- STRIP ECHO & WAKE PREFIXES ---
+    function stripEchoAndWakePrefix(text) {
+        if (!text || !text.trim()) return '';
+        let clean = text.trim();
+        // 1. Очищення фрази виклику на початку (наприклад: "Альо гараж, відчини ворота" -> "відчини ворота")
+        clean = clean.replace(/^(?:(?:альо|ало|алло|але|оле|ольо)\s*[, -]?\s*гараж(?:у)?|гараж)\s*[,:;!?-]*\s*/i, '');
+        // 2. Очищення луни запиту системи, якщо мікрофон почув голос помічника (наприклад: "Що тобі потрібно відчини ворота" -> "відчини ворота")
+        clean = clean.replace(/^(?:що\s*(?:тобі|вам)?\s*(?:потрібно|треба)|слухаю|я\s*слухаю)\s*[,:;!?-]*\s*/i, '');
+        return clean.trim();
+    }
+
     // --- WAKE WORD PARSER & FILTER ---
     function parseWakeCommand(rawText) {
         if (!rawText || !rawText.trim()) return null;
@@ -676,9 +713,10 @@ document.addEventListener('DOMContentLoaded', () => {
         if (wakeMatch) {
             const splitIdx = wakeMatch.index + wakeMatch[0].length;
             const commandAfter = text.substring(splitIdx).replace(/^[,:;!?-]+\s*/, '').trim();
+            const cleanSub = stripEchoAndWakePrefix(commandAfter);
             return {
                 isWake: true,
-                command: commandAfter || null
+                command: cleanSub || null
             };
         }
 
@@ -695,13 +733,55 @@ document.addEventListener('DOMContentLoaded', () => {
         const garagePrefixRegex = /^гараж\s*[,:;-]\s*/i;
         if (garagePrefixRegex.test(lower)) {
             const commandAfter = text.replace(garagePrefixRegex, '').trim();
+            const cleanSub = stripEchoAndWakePrefix(commandAfter);
             return {
                 isWake: true,
-                command: commandAfter || null
+                command: cleanSub || null
             };
         }
 
         return null;
+    }
+
+    // --- CONTROLLING MICROPHONE SAFELY ---
+    function startMicrophone() {
+        if (isSpeaking || isProcessingCommand) {
+            console.log('🔇 startMicrophone заблоковано: система озвучує або обробляє команду.');
+            return false;
+        }
+        if (!recognition) {
+            initSpeechRecognition();
+        }
+        if (!recognition) return false;
+        if (isListening) return true;
+
+        clearTimeout(autoRestartTimer);
+        autoRestartTimer = null;
+
+        try {
+            recognition.start();
+            return true;
+        } catch (e) {
+            if (e.name !== 'InvalidStateError') {
+                console.warn('Помилка запуску розпізнавання:', e);
+            }
+            return false;
+        }
+    }
+
+    function stopMicrophone() {
+        clearTimeout(autoRestartTimer);
+        autoRestartTimer = null;
+        clearTimeout(followupStartTimer);
+        followupStartTimer = null;
+
+        if (recognition) {
+            try {
+                recognition.abort();
+            } catch (_) {}
+        }
+        isListening = false;
+        if (btnMicHero) btnMicHero.classList.remove('listening');
     }
 
     // --- VOICE SPEECH RECOGNITION (Web Speech API) ---
@@ -729,17 +809,23 @@ document.addEventListener('DOMContentLoaded', () => {
             recognition.lang = 'uk-UA';
 
             recognition.onstart = () => {
+                if (isSpeaking || isProcessingCommand) {
+                    stopMicrophone();
+                    return;
+                }
                 isListening = true;
                 if (btnMicHero) btnMicHero.classList.add('listening');
                 if (voiceStatusText) {
                     if (isWaitingFollowup) {
                         voiceStatusText.textContent = '🎙️ Слухаю команду... Назвіть дію';
+                        voiceStatusText.style.color = 'var(--accent-emerald, #10b981)';
                     } else if (isContinuousWakeMode) {
                         voiceStatusText.textContent = '👂 Слухаю тільки «Альо, гараж»...';
+                        voiceStatusText.style.color = '';
                     } else {
                         voiceStatusText.textContent = '🎙️ Слухаю... Говоріть команду';
+                        voiceStatusText.style.color = '';
                     }
-                    voiceStatusText.style.color = '';
                 }
             };
 
@@ -747,35 +833,82 @@ document.addEventListener('DOMContentLoaded', () => {
                 const transcript = (event.results[0][0].transcript || '').trim();
                 if (!transcript) return;
 
-                // 1. Manual push-to-talk button press
+                // Зупиняємо мікрофон миттєво, щоб система не захопила власний звук або фонові шуми
+                stopMicrophone();
+
+                // Якщо почуто виключно власне запитання асистента ("що тобі потрібно" / "що тобі треба") -> це луна!
+                if (isPurePromptEcho(transcript)) {
+                    console.warn('🔇 [Anti-Loop] Проігноровано акустичну луну запиту помічника:', transcript);
+                    if (isWaitingFollowup) {
+                        if (voiceStatusText) {
+                            voiceStatusText.textContent = '🎙️ Слухаю команду... Назвіть дію';
+                            voiceStatusText.style.color = 'var(--accent-emerald, #10b981)';
+                        }
+                        // Продовжуємо чекати реальну команду користувача
+                        setTimeout(() => {
+                            if (isWaitingFollowup && !isSpeaking && !isProcessingCommand) {
+                                startMicrophone();
+                            }
+                        }, 500);
+                    } else if (isContinuousWakeMode) {
+                        setTimeout(() => {
+                            if (!isSpeaking && !isProcessingCommand && isContinuousWakeMode) {
+                                startMicrophone();
+                            }
+                        }, 500);
+                    }
+                    return;
+                }
+
+                // 1. Ручне натискання кнопки мікрофона (push-to-talk)
                 if (isManualMicSession) {
                     isManualMicSession = false;
                     isWaitingFollowup = false;
                     clearTimeout(followupTimeoutTimer);
-                    if (voiceStatusText) voiceStatusText.textContent = `Ви сказали: "${transcript}"`;
-                    executeUserCommand(transcript);
+                    const cleanCommand = stripEchoAndWakePrefix(transcript);
+                    if (!cleanCommand || isPurePromptEcho(cleanCommand)) {
+                        updateWakeContinuousUi();
+                        return;
+                    }
+                    if (voiceStatusText) voiceStatusText.textContent = `Ви сказали: "${cleanCommand}"`;
+                    executeUserCommand(cleanCommand);
                     return;
                 }
 
-                // 2. Answering follow-up question ("Що тобі потрібно?")
+                // 2. Відповідь на уточнювальний запит («Що тобі потрібно?»)
                 if (isWaitingFollowup) {
+                    const cleanCommand = stripEchoAndWakePrefix(transcript);
+                    if (!cleanCommand || isPurePromptEcho(cleanCommand)) {
+                        console.warn('🔇 [Anti-Loop] Проігноровано луну у сесії очікування команди:', transcript);
+                        if (voiceStatusText) {
+                            voiceStatusText.textContent = '🎙️ Слухаю команду... Назвіть дію';
+                            voiceStatusText.style.color = 'var(--accent-emerald, #10b981)';
+                        }
+                        setTimeout(() => {
+                            if (isWaitingFollowup && !isSpeaking && !isProcessingCommand) {
+                                startMicrophone();
+                            }
+                        }, 500);
+                        return;
+                    }
+
                     clearTimeout(followupTimeoutTimer);
                     isWaitingFollowup = false;
-                    if (voiceStatusText) voiceStatusText.textContent = `Команда: "${transcript}"`;
-                    executeUserCommand(transcript);
+                    if (voiceStatusText) voiceStatusText.textContent = `Команда: "${cleanCommand}"`;
+                    executeUserCommand(cleanCommand);
                     return;
                 }
 
-                // 3. Continuous hands-free wake mode: MUST match wake phrase!
+                // 3. Автоматичний режим очікування фрази «Альо, гараж»
                 if (isContinuousWakeMode) {
                     const wake = parseWakeCommand(transcript);
                     if (!wake) {
-                        // Ambient talk in the room without "Альо, гараж" -> COMPLETELY IGNORE!
+                        // Розмова в кімнаті без фрази «Альо, гараж» -> ігноруємо
                         console.log('🔇 Проігноровано фонову розмову (немає фрази «Альо, гараж»):', transcript);
                         if (voiceStatusText) {
                             voiceStatusText.textContent = `👂 Очікую «Альо, гараж»... (почуто: "${transcript}")`;
                             setTimeout(() => {
-                                if (isContinuousWakeMode && !isWaitingFollowup && !isListening) {
+                                if (isContinuousWakeMode && !isWaitingFollowup && !isListening && !isSpeaking && !isProcessingCommand) {
                                     updateWakeContinuousUi();
                                 }
                             }, 2500);
@@ -783,11 +916,30 @@ document.addEventListener('DOMContentLoaded', () => {
                         return;
                     }
 
-                    // WAKE WORD MATCHED!
+                    // Захист від зациклення: блокуємо повторний виклик wake-слова частіше ніж раз на 4 секунди
+                    const now = Date.now();
+                    if (now - lastWakeWordTimestamp < 4000) {
+                        console.warn('🔇 [Anti-Loop] Cooldown wake-слова (4с): ігноруємо повторний тригер');
+                        setTimeout(() => {
+                            if (isContinuousWakeMode && !isWaitingFollowup && !isListening && !isSpeaking && !isProcessingCommand) {
+                                startMicrophone();
+                            }
+                        }, 1000);
+                        return;
+                    }
+                    lastWakeWordTimestamp = now;
+
+                    // Фраза «Альо, гараж» розпізнана!
                     hapticFeedback(50);
                     if (wake.command) {
-                        if (voiceStatusText) voiceStatusText.textContent = `⚡ «Альо, гараж»: ${wake.command}`;
-                        executeUserCommand(wake.command);
+                        const cleanCommand = stripEchoAndWakePrefix(wake.command);
+                        if (!cleanCommand || isPurePromptEcho(cleanCommand)) {
+                            if (voiceStatusText) voiceStatusText.textContent = `⚡ «Альо, гараж» розпізнано!`;
+                            executeUserCommand("Альо, гараж");
+                        } else {
+                            if (voiceStatusText) voiceStatusText.textContent = `⚡ «Альо, гараж»: ${cleanCommand}`;
+                            executeUserCommand(cleanCommand);
+                        }
                     } else {
                         if (voiceStatusText) voiceStatusText.textContent = `⚡ «Альо, гараж» розпізнано!`;
                         executeUserCommand("Альо, гараж");
@@ -795,9 +947,14 @@ document.addEventListener('DOMContentLoaded', () => {
                     return;
                 }
 
-                // 4. Default fallback:
-                if (voiceStatusText) voiceStatusText.textContent = `Ви сказали: "${transcript}"`;
-                executeUserCommand(transcript);
+                // 4. Звичайний режим
+                const cleanCommand = stripEchoAndWakePrefix(transcript);
+                if (!cleanCommand || isPurePromptEcho(cleanCommand)) {
+                    updateWakeContinuousUi();
+                    return;
+                }
+                if (voiceStatusText) voiceStatusText.textContent = `Ви сказали: "${cleanCommand}"`;
+                executeUserCommand(cleanCommand);
             };
 
             recognition.onerror = (event) => {
@@ -815,10 +972,10 @@ document.addEventListener('DOMContentLoaded', () => {
                         voiceStatusText.style.color = '#ef4444';
                     }
                 } else if (event.error === 'no-speech') {
-                    if (!isContinuousWakeMode && voiceStatusText) {
+                    if (!isContinuousWakeMode && !isWaitingFollowup && voiceStatusText) {
                         voiceStatusText.textContent = 'Голос не виявлено. Натисніть і спробуйте знову';
                     }
-                } else {
+                } else if (event.error !== 'aborted') {
                     if (voiceStatusText) voiceStatusText.textContent = `Помилка: ${event.error}. Спробуйте ще раз`;
                 }
             };
@@ -826,12 +983,19 @@ document.addEventListener('DOMContentLoaded', () => {
             recognition.onend = () => {
                 isListening = false;
                 if (btnMicHero) btnMicHero.classList.remove('listening');
-                // Auto-restart recognition in continuous wake mode or when waiting for follow-up
-                if ((isContinuousWakeMode || isWaitingFollowup) && !currentTtsAudio) {
-                    setTimeout(() => {
+
+                // ЖОРСТКЕ ПРАВИЛО: Якщо система озвучує або обробляє команду, мікрофон НЕ вмикається!
+                if (isSpeaking || isProcessingCommand) {
+                    return;
+                }
+
+                // Авто-перезапуск у режимі постійного слухання або очікування команди після запиту
+                if (isContinuousWakeMode || isWaitingFollowup) {
+                    clearTimeout(autoRestartTimer);
+                    autoRestartTimer = setTimeout(() => {
                         try {
-                            if (!isListening && (isContinuousWakeMode || isWaitingFollowup) && !currentTtsAudio) {
-                                recognition.start();
+                            if (!isListening && !isSpeaking && !isProcessingCommand && (isContinuousWakeMode || isWaitingFollowup)) {
+                                startMicrophone();
                             }
                         } catch (_) {}
                     }, 350);
@@ -868,15 +1032,17 @@ document.addEventListener('DOMContentLoaded', () => {
             btnWakeContinuous.classList.add('active');
             if (wakeContinuousLabel) wakeContinuousLabel.textContent = '«Альо, гараж»: Активно';
             btnWakeContinuous.title = 'Режим авто-слухання активний (натисніть, щоб вимкнути)';
-            if (voiceStatusText && !isListening) {
+            if (voiceStatusText && !isListening && !isSpeaking && !isProcessingCommand) {
                 voiceStatusText.textContent = '👂 Слухаю тільки «Альо, гараж»... (інші розмови ігноруються)';
+                voiceStatusText.style.color = '';
             }
         } else {
             btnWakeContinuous.classList.remove('active');
             if (wakeContinuousLabel) wakeContinuousLabel.textContent = '«Альо, гараж»: Вимкнено';
             btnWakeContinuous.title = 'Режим авто-слухання вимкнено (натисніть, щоб увімкнути)';
-            if (voiceStatusText && !isListening) {
+            if (voiceStatusText && !isListening && !isSpeaking && !isProcessingCommand) {
                 voiceStatusText.textContent = 'Натисніть мікрофон або скажіть «Альо, гараж»';
+                voiceStatusText.style.color = '';
             }
         }
     }
@@ -895,26 +1061,22 @@ document.addEventListener('DOMContentLoaded', () => {
             localStorage.setItem('smartgarage_wake_continuous', isContinuousWakeMode ? 'true' : 'false');
             updateWakeContinuousUi();
             if (isContinuousWakeMode) {
-                try {
-                    if (!isListening) recognition.start();
-                } catch (e) {
-                    console.warn(e);
+                if (!isSpeaking && !isProcessingCommand) {
+                    startMicrophone();
                 }
             } else {
-                try {
-                    isWaitingFollowup = false;
-                    isManualMicSession = false;
-                    clearTimeout(followupTimeoutTimer);
-                    if (isListening) recognition.stop();
-                } catch (_) {}
+                isWaitingFollowup = false;
+                isManualMicSession = false;
+                clearTimeout(followupTimeoutTimer);
+                stopMicrophone();
             }
         });
         updateWakeContinuousUi();
         if (isContinuousWakeMode) {
             setTimeout(() => {
-                try {
-                    if (!isListening && recognition) recognition.start();
-                } catch (_) {}
+                if (!isListening && !isSpeaking && !isProcessingCommand) {
+                    startMicrophone();
+                }
             }, 800);
         }
     }
@@ -934,17 +1096,25 @@ document.addEventListener('DOMContentLoaded', () => {
                 isManualMicSession = false;
                 isWaitingFollowup = false;
                 clearTimeout(followupTimeoutTimer);
-                recognition.stop();
+                stopMicrophone();
             } else {
+                // Якщо система говорить, перериваємо мову при натисканні користувачем
+                if (isSpeaking || currentTtsAudio) {
+                    if (currentTtsAudio) {
+                        try { currentTtsAudio.pause(); } catch (_) {}
+                        currentTtsAudio = null;
+                    }
+                    if ('speechSynthesis' in window) {
+                        try { window.speechSynthesis.cancel(); } catch (_) {}
+                    }
+                    isSpeaking = false;
+                    if (btnMicHero) btnMicHero.classList.remove('speaking');
+                }
+                isProcessingCommand = false;
                 isManualMicSession = true;
                 isWaitingFollowup = false;
                 clearTimeout(followupTimeoutTimer);
-                try {
-                    recognition.start();
-                } catch (e) {
-                    console.warn('Recognition start exception:', e);
-                    try { recognition.stop(); } catch (_) { }
-                }
+                startMicrophone();
             }
         });
     }
@@ -952,11 +1122,41 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- COMMAND EXECUTION VIA HTTP ---
     async function executeUserCommand(commandText) {
         if (!commandText || !commandText.trim()) return;
-        const query = commandText.trim();
+
+        // 1. Миттєво блокуємо мікрофон на час обробки
+        isProcessingCommand = true;
+        stopMicrophone();
+
+        // 2. Якщо вхідний рядок є виключно луною запиту помічника — блокуємо відправку
+        if (isPurePromptEcho(commandText) && !/^(?:альо|ало|алло)\s*[, -]?\s*гараж(?:у)?/i.test(commandText.trim())) {
+            console.warn('🔇 [Anti-Loop] executeUserCommand відхилив луну запиту:', commandText);
+            isProcessingCommand = false;
+            if (isContinuousWakeMode) {
+                setTimeout(startMicrophone, 500);
+            }
+            return;
+        }
+
+        let query = stripEchoAndWakePrefix(commandText);
+        if (!query) {
+            if (/^(?:альо|ало|алло)\s*[, -]?\s*гараж(?:у)?/i.test(commandText.trim())) {
+                query = "Альо, гараж";
+            } else {
+                isProcessingCommand = false;
+                if (isContinuousWakeMode) {
+                    setTimeout(startMicrophone, 500);
+                }
+                return;
+            }
+        }
 
         if (dialogUserText) dialogUserText.textContent = query;
         if (dialogAiText) dialogAiText.textContent = 'Обробляю запит...';
         if (voiceDialogBox) voiceDialogBox.style.display = 'flex';
+        if (voiceStatusText) {
+            voiceStatusText.textContent = '⏳ Обробляю команду...';
+            voiceStatusText.style.color = '';
+        }
 
         try {
             let webSessionId = sessionStorage.getItem('sg_session_id');
@@ -977,14 +1177,45 @@ document.addEventListener('DOMContentLoaded', () => {
             if (data.session_id) {
                 sessionStorage.setItem('sg_session_id', data.session_id);
             }
-            const reply = data.response || 'Команду виконано.';
+            const reply = (data.response || '').trim();
+            if (!reply || data.ignored) {
+                // Сервер відхилив порожній або луновий запит
+                isProcessingCommand = false;
+                if (isContinuousWakeMode) {
+                    setTimeout(() => {
+                        if (!isSpeaking && !isProcessingCommand && isContinuousWakeMode) {
+                            startMicrophone();
+                            updateWakeContinuousUi();
+                        }
+                    }, 500);
+                }
+                return;
+            }
+
             if (dialogAiText) dialogAiText.textContent = reply;
 
-            // Check if this was a wake prompt question (e.g. "Що тобі потрібно?")
-            const isFollowUpPrompt = reply.includes('потрібно') || reply.includes('Слухаю');
+            // Перевіряємо, чи це запит готовності слухати («Що тобі потрібно?», «Що тобі треба?», «Слухаю»)
+            const isFollowUpPrompt = /(?:потрібно|треба|слухаю|що\s*хочете|яка\s*команда)/i.test(reply);
+
+            if (isFollowUpPrompt) {
+                if (voiceStatusText) {
+                    voiceStatusText.textContent = `🗣️ «${reply}»`;
+                    voiceStatusText.style.color = '';
+                }
+            } else {
+                if (voiceStatusText) {
+                    voiceStatusText.textContent = '🗣️ Озвучую відповідь...';
+                    voiceStatusText.style.color = '';
+                }
+            }
 
             speakText(reply, () => {
+                // Цей callback викликається ВИКЛЮЧНО ПІСЛЯ ТОГО, як озвучення ПОВНІСТЮ завершилося!
+                isProcessingCommand = false;
+
                 if (isFollowUpPrompt) {
+                    // Система завершила свій запит «Що тобі потрібно?».
+                    // Тільки тепер вмикаємо мікрофон для подальшої команди!
                     isWaitingFollowup = true;
                     clearTimeout(followupTimeoutTimer);
                     followupTimeoutTimer = setTimeout(() => {
@@ -992,38 +1223,50 @@ document.addEventListener('DOMContentLoaded', () => {
                         updateWakeContinuousUi();
                     }, 10000);
 
-                    setTimeout(() => {
-                        try {
-                            if (!isListening && recognition) {
-                                recognition.start();
-                                if (voiceStatusText) {
-                                    voiceStatusText.textContent = '🎙️ Слухаю команду... Назвіть дію';
-                                }
+                    // Додаємо акустичну паузу (750 мс) для Bluetooth-затримки та луни гаража
+                    clearTimeout(followupStartTimer);
+                    followupStartTimer = setTimeout(() => {
+                        if (isWaitingFollowup && !isSpeaking && !isProcessingCommand) {
+                            if (voiceStatusText) {
+                                voiceStatusText.textContent = '🎙️ Слухаю команду... Назвіть дію';
+                                voiceStatusText.style.color = 'var(--accent-emerald, #10b981)';
                             }
-                        } catch (e) {
-                            console.warn('Auto-listen trigger error:', e);
+                            startMicrophone();
                         }
-                    }, 250);
+                    }, 750);
                 } else {
+                    // Звичайна команда та її відповідь завершені
                     isWaitingFollowup = false;
                     clearTimeout(followupTimeoutTimer);
                     if (isContinuousWakeMode) {
-                        setTimeout(() => {
-                            try {
-                                if (!isListening && isContinuousWakeMode && !currentTtsAudio && recognition) {
-                                    recognition.start();
-                                    updateWakeContinuousUi();
-                                }
-                            } catch (_) {}
-                        }, 500);
+                        clearTimeout(autoRestartTimer);
+                        autoRestartTimer = setTimeout(() => {
+                            if (!isSpeaking && !isProcessingCommand && isContinuousWakeMode) {
+                                startMicrophone();
+                                updateWakeContinuousUi();
+                            }
+                        }, 400);
+                    } else {
+                        updateWakeContinuousUi();
                     }
                 }
             });
             fetchTelemetry();
         } catch (err) {
+            isProcessingCommand = false;
             const errReply = 'Помилка зв\'язку з сервером.';
             if (dialogAiText) dialogAiText.textContent = errReply;
-            speakText(errReply);
+            speakText(errReply, () => {
+                if (isContinuousWakeMode) {
+                    clearTimeout(autoRestartTimer);
+                    autoRestartTimer = setTimeout(() => {
+                        if (!isSpeaking && !isProcessingCommand && isContinuousWakeMode) {
+                            startMicrophone();
+                            updateWakeContinuousUi();
+                        }
+                    }, 400);
+                }
+            });
         }
     }
 
@@ -1902,16 +2145,14 @@ document.addEventListener('DOMContentLoaded', () => {
                         subText = `Актуально • ${lastTime}`;
                         tooltip = `${defaultName}: Актуально (${srcName}) • Оновлено о ${lastTime}`;
                     } else if (status === 'stale') {
-                        tVal = '--';
-                        hVal = '--';
-                        const lastValStr = lastTemp !== null ? ` (ост. ${Number(lastTemp).toFixed(1)} °C)` : '';
-                        subText = `Дані застаріли${lastValStr} • ${lastRel || lastTime}`;
+                        tVal = lastTemp !== null ? Number(lastTemp).toFixed(1) : '--';
+                        hVal = lastHum !== null ? Number(lastHum).toFixed(0) : '--';
+                        subText = `🕒 Застаріло • ${lastRel || lastTime}`;
                         tooltip = `${defaultName}: Дані застаріли (${srcName}) • Останній вимір: ${lastTemp !== null ? Number(lastTemp).toFixed(1) + ' °C о ' : ''}${lastTime}`;
                     } else if (status === 'offline') {
-                        tVal = '--';
-                        hVal = '--';
-                        const lastValStr = lastTemp !== null ? ` (${Number(lastTemp).toFixed(1)} °C)` : '';
-                        subText = `Офлайн — останній вимір ${lastTime}${lastValStr}`;
+                        tVal = lastTemp !== null ? Number(lastTemp).toFixed(1) : '--';
+                        hVal = lastHum !== null ? Number(lastHum).toFixed(0) : '--';
+                        subText = `🔴 Офлайн • ${lastRel || lastTime}`;
                         tooltip = `${defaultName}: Офлайн (${srcName}) • Останній вимір: ${lastTime}`;
                     } else {
                         // never_seen
@@ -2168,6 +2409,119 @@ document.addEventListener('DOMContentLoaded', () => {
             loadMediaChips();
         });
     }
+
+    // --- PIN AUTHENTICATION (DASHBOARD KIOSK) ---
+    function updateAuthUi(isAuthed) {
+        if (dashAuthIcon) dashAuthIcon.textContent = isAuthed ? '🔓' : '🔒';
+        if (dashAuthLabel) dashAuthLabel.textContent = isAuthed ? 'Вхід: ОК' : 'Вхід';
+        if (btnDashAuth) btnDashAuth.title = isAuthed ? 'Авторизовано. Натисніть для виходу' : 'Введіть PIN-код для керування';
+    }
+
+    async function checkAuthSession() {
+        try {
+            const res = await fetch('/api/csrf');
+            if (res.ok) {
+                const data = await res.json();
+                if (data.csrf_token) {
+                    sessionStorage.setItem('sg_csrf_token', data.csrf_token);
+                }
+                updateAuthUi(true);
+                return true;
+            } else {
+                sessionStorage.removeItem('sg_csrf_token');
+                updateAuthUi(false);
+                return false;
+            }
+        } catch {
+            updateAuthUi(false);
+            return false;
+        }
+    }
+
+    function openDashPinModal() {
+        if (dashPinModal) {
+            dashPinModal.style.display = 'flex';
+            if (dashPinInput) {
+                dashPinInput.value = '';
+                dashPinInput.focus();
+            }
+            if (dashPinError) {
+                dashPinError.style.display = 'none';
+                dashPinError.textContent = '';
+            }
+        }
+    }
+
+    function closeDashPinModal() {
+        if (dashPinModal) dashPinModal.style.display = 'none';
+    }
+
+    if (btnDashAuth) {
+        btnDashAuth.addEventListener('click', async () => {
+            hapticFeedback();
+            const authed = await checkAuthSession();
+            if (authed) {
+                if (confirm('Ви увійшли як адміністратор. Бажаєте вийти з облікового запису?')) {
+                    try {
+                        await fetch('/api/admin/logout', { method: 'POST' });
+                    } catch { }
+                    sessionStorage.removeItem('sg_csrf_token');
+                    updateAuthUi(false);
+                }
+            } else {
+                openDashPinModal();
+            }
+        });
+    }
+
+    if (btnDashPinClose) {
+        btnDashPinClose.addEventListener('click', closeDashPinModal);
+    }
+
+    if (dashPinModal) {
+        dashPinModal.addEventListener('click', (e) => {
+            if (e.target === dashPinModal) closeDashPinModal();
+        });
+    }
+
+    if (dashPinForm) {
+        dashPinForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            hapticFeedback();
+            const pin = (dashPinInput ? dashPinInput.value : '').trim();
+            if (!pin) return;
+
+            try {
+                if (dashPinError) dashPinError.style.display = 'none';
+                const res = await fetch('/api/admin/verify', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ pin })
+                });
+                const data = await res.json();
+                if (res.ok && data.authenticated) {
+                    if (data.csrf_token) {
+                        sessionStorage.setItem('sg_csrf_token', data.csrf_token);
+                    }
+                    updateAuthUi(true);
+                    closeDashPinModal();
+                } else {
+                    if (dashPinError) {
+                        dashPinError.style.display = 'block';
+                        dashPinError.textContent = data.error || 'Невірний PIN-код!';
+                    }
+                }
+            } catch (err) {
+                if (dashPinError) {
+                    dashPinError.style.display = 'block';
+                    dashPinError.textContent = 'Помилка зв\'язку з сервером: ' + err.message;
+                }
+            }
+        });
+    }
+
+    // Check initial auth state on dashboard load
+    checkAuthSession();
 
     // ==========================================
     // CLIMATE DYNAMICS MODAL & CHART LOGIC

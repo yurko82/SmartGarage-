@@ -286,6 +286,157 @@ GARAGE_TOOLS = [
                 "properties": {}
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "scan_bluetooth_devices",
+            "description": "Активне сканування радіоефіру Bluetooth Classic та BLE (Bluetooth Low Energy) навколо гаража через ESP32-S3 та хост. Виявляє кліматичні датчики Xiaomi Mijia, смартфони, смарт-годинники, трекери, навушники, акустику. Повертає список знайдених пристроїв з їхніми назвами, MAC-адресами та силою сигналу (RSSI). Використовуй цей інструмент завжди, коли Юрій просить 'проскануй bluetooth', 'скануй ефір', 'які пристрої bluetooth ти бачиш', 'знайди датчики в ефірі' тощо.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "duration": {
+                        "type": "integer",
+                        "description": "Тривалість сканування в секундах (від 3 до 15). За замовчуванням 5.",
+                        "default": 5
+                    }
+                },
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "manage_workshop_profile",
+            "description": "Керування профілем веломайстерні Юрія, інструментами, робочими нотатками та велосипедами в ремонті. Дозволяє переглядати поточний стан майстерні, записувати велосипеди клієнтів у журнал ремонту, оновлювати статус готовності, додавати нові інструменти або зберігати технічні нотатки.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["get", "add_client_bike", "update_bike_status", "add_tool", "add_note"],
+                        "description": "Дія: 'get' (перегляд профілю), 'add_client_bike' (додати велосипед у ремонт), 'update_bike_status' (оновити статус ремонту), 'add_tool' (додати інструмент), 'add_note' (додати нотатку)."
+                    },
+                    "bike_model": {
+                        "type": "string",
+                        "description": "Модель велосипеда (наприклад, 'Trek Marlin 7', 'Specialized Diverge', 'Cannondale Trail')."
+                    },
+                    "client_name": {
+                        "type": "string",
+                        "description": "Ім'я або контакт клієнта (наприклад, 'Олег', 'Андрій')."
+                    },
+                    "work_description": {
+                        "type": "string",
+                        "description": "Опис робіт (наприклад, 'Прокачування гальм Shimano Deore та заміна ланцюга')."
+                    },
+                    "bike_id": {
+                        "type": "string",
+                        "description": "ID або назва велосипеда для оновлення статусу."
+                    },
+                    "status": {
+                        "type": "string",
+                        "enum": ["in_progress", "completed", "waiting_parts"],
+                        "description": "Статус ремонту: in_progress (в роботі), completed (готовий), waiting_parts (очікує запчастин)."
+                    },
+                    "tool_name": {
+                        "type": "string",
+                        "description": "Назва інструменту для додавання (наприклад, 'Тензометр Park Tool TM-1')."
+                    },
+                    "note": {
+                        "type": "string",
+                        "description": "Текст робочої нотатки або нагадування."
+                    }
+                },
+                "required": ["action"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_bike_knowledge",
+            "description": "Пошук у технічній базі знань веломайстерні точних специфікацій: моменти затяжки різьбових з'єднань (Нм для карбону/алюмінію), типи та регламенти заміни рідин для гальм (мінеральне мастило Shimano vs DOT 5.1 SRAM), регулювання підвіски (розрахунок SAG, тиск, сервісні інтервали вилок RockShox/Fox), контроль зносу ланцюгів (0.5% / 0.75%), стандарти кареток (BSA, PressFit, DUB, T47) та барабанів втулок.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Пошуковий запит (наприклад: 'момент затяжки кермо карбон', 'гальма sram dot fluid', 'розрахунок sag вилка xc', 'допуск зносу ланцюга 12sp', 'каретка bsa різьба')."
+                    },
+                    "category": {
+                        "type": "string",
+                        "enum": ["torque", "brakes", "suspension", "drivetrain", "standards"],
+                        "description": "Опціональна категорія для фільтрації: torque (моменти затяжки), brakes (гальма), suspension (підвіска), drivetrain (трансмісія і ланцюги), standards (стандарти)."
+                    }
+                },
+                "required": ["query"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "manage_presence_guest",
+            "description": "Керування гостями та правилами присутності біля гаража. Дозволяє зареєструвати нового гостя (наприклад, Макс), оновити його налаштування, задати персональну голосову фразу динаміка, якщо Юрія немає (напр., 'Макс, Юри в гаражі немає, гуляйте собі далі...'), та вказати Telegram Chat ID для прямих повідомлень гостю про відсутність Юрія.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["register", "update", "delete", "list"],
+                        "description": "Дія: 'register' (додати гостя), 'update' (оновити параметри/фразу), 'delete' (видалити з бази), 'list' (показати зареєстрованих осіб)."
+                    },
+                    "name": {
+                        "type": "string",
+                        "description": "Ім'я гостя (наприклад: 'Макс', 'Олег', 'Андрій')."
+                    },
+                    "mac": {
+                        "type": "string",
+                        "description": "Bluetooth MAC-адреса або BLE RPA пристрою гостя (наприклад: '62:FD:D0:F6:F2:CF')."
+                    },
+                    "device_name": {
+                        "type": "string",
+                        "description": "Модель або назва пристрою (наприклад: 'iPhone 15', 'Смартфон')."
+                    },
+                    "role": {
+                        "type": "string",
+                        "enum": ["guest", "family", "contractor"],
+                        "description": "Роль: guest (гість), family (родина), contractor (майстер/кур'єр). За замовчуванням 'guest'."
+                    },
+                    "absence_voice_message": {
+                        "type": "string",
+                        "description": "Персональна фраза, яку промовить динамік у гаражі, коли гість наблизився, а Юрія немає в гаражі (наприклад: 'Макс, Юри в гаражі немає, гуляйте собі далі...')."
+                    },
+                    "telegram_chat_id": {
+                        "type": "string",
+                        "description": "Опціональний Telegram Chat ID гостя, щоб бот міг надіслати йому сповіщення про відсутність Юрія."
+                    },
+                    "notify_owner": {
+                        "type": "boolean",
+                        "description": "Чи надсилати Юрію сповіщення в Telegram при появі цього гостя біля гаража. За замовчуванням true."
+                    }
+                },
+                "required": ["action"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_visitor_report",
+            "description": "Отримання журналу та звіту про відвідування гаража гостями: хто приходив, коли, скільки разів, чи був присутній власник Юрій. Використовуй, коли питають 'хто приходив сьогодні', 'покажи звіт відвідувань', 'хто був біля гаража за тиждень'.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "days": {
+                        "type": "integer",
+                        "description": "Кількість днів для звіту (наприклад: 1 - за сьогодні, 7 - за тиждень). За замовчуванням 7."
+                    }
+                },
+                "required": []
+            }
+        }
     }
 ]
 
@@ -322,6 +473,11 @@ class ToolDispatcher:
             "play_radio",
             "stop_radio",
             "stop_music",
+            "scan_bluetooth_devices",
+            "manage_workshop_profile",
+            "search_bike_knowledge",
+            "manage_presence_guest",
+            "get_visitor_report",
         }
         if tool_name not in ALLOWED_TOOLS:
             res = {
@@ -473,6 +629,25 @@ class ToolDispatcher:
                     res = {"success": True, "message": "⏹️ Відтворення аудіо/радіо/музики зупинено"}
                 else:
                     res = {"success": False, "error": "Контролер колонки недоступний"}
+
+            elif tool_name == "scan_bluetooth_devices":
+                duration = arguments.get("duration", 7)
+                res = self._scan_bluetooth_devices(duration=duration)
+
+            elif tool_name == "manage_workshop_profile":
+                res = self._manage_workshop_profile(arguments)
+
+            elif tool_name == "search_bike_knowledge":
+                query = arguments.get("query", "")
+                category = arguments.get("category")
+                res = self._search_bike_knowledge(query, category)
+
+            elif tool_name == "manage_presence_guest":
+                res = self._manage_presence_guest(arguments)
+
+            elif tool_name == "get_visitor_report":
+                days = arguments.get("days", 7)
+                res = self._get_visitor_report(days=days)
 
             else:
                 res = {"success": False, "error": f"Невідомий інструмент: {tool_name}"}
@@ -756,5 +931,214 @@ class ToolDispatcher:
         if ok:
             return {"success": True, "message": f"⏩ Перемотано на позицію {int(target_pos)} сек"}
         return {"success": False, "error": "Не вдалося перемотати трек"}
+
+    def _scan_bluetooth_devices(self, duration: int = 7) -> Dict[str, Any]:
+        try:
+            d = max(3, min(int(duration or 7), 15))
+            from server.webapp import _scan_all_ble
+            devs = _scan_all_ble(duration=d)
+
+            known_devices = {
+                "A4:C1:38:CC:CA:49": {"name": "Xiaomi Mijia (Підвал)", "type": "Кліматичний BLE-датчик", "location": "Підвал"},
+                "A4:C1:38:EC:EC:6C": {"name": "Xiaomi Mijia (2-й поверх)", "type": "Кліматичний BLE-датчик", "location": "2-й поверх"},
+                "41:42:62:69:51:9B": {"name": "JX-BT (1-й поверх)", "type": "Bluetooth-акустика", "location": "1-й поверх"},
+                "F8:5C:7E:EE:7D:CC": {"name": "JBL Clip 5 (Гараж)", "type": "Bluetooth-колонка", "location": "Гараж"},
+                "B8:7E:39:88:22:9B": {"name": "Motorola Edge 50 Pro (Юрій)", "type": "Смартфон власника (Bluetooth)", "location": "Присутність"},
+            }
+
+            formatted = []
+            for dev in devs:
+                mac = dev.get("mac", "").upper().strip()
+                if not mac:
+                    continue
+                name = dev.get("name") or (known_devices.get(mac, {}).get("name") if mac in known_devices else "Невідомий BLE пристрій")
+                if mac in known_devices:
+                    name = known_devices[mac]["name"]
+                dev_type = known_devices.get(mac, {}).get("type", "BLE-пристрій")
+                is_conn = bool(dev.get("connected", False))
+                formatted.append({
+                    "mac": mac,
+                    "name": name,
+                    "type": dev_type,
+                    "rssi": dev.get("rssi", -99),
+                    "connected": is_conn,
+                    "source": dev.get("source", "ble_live")
+                })
+
+            # Сортуємо: спочатку підключені пристрої, далі за рівнем сигналу
+            formatted.sort(key=lambda x: (1 if x.get("connected") else 0, x.get("rssi", -99)), reverse=True)
+
+            msg = f"Виявлено {len(formatted)} Bluetooth/BLE пристроїв у радіоефірі." if formatted else "У радіоефірі Bluetooth наразі не виявлено жодного активного пристрою."
+            return {
+                "success": True,
+                "count": len(formatted),
+                "devices": formatted,
+                "message": msg
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "error": f"Помилка сканування Bluetooth ефіру: {e}"
+            }
+
+    def _manage_workshop_profile(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        try:
+            from server.memory.user_profile import user_profile_manager
+            action = arguments.get("action", "get")
+            if action == "get":
+                prof = user_profile_manager.load_profile()
+                return {
+                    "success": True,
+                    "profile": prof,
+                    "message": "Профіль веломайстерні успішно отримано."
+                }
+            elif action == "add_client_bike":
+                model = arguments.get("bike_model") or "Невідомий велосипед"
+                client = arguments.get("client_name") or "Клієнт"
+                work = arguments.get("work_description") or "ТО та діагностика"
+                status = arguments.get("status") or "in_progress"
+                entry = user_profile_manager.add_client_bike(model=model, client=client, work=work, status=status)
+                return {
+                    "success": True,
+                    "bike": entry,
+                    "message": f"🚲 Велосипед '{model}' ({client}) успішно додано до журналу ремонту (ID: {entry['id']})."
+                }
+            elif action == "update_bike_status":
+                bike_id = arguments.get("bike_id") or arguments.get("bike_model") or ""
+                status = arguments.get("status") or "completed"
+                ok = user_profile_manager.update_bike_status(bike_id, status)
+                if ok:
+                    return {
+                        "success": True,
+                        "message": f"Статус ремонту для '{bike_id}' змінено на '{status}'."
+                    }
+                return {
+                    "success": False,
+                    "error": f"Велосипед з ідентифікатором/назвою '{bike_id}' не знайдено в журналі."
+                }
+            elif action == "add_tool":
+                tool_name = arguments.get("tool_name", "")
+                if not tool_name:
+                    return {"success": False, "error": "Не вказано назву інструменту"}
+                user_profile_manager.add_tool(tool_name)
+                return {
+                    "success": True,
+                    "message": f"🛠️ Інструмент '{tool_name}' додано до обладнання майстерні."
+                }
+            elif action == "add_note":
+                note = arguments.get("note", "")
+                if not note:
+                    return {"success": False, "error": "Не вказано текст нотатки"}
+                user_profile_manager.add_note(note)
+                return {
+                    "success": True,
+                    "message": f"📝 Нотатку додано: '{note}'."
+                }
+            return {"success": False, "error": f"Невідома дія: {action}"}
+        except Exception as e:
+            return {"success": False, "error": f"Помилка роботи з профілем: {e}"}
+
+    def _search_bike_knowledge(self, query: str, category: Optional[str] = None) -> Dict[str, Any]:
+        try:
+            from server.memory.knowledge_base import bike_knowledge_base
+            results = bike_knowledge_base.search(query=query, category=category)
+            return {
+                "success": True,
+                "count": len(results),
+                "query": query,
+                "category": category,
+                "results": results,
+                "message": f"Знайдено {len(results)} відповідностей у базі знань веломайстерні."
+            }
+        except Exception as e:
+            return {"success": False, "error": f"Помилка пошуку в базі знань: {e}"}
+
+    def _manage_presence_guest(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        try:
+            if not hasattr(self.garage, "presence") or not self.garage.presence:
+                return {"success": False, "error": "Менеджер присутності недоступний"}
+
+            action = arguments.get("action", "list")
+            if action == "list":
+                status = self.garage.presence.get_status()
+                return {
+                    "success": True,
+                    "devices": status.get("devices", {}),
+                    "present_now": status.get("present_now", []),
+                    "message": f"У базі зареєстровано {len(status.get('devices', {}))} пристроїв/осіб."
+                }
+            elif action == "register":
+                name = arguments.get("name")
+                if not name:
+                    return {"success": False, "error": "Не вказано ім'я гостя"}
+                mac = str(arguments.get("mac") or "").upper().strip()
+                role = arguments.get("role") or "guest"
+                clean_name = name.lower().replace(" ", "_")
+                device_id = arguments.get("device_id") or (f"guest_{clean_name}" if role == "guest" else clean_name)
+                dev_type = arguments.get("device_type") or "phone"
+                dev_name = arguments.get("device_name") or f"Телефон {name}"
+                absence_msg = arguments.get("absence_voice_message") or ""
+                tg_id = arguments.get("telegram_chat_id")
+                notify_owner = arguments.get("notify_owner", True)
+
+                item = self.garage.presence.register_device(
+                    device_id=device_id,
+                    name=name,
+                    role=role,
+                    device_type=dev_type,
+                    device_name=dev_name,
+                    classic_mac=mac if not arguments.get("is_ble") else "",
+                    ble_mac=mac if arguments.get("is_ble", True) else "",
+                    auto_welcome=True,
+                    telegram_chat_id=tg_id,
+                    absence_voice_message=absence_msg,
+                    notify_owner=notify_owner
+                )
+                display_msg = absence_msg if absence_msg else f"{name}, Юри в гаражі немає..."
+                return {
+                    "success": True,
+                    "device": item,
+                    "message": f"✅ Гостя '{name}' успішно додано до бази присутності. Фраза за відсутності: '{display_msg}'."
+                }
+            elif action == "update":
+                raw_id = arguments.get("device_id") or (arguments.get("name") or "").lower().replace(" ", "_")
+                dev_id = raw_id
+                if dev_id not in self.garage.presence.devices and f"guest_{dev_id}" in self.garage.presence.devices:
+                    dev_id = f"guest_{dev_id}"
+                clean_args = {k: v for k, v in arguments.items() if k not in ("action", "device_id")}
+                updated = self.garage.presence.update_device(dev_id, **clean_args)
+                if not updated:
+                    return {"success": False, "error": f"Пристрій '{dev_id}' не знайдено в базі"}
+                return {
+                    "success": True,
+                    "device": updated,
+                    "message": f"✅ Дані гостя '{updated.get('name')}' успішно оновлено."
+                }
+            elif action == "delete":
+                raw_id = arguments.get("device_id") or (arguments.get("name") or "").lower().replace(" ", "_")
+                dev_id = raw_id
+                if dev_id not in self.garage.presence.devices and f"guest_{dev_id}" in self.garage.presence.devices:
+                    dev_id = f"guest_{dev_id}"
+                ok = self.garage.presence.remove_device(dev_id)
+                if ok:
+                    return {"success": True, "message": f"Пристрій/гостя '{dev_id}' видалено з бази."}
+                return {"success": False, "error": f"Пристрій '{dev_id}' не знайдено для видалення."}
+            return {"success": False, "error": f"Невідома дія: {action}"}
+        except Exception as e:
+            return {"success": False, "error": f"Помилка керування гостем: {e}"}
+
+    def _get_visitor_report(self, days: Optional[int] = 7, limit: int = 50) -> Dict[str, Any]:
+        try:
+            if not hasattr(self.garage, "presence") or not self.garage.presence:
+                return {"success": False, "error": "Менеджер присутності недоступний"}
+            d = int(days or 7)
+            rep = self.garage.presence.get_visitor_report(limit=limit, days=d)
+            return {
+                "success": True,
+                "report": rep,
+                "message": f"Звіт відвідувань сформовано: {rep.get('total_registered_guests')} зареєстрованих гостей, {rep.get('visits_today_count')} візитів за сьогодні."
+            }
+        except Exception as e:
+            return {"success": False, "error": f"Помилка формування звіту відвідувань: {e}"}
 
 

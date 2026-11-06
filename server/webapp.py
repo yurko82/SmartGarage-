@@ -1,5 +1,7 @@
 from pathlib import Path
 import time
+import json
+import subprocess
 from typing import Dict, Any, Optional, List, Tuple
 from collections import deque
 import threading
@@ -577,8 +579,50 @@ def esp32_telemetry():
     })
 
 
-def _scan_all_ble(duration: int = 15) -> list:
-    """Hybrid scanner combining ESP32 BLE scan and Host Bluetooth (Bleak) scan."""
+def get_bound_macs() -> set:
+    """Returns set of uppercase MAC addresses for all already bound / configured devices in the garage.
+    Includes:
+      - Climate sensors (Basement, 2nd floor, etc.) from bluetooth_devices.json
+      - Garage speakers (JX-BT, JBL Clip 5)
+      - Registered owner devices (Motorola phone, smartwatch) from presence_devices.json
+      - All already registered guests
+    """
+    bound = set()
+
+    # 1. Configured hardware / sensors / speakers from bluetooth_devices.json
+    try:
+        bt_file = Path(__file__).resolve().parent.parent / "devices" / "bluetooth_devices.json"
+        if bt_file.exists():
+            with open(bt_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                for mac in data.keys():
+                    if mac:
+                        bound.add(mac.upper().strip())
+    except Exception as e:
+        if hasattr(garage, "logger"):
+            garage.logger.debug(f"Error loading bound MACs from bluetooth_devices.json: {e}")
+
+    # 2. Registered presence devices (owner phone, watch, registered guests)
+    if hasattr(garage, "presence") and garage.presence:
+        with garage.presence._lock:
+            for dev in garage.presence.devices.values():
+                cmac = dev.get("classic_mac")
+                if cmac:
+                    bound.add(cmac.upper().strip())
+                for rpa in dev.get("recent_ble_rpa", []):
+                    if rpa:
+                        bound.add(rpa.upper().strip())
+
+    return bound
+
+
+def _scan_all_ble(duration: int = 15, only_new: bool = True) -> list:
+    """Hybrid scanner combining ESP32 BLE scan and Host Bluetooth (Bleak) scan.
+    
+    When only_new=True, filters out already bound garage infrastructure
+    (temperature sensors, speakers, owner devices, registered guests) so that
+    only new / unknown devices are discovered and presented for binding.
+    """
     import concurrent.futures
 
     def _host_scan():
@@ -657,31 +701,9 @@ def _scan_all_ble(duration: int = 15) -> list:
         else:
             merged[mac] = d
 
-    # Also check known Classic BT devices (e.g. Owner phone)
+    # Record sightings in presence system for all physically received signals in the air
     if hasattr(garage, "presence") and garage.presence:
-        with garage.presence._lock:
-            classic_list = [
-                (dev_id, dev.get("classic_mac", ""))
-                for dev_id, dev in garage.presence.devices.items()
-                if dev.get("classic_mac")
-            ]
-        for dev_id, cmac in classic_list:
-            if cmac:
-                cmac_upper = cmac.upper().strip()
-                cname = garage.presence._check_classic_mac(cmac_upper)
-                if cname and cmac_upper not in merged:
-                    merged[cmac_upper] = {
-                        "mac": cmac_upper,
-                        "name": cname,
-                        "rssi": -50,
-                        "service_uuids": [],
-                        "source": "bluetooth_classic"
-                    }
-
-    all_devices = sorted(merged.values(), key=lambda x: x.get("rssi", -99), reverse=True)
-
-    if hasattr(garage, "presence") and garage.presence:
-        for d in all_devices:
+        for d in merged.values():
             garage.presence.record_sighting(
                 mac=d.get("mac", ""),
                 name=d.get("name", ""),
@@ -690,6 +712,12 @@ def _scan_all_ble(duration: int = 15) -> list:
                 source=d.get("source", "ble_scan")
             )
 
+    # Filter out already bound devices if only_new is True
+    if only_new:
+        bound_macs = get_bound_macs()
+        merged = {m: d for m, d in merged.items() if m not in bound_macs}
+
+    all_devices = sorted(merged.values(), key=lambda x: x.get("rssi", -99), reverse=True)
     return all_devices
 
 
@@ -699,11 +727,13 @@ def esp32_scan_ble():
     duration = int(request.args.get("duration", 15))
     if duration <= 0:
         duration = 10
-    devices = _scan_all_ble(duration=duration)
+    only_new = request.args.get("only_new", "true").lower() in ("true", "1", "yes")
+    devices = _scan_all_ble(duration=duration, only_new=only_new)
     return jsonify({
         "success": True,
         "count": len(devices),
-        "devices": devices
+        "devices": devices,
+        "only_new": only_new
     })
 
 
@@ -728,6 +758,19 @@ def presence_log():
     })
 
 
+@app.route("/api/presence/report", methods=["GET"])
+def presence_report():
+    if not hasattr(garage, "presence") or not garage.presence:
+        return jsonify({"success": False, "error": "Presence manager not available"}), 500
+    limit = int(request.args.get("limit", 100))
+    days = int(request.args.get("days", 7))
+    report = garage.presence.get_visitor_report(limit=limit, days=days)
+    return jsonify({
+        "success": True,
+        "report": report
+    })
+
+
 @app.route("/api/presence/devices", methods=["POST"])
 @require_auth
 def presence_register_device():
@@ -748,9 +791,24 @@ def presence_register_device():
         classic_mac=data.get("classic_mac", ""),
         ble_mac=data.get("ble_mac", ""),
         ble_services=data.get("ble_services", []),
-        auto_welcome=data.get("auto_welcome", False)
+        auto_welcome=data.get("auto_welcome", True),
+        telegram_chat_id=data.get("telegram_chat_id", ""),
+        absence_voice_message=data.get("absence_voice_message", ""),
+        notify_owner=data.get("notify_owner", True)
     )
     return jsonify({"success": True, "device": item})
+
+
+@app.route("/api/presence/devices/<device_id>", methods=["PUT", "PATCH"])
+@require_auth
+def presence_update_device(device_id):
+    if not hasattr(garage, "presence") or not garage.presence:
+        return jsonify({"success": False, "error": "Presence manager not available"}), 500
+    data = request.get_json(silent=True) or {}
+    updated = garage.presence.update_device(device_id, **data)
+    if updated is None:
+        return jsonify({"success": False, "error": "Device not found"}), 404
+    return jsonify({"success": True, "device": updated})
 
 
 @app.route("/api/presence/devices/<device_id>", methods=["DELETE"])
@@ -770,11 +828,13 @@ def presence_scan_and_record():
     duration = int(request.args.get("duration", 15))
     if duration <= 0:
         duration = 10
-    devices = _scan_all_ble(duration=duration)
+    only_new = request.args.get("only_new", "true").lower() in ("true", "1", "yes")
+    devices = _scan_all_ble(duration=duration, only_new=only_new)
     return jsonify({
         "success": True,
         "scanned_count": len(devices),
         "devices": devices,
+        "only_new": only_new,
         "presence": garage.presence.get_status()
     })
 
@@ -1091,6 +1151,13 @@ def command():
             effective_sid = f"api_{secrets.token_hex(16)}"
 
     response = garage.router.execute(command_text, session_id=effective_sid)
+    if not response:
+        return jsonify({
+            "success": True,
+            "response": "",
+            "ignored": True,
+            "session_id": effective_sid
+        })
 
     return jsonify({
         "success": True,
@@ -1208,7 +1275,6 @@ def voice_config():
 
 
 @app.route("/api/voice/preview", methods=["POST"])
-@require_auth
 def voice_preview():
     """Developer preview endpoint to synthesize test phrases with chosen provider/voice."""
     data = request.get_json(silent=True) or {}
@@ -1341,30 +1407,35 @@ def speaker_play():
 
 
 @app.route("/api/speaker/control", methods=["POST"])
-@require_auth
 def speaker_control():
     data = request.get_json(silent=True) or {}
     action = data.get("action", "stop")
+    # Immediate silence / stop / pause allowed from all interfaces for safety
     if action == "stop":
         garage.speaker.stop()
         return jsonify({"success": True, "response": "Зупинено"})
     elif action == "pause":
         garage.speaker.pause()
         return jsonify({"success": True, "response": "Пауза"})
-    elif action == "resume":
-        garage.speaker.resume()
-        return jsonify({"success": True, "response": "Продовжено"})
-    elif action == "next":
-        ok, p_title, t_title = garage.speaker.play_next()
-        return jsonify({"success": ok, "track_title": t_title, "response": f"Наступний: {t_title}" if ok else "Помилка перемикання"})
-    elif action == "prev":
-        ok, p_title, t_title = garage.speaker.play_prev()
-        return jsonify({"success": ok, "track_title": t_title, "response": f"Попередній: {t_title}" if ok else "Помилка перемикання"})
-    elif action == "seek":
-        pos = data.get("position", 0)
-        ok = garage.speaker.seek(int(pos))
-        return jsonify({"success": ok, "position": pos, "response": f"Перемотано на {pos}с"})
-    return jsonify({"success": False, "response": f"Невідома дія: {action}"}), 400
+
+    @require_auth
+    def _handle_protected():
+        if action == "resume":
+            garage.speaker.resume()
+            return jsonify({"success": True, "response": "Продовжено"})
+        elif action == "next":
+            ok, p_title, t_title = garage.speaker.play_next()
+            return jsonify({"success": ok, "track_title": t_title, "response": f"Наступний: {t_title}" if ok else "Помилка перемикання"})
+        elif action == "prev":
+            ok, p_title, t_title = garage.speaker.play_prev()
+            return jsonify({"success": ok, "track_title": t_title, "response": f"Попередній: {t_title}" if ok else "Помилка перемикання"})
+        elif action == "seek":
+            pos = data.get("position", 0)
+            ok = garage.speaker.seek(int(pos))
+            return jsonify({"success": ok, "position": pos, "response": f"Перемотано на {pos}с"})
+        return jsonify({"success": False, "response": f"Невідома дія: {action}"}), 400
+
+    return _handle_protected()
 
 
 @app.route("/api/speaker/seek", methods=["POST"])

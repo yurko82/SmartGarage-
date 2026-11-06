@@ -342,8 +342,11 @@ class PresenceManager:
                         device_type: str = "phone", device_name: str = "",
                         classic_mac: str = "", ble_mac: str = "",
                         ble_services: Optional[List[str]] = None,
-                        auto_welcome: bool = False) -> Dict[str, Any]:
-        """Register a new device / guest entity."""
+                        auto_welcome: bool = True,
+                        telegram_chat_id: Optional[str] = None,
+                        absence_voice_message: str = "",
+                        notify_owner: bool = True) -> Dict[str, Any]:
+        """Register a new device / guest entity with optional absence automation rules."""
         with self._lock:
             clean_id = device_id.lower().replace(" ", "_").strip()
             item = {
@@ -359,7 +362,10 @@ class PresenceManager:
                 "last_seen": time.time() if ble_mac else None,
                 "last_rssi": None,
                 "proximity": "unknown",
-                "auto_welcome": auto_welcome
+                "auto_welcome": bool(auto_welcome),
+                "telegram_chat_id": str(telegram_chat_id).strip() if telegram_chat_id else "",
+                "absence_voice_message": str(absence_voice_message or "").strip(),
+                "notify_owner": bool(notify_owner)
             }
             self.devices[clean_id] = item
             self._save_devices()
@@ -375,6 +381,39 @@ class PresenceManager:
                     note="Пристрій додано до реєстру"
                 )
 
+            return item
+
+    def update_device(self, device_id: str, **kwargs) -> Optional[Dict[str, Any]]:
+        """Update existing guest or device profile and absence automation rules."""
+        with self._lock:
+            clean_id = device_id.lower().replace(" ", "_").strip()
+            if clean_id not in self.devices:
+                return None
+            item = self.devices[clean_id]
+            allowed_fields = [
+                "name", "role", "device_type", "device_name", "classic_mac",
+                "ble_services", "auto_welcome", "telegram_chat_id",
+                "absence_voice_message", "notify_owner"
+            ]
+            for field in allowed_fields:
+                if field in kwargs:
+                    val = kwargs[field]
+                    if field in ("classic_mac",):
+                        item[field] = str(val).upper().strip()
+                    elif field in ("telegram_chat_id",):
+                        item[field] = str(val).strip() if val else ""
+                    elif field in ("auto_welcome", "notify_owner"):
+                        item[field] = bool(val)
+                    else:
+                        item[field] = val
+
+            if "ble_mac" in kwargs and kwargs["ble_mac"]:
+                b_mac = str(kwargs["ble_mac"]).upper().strip()
+                rpa_list = item.setdefault("recent_ble_rpa", [])
+                if b_mac and b_mac not in rpa_list:
+                    rpa_list.append(b_mac)
+
+            self._save_devices()
             return item
 
     def remove_device(self, device_id: str) -> bool:
@@ -504,3 +543,61 @@ class PresenceManager:
         """Retrieve recent visitor and presence log entries."""
         with self._lock:
             return list(reversed(self.log[-limit:]))
+
+    def get_visitor_report(self, limit: int = 100, days: Optional[int] = None) -> Dict[str, Any]:
+        """Generate structured visitor presence report and statistics."""
+        with self._lock:
+            now = time.time()
+            cutoff_ts = (now - days * 86400) if days else 0
+
+            # Today's start timestamp (midnight)
+            today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+
+            filtered_logs = [e for e in self.log if e.get("timestamp", 0) >= cutoff_ts]
+            visits_today = [
+                e for e in self.log
+                if e.get("timestamp", 0) >= today_start and e.get("event") == "ARRIVED"
+            ]
+
+            # Visitor stats (group by device_id)
+            visitor_stats: Dict[str, Dict[str, Any]] = {}
+            for dev_id, dev in self.devices.items():
+                if dev.get("role") == "owner":
+                    continue
+                visitor_stats[dev_id] = {
+                    "id": dev_id,
+                    "name": dev.get("name", "Невідомий"),
+                    "role": dev.get("role", "guest"),
+                    "device_name": dev.get("device_name", ""),
+                    "status": dev.get("status", "away"),
+                    "last_seen": dev.get("last_seen"),
+                    "last_seen_formatted": (
+                        datetime.fromtimestamp(dev["last_seen"]).strftime("%H:%M:%S (%d.%m.%Y)")
+                        if dev.get("last_seen") else "Ніколи"
+                    ),
+                    "proximity": dev.get("proximity", "unknown"),
+                    "telegram_chat_id": dev.get("telegram_chat_id", ""),
+                    "absence_voice_message": dev.get("absence_voice_message", ""),
+                    "notify_owner": dev.get("notify_owner", True),
+                    "total_visits": 0
+                }
+
+            # Count arrival events
+            for e in filtered_logs:
+                if e.get("event") == "ARRIVED":
+                    d_id = e.get("device_id")
+                    if d_id in visitor_stats:
+                        visitor_stats[d_id]["total_visits"] += 1
+
+            recent_arrivals = [
+                e for e in reversed(self.log[-limit:])
+                if e.get("event") == "ARRIVED"
+            ]
+
+            return {
+                "generated_at": datetime.now().strftime("%H:%M:%S (%d.%m.%Y)"),
+                "total_registered_guests": len(visitor_stats),
+                "visits_today_count": len(visits_today),
+                "visitors": list(visitor_stats.values()),
+                "recent_arrivals": recent_arrivals[:limit]
+            }

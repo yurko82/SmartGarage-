@@ -567,19 +567,17 @@ void checkWifiConnection() {
     return;
   }
 
+  // Якщо Wi-Fi не налаштовано або встановлено заглушку за замовчуванням, не виконуємо періодичних спроб
+  if (strcmp(WIFI_SSID, "YOUR_WIFI_SSID") == 0) {
+    return;
+  }
+
   unsigned long now = millis();
   if (wifiDisconnectedSince == 0) {
     wifiDisconnectedSince = now;
   }
 
-  // Апаратний/програмний сторожовий таймер: якщо Wi-Fi відсутній понад 10 хв, перезавантажуємося для очищення стану радіотракту
-  if (now - wifiDisconnectedSince > 600000UL) {
-    Serial.println("[WiFi Watchdog] Зв'язок з Wi-Fi відсутній понад 10 хв! Перезавантаження контролера...");
-    delay(500);
-    esp_restart();
-  }
-
-  // Контрольоване перепідключення кожні 20 секунд (без деструктивного WiFi.disconnect())
+  // Контрольоване перепідключення кожні 20 секунд (без деструктивного WiFi.disconnect() та без перезавантаження чіпа)
   if (now - lastWifiRetryTime >= 20000) {
     lastWifiRetryTime = now;
     Serial.printf("[WiFi] Втрачено зв'язок (статус=%d, офлайн %lu с). Спроба перепідключення до %s...\n",
@@ -652,42 +650,46 @@ void setup() {
   });
 
   // Сканування ефіру 2.4GHz
-  Serial.println("[WiFi] Сканування ефіру 2.4GHz для пошуку SmGrg...");
-  int n = WiFi.scanNetworks(false, true);
-  Serial.printf("[WiFi] Знайдено мереж: %d\n", n);
-  int targetChannel = 6;
-  bool foundSmGrg = false;
-  for (int i = 0; i < n; i++) {
-    Serial.printf("[WiFi Мережа] #%d: SSID='%s', RSSI=%d dBm, Канал=%d, BSSID=%s\n",
-                  i + 1, WiFi.SSID(i).c_str(), WiFi.RSSI(i), WiFi.channel(i), WiFi.BSSIDstr(i).c_str());
-    if (WiFi.SSID(i) == WIFI_SSID) {
-      targetChannel = WiFi.channel(i);
-      foundSmGrg = true;
+  if (strcmp(WIFI_SSID, "YOUR_WIFI_SSID") != 0) {
+    Serial.println("[WiFi] Сканування ефіру 2.4GHz для пошуку SmGrg...");
+    int n = WiFi.scanNetworks(false, true);
+    Serial.printf("[WiFi] Знайдено мереж: %d\n", n);
+    int targetChannel = 6;
+    bool foundSmGrg = false;
+    for (int i = 0; i < n; i++) {
+      Serial.printf("[WiFi Мережа] #%d: SSID='%s', RSSI=%d dBm, Канал=%d, BSSID=%s\n",
+                    i + 1, WiFi.SSID(i).c_str(), WiFi.RSSI(i), WiFi.channel(i), WiFi.BSSIDstr(i).c_str());
+      if (WiFi.SSID(i) == WIFI_SSID) {
+        targetChannel = WiFi.channel(i);
+        foundSmGrg = true;
+      }
     }
-  }
 
-  Serial.printf("[WiFi] Підключення до мережі SSID: %s (Канал: %d)...\n", WIFI_SSID, targetChannel);
-  if (foundSmGrg) {
-    WiFi.begin(WIFI_SSID, WIFI_PASSWORD, targetChannel);
+    Serial.printf("[WiFi] Підключення до мережі SSID: %s (Канал: %d)...\n", WIFI_SSID, targetChannel);
+    if (foundSmGrg) {
+      WiFi.begin(WIFI_SSID, WIFI_PASSWORD, targetChannel);
+    } else {
+      Serial.println("[WiFi] Пряме підключення до модему за BSSID (A0:62:56:5C:9B:FC, Канал: 6)...");
+      WiFi.begin(WIFI_SSID, WIFI_PASSWORD, 6, MODEM_BSSID);
+    }
+
+    unsigned long startWifi = millis();
+    while (WiFi.status() != WL_CONNECTED && (millis() - startWifi < 15000)) {
+      delay(400);
+      Serial.print(".");
+    }
+
+    if (WiFi.status() == WL_CONNECTED) {
+      Serial.printf("\n[WiFi] Успішно підключено! IP: %s, RSSI: %d dBm\n",
+                    WiFi.localIP().toString().c_str(), WiFi.RSSI());
+      wifiDisconnectedSince = 0;
+    } else {
+      Serial.printf("\n[WiFi] Первинний таймаут з'єднання (статус=%d). Фонове підключення активне.\n",
+                    WiFi.status());
+      wifiDisconnectedSince = millis();
+    }
   } else {
-    Serial.println("[WiFi] Пряме підключення до модему за BSSID (A0:62:56:5C:9B:FC, Канал: 6)...");
-    WiFi.begin(WIFI_SSID, WIFI_PASSWORD, 6, MODEM_BSSID);
-  }
-
-  unsigned long startWifi = millis();
-  while (WiFi.status() != WL_CONNECTED && (millis() - startWifi < 15000)) {
-    delay(400);
-    Serial.print(".");
-  }
-
-  if (WiFi.status() == WL_CONNECTED) {
-    Serial.printf("\n[WiFi] Успішно підключено! IP: %s, RSSI: %d dBm\n",
-                  WiFi.localIP().toString().c_str(), WiFi.RSSI());
-    wifiDisconnectedSince = 0;
-  } else {
-    Serial.printf("\n[WiFi] Первинний таймаут з'єднання (статус=%d). Фонове підключення активне.\n",
-                  WiFi.status());
-    wifiDisconnectedSince = millis();
+    Serial.println("[WiFi] Wi-Fi SSID не налаштовано. Працює локальний режим USB Serial.");
   }
 
   // HTTP API Endpoints

@@ -208,6 +208,13 @@ class OpenRouterClient:
             or "google/gemini-2.5-flash"
         ).strip().replace("openrouter/", "")
 
+        # 2.1 Резервна модель (fallback): за замовчуванням openai/gpt-4o-mini
+        self.fallback_model = (
+            llm_cfg.get("fallback_model")
+            or os.getenv("OPENROUTER_FALLBACK_MODEL")
+            or "openai/gpt-4o-mini"
+        ).strip().replace("openrouter/", "")
+
         # 3. Базовий URL
         self.api_base = (
             api_base
@@ -216,10 +223,10 @@ class OpenRouterClient:
         ).rstrip("/")
 
         # 4. Мережеві параметри та повторні спроби
-        self.timeout = float(timeout or os.getenv("OPENROUTER_TIMEOUT") or llm_cfg.get("timeout", 8.0))
-        self.max_retries = int(max_retries or os.getenv("OPENROUTER_MAX_RETRIES") or llm_cfg.get("max_retries", 2))
-        self.retry_backoff = float(retry_backoff or llm_cfg.get("retry_backoff", 1.0))
-        self.max_tokens = int(max_tokens or os.getenv("OPENROUTER_MAX_TOKENS") or llm_cfg.get("max_tokens", 400))
+        self.timeout = float(timeout if timeout is not None else (os.getenv("OPENROUTER_TIMEOUT") or llm_cfg.get("timeout", 8.0)))
+        self.max_retries = int(max_retries if max_retries is not None else (os.getenv("OPENROUTER_MAX_RETRIES") or llm_cfg.get("max_retries", 2)))
+        self.retry_backoff = float(retry_backoff if retry_backoff is not None else llm_cfg.get("retry_backoff", 1.0))
+        self.max_tokens = int(max_tokens if max_tokens is not None else (os.getenv("OPENROUTER_MAX_TOKENS") or llm_cfg.get("max_tokens", 400)))
         self.temperature = float(temperature if temperature is not None else llm_cfg.get("temperature", 0.0))
 
         # 5. Обмеження витрат
@@ -246,32 +253,19 @@ class OpenRouterClient:
     def has_api_key(self) -> bool:
         return bool(self.api_key)
 
-    def send_chat_completion(
+    def _send_single_model_completion(
         self,
+        target_model: str,
         messages: List[Dict[str, Any]],
         tools: Optional[List[Dict[str, Any]]] = None,
         tool_choice: str = "auto",
         timeout: Optional[float] = None
     ) -> Dict[str, Any]:
-        """Надсилає запит chat/completions з автоматичним retry/backoff для 429/5xx,
-        контролем конфіденційності та безпечним структурованим логуванням.
-        """
-        if not self.has_api_key():
-            raise OpenRouterAuthError("Відсутній ключ авторизації OPENROUTER_API_KEY у .env.")
-
-        # Перевірка бюджету
-        if self.cost_tracker.is_budget_exceeded(self.daily_budget_usd):
-            spent = self.cost_tracker.get_today_cost()
-            raise OpenRouterBudgetExceededError(
-                f"⚠️ Досягнуто денного ліміту витрат на AI (${self.daily_budget_usd:.2f} USD, витрачено ${spent:.4f}). "
-                "Запити тимчасово призупинено для захисту балансу."
-            )
-
         req_id = f"gen_{uuid.uuid4().hex[:10]}"
         req_timeout = timeout or self.timeout
 
         payload: Dict[str, Any] = {
-            "model": self.model,
+            "model": target_model,
             "messages": messages,
             "temperature": self.temperature,
             "max_tokens": self.max_tokens,
@@ -309,11 +303,11 @@ class OpenRouterClient:
                     usage = data.get("usage", {})
                     p_tok = int(usage.get("prompt_tokens", 0))
                     c_tok = int(usage.get("completion_tokens", 0))
-                    cost = self.cost_tracker.add_usage(self.model, p_tok, c_tok)
+                    cost = self.cost_tracker.add_usage(target_model, p_tok, c_tok)
 
                     # Структурований лог без витоку промпту чи ключів
                     logger.info(
-                        f"[OpenRouter] req_id={req_id} model={self.model} status=200 "
+                        f"[OpenRouter] req_id={req_id} model={target_model} status=200 "
                         f"latency={latency_ms}ms prompt_tokens={p_tok} completion_tokens={c_tok} "
                         f"cost_usd=${cost:.6f}"
                     )
@@ -322,7 +316,7 @@ class OpenRouterClient:
                 # 2. Rate limit (429)
                 if resp.status_code == 429:
                     logger.warning(
-                        f"[OpenRouter] req_id={req_id} model={self.model} status=429 (RateLimit) "
+                        f"[OpenRouter] req_id={req_id} model={target_model} status=429 (RateLimit) "
                         f"attempt={attempt + 1}/{self.max_retries + 1} latency={latency_ms}ms"
                     )
                     if attempt < self.max_retries:
@@ -343,7 +337,7 @@ class OpenRouterClient:
                 # 3. Серверні помилки (500, 502, 503, 504)
                 if resp.status_code in (500, 502, 503, 504):
                     logger.warning(
-                        f"[OpenRouter] req_id={req_id} model={self.model} status={resp.status_code} "
+                        f"[OpenRouter] req_id={req_id} model={target_model} status={resp.status_code} "
                         f"attempt={attempt + 1}/{self.max_retries + 1} latency={latency_ms}ms"
                     )
                     if attempt < self.max_retries:
@@ -356,7 +350,7 @@ class OpenRouterClient:
 
                 # 4. Помилки авторизації (401, 403)
                 if resp.status_code in (401, 403):
-                    logger.error(f"[OpenRouter] req_id={req_id} model={self.model} status={resp.status_code} (AuthError)")
+                    logger.error(f"[OpenRouter] req_id={req_id} model={target_model} status={resp.status_code} (AuthError)")
                     raise OpenRouterAuthError(
                         "⚠️ Помилка авторизації в OpenRouter: недійсний або заблокований API-ключ у .env."
                     )
@@ -385,7 +379,7 @@ class OpenRouterClient:
             except requests.exceptions.Timeout as e:
                 latency_ms = int((time.time() - t0) * 1000)
                 logger.warning(
-                    f"[OpenRouter] req_id={req_id} model={self.model} Timeout "
+                    f"[OpenRouter] req_id={req_id} model={target_model} Timeout "
                     f"attempt={attempt + 1}/{self.max_retries + 1} latency={latency_ms}ms"
                 )
                 if attempt < self.max_retries:
@@ -409,6 +403,44 @@ class OpenRouterClient:
             raise OpenRouterConnectionError(f"⚠️ Тимчасова помилка зв'язку з сервером OpenRouter: {last_error}")
 
         raise OpenRouterError("⚠️ Не вдалося отримати відповідь від OpenRouter.")
+
+    def send_chat_completion(
+        self,
+        messages: List[Dict[str, Any]],
+        tools: Optional[List[Dict[str, Any]]] = None,
+        tool_choice: str = "auto",
+        timeout: Optional[float] = None,
+        model: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Надсилає запит chat/completions з автоматичним retry/backoff для 429/5xx,
+        резервною моделлю (fallback), контролем конфіденційності та безпечним structured logging.
+        """
+        if not self.has_api_key():
+            raise OpenRouterAuthError("Відсутній ключ авторизації OPENROUTER_API_KEY у .env.")
+
+        # Перевірка бюджету
+        if self.cost_tracker.is_budget_exceeded(self.daily_budget_usd):
+            spent = self.cost_tracker.get_today_cost()
+            raise OpenRouterBudgetExceededError(
+                f"⚠️ Досягнуто денного ліміту витрат на AI (${self.daily_budget_usd:.2f} USD, витрачено ${spent:.4f}). "
+                "Запити тимчасово призупинено для захисту балансу."
+            )
+
+        target_model = model or self.model
+        try:
+            return self._send_single_model_completion(target_model, messages, tools, tool_choice, timeout)
+        except (OpenRouterRateLimitError, OpenRouterServerError, OpenRouterTimeoutError, OpenRouterConnectionError) as err:
+            if target_model != self.fallback_model and self.fallback_model:
+                logger.warning(
+                    f"[OpenRouter] Primary model '{target_model}' failed ({err}). "
+                    f"Attempting fallback to '{self.fallback_model}'..."
+                )
+                try:
+                    return self._send_single_model_completion(self.fallback_model, messages, tools, tool_choice, timeout)
+                except Exception as fb_err:
+                    logger.error(f"[OpenRouter] Fallback model '{self.fallback_model}' also failed: {fb_err}")
+                    raise err
+            raise
 
 
 # Глобальний екземпляр

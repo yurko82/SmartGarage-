@@ -131,12 +131,24 @@ class AIManager:
 
     def get_system_prompt(self) -> str:
         prompt_file = Path(__file__).parent.parent.parent / "prompts" / "system.md"
+        base_prompt = ""
         if prompt_file.exists():
             try:
-                return prompt_file.read_text(encoding="utf-8").strip()
+                base_prompt = prompt_file.read_text(encoding="utf-8").strip()
             except Exception:
                 pass
-        return self.system_prompt or "Ти розумний помічник Smart Garage. Твій власник Юрій. Відповідай коротко українською мовою."
+        if not base_prompt:
+            base_prompt = self.system_prompt or "Ти розумний помічник Smart Garage. Твій власник Юрій. Відповідай коротко українською мовою."
+
+        try:
+            from server.memory.user_profile import user_profile_manager
+            profile_summary = user_profile_manager.get_summary_prompt()
+            if profile_summary:
+                base_prompt += f"\n\n{profile_summary}\n"
+        except Exception as ep:
+            logger.debug(f"Не вдалося завантажити профіль веломайстерні в системний промпт: {ep}")
+
+        return base_prompt
 
     def info(self):
         llm = self.config.get("llm", {})

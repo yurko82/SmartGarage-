@@ -1,6 +1,7 @@
 import os
 import time
 import threading
+from datetime import datetime
 from server.config import config
 from server.ai.manager import AIManager
 from server.memory.memory import Memory
@@ -35,10 +36,12 @@ class SmartGarage:
         self.bt_sensors = BluetoothSensorManager(telemetry_db=self.telemetry_db)
         self.telegram = TelegramBot(self)
 
-        # Wire proactive presence arrival/departure notifications to Telegram
+        # Wire proactive presence arrival/departure notifications to Telegram & TTS
         _last_owner_greeting_ts = 0.0
         _last_owner_departure_ts = 0.0
         _presence_lock = threading.Lock()
+        _guest_alerts_ts = {}
+        _guest_alert_lock = threading.Lock()
 
         def _handle_presence_event_async(entry):
             nonlocal _last_owner_greeting_ts, _last_owner_departure_ts
@@ -55,12 +58,14 @@ class SmartGarage:
                 return
 
             # Check device-specific auto_welcome setting if available
+            dev = {}
             if hasattr(self, "presence") and self.presence and device_id in self.presence.devices:
                 dev = self.presence.devices[device_id]
                 if not dev.get("auto_welcome", True):
                     return
 
             now = time.time()
+            time_str = datetime.fromtimestamp(now).strftime("%H:%M")
 
             if event == "ARRIVED":
                 if is_owner:
@@ -81,7 +86,60 @@ class SmartGarage:
                     except Exception:
                         self.telegram.notify_admin(f"🔔 *Smart Garage:* Помічено прибуття: `{name}` (зона: `{zone}`)")
                 else:
-                    self.telegram.notify_admin(f"🔔 *Smart Garage:* Помічено прибуття: `{name}` (зона: `{zone}`)")
+                    # Guest or family member arrived
+                    with _guest_alert_lock:
+                        last_guest_ts = _guest_alerts_ts.get(device_id, 0.0)
+                        if now - last_guest_ts < 300:  # Debounce to max 1 alert per 5 minutes per device
+                            return
+                        _guest_alerts_ts[device_id] = now
+
+                    # Determine if owner (Yuri) is currently present in garage
+                    owner_present = False
+                    if hasattr(self, "presence") and self.presence:
+                        with self.presence._lock:
+                            for d_k, d_val in self.presence.devices.items():
+                                dk_role = str(d_val.get("role", "")).lower()
+                                dk_name = str(d_val.get("name", "")).lower()
+                                if "owner" in dk_role or "юрій" in dk_name or "власник" in dk_name:
+                                    if d_val.get("status") == "present":
+                                        owner_present = True
+                                        break
+
+                    # 1. Telegram notification to owner (Yuri)
+                    if dev.get("notify_owner", True):
+                        if not owner_present:
+                            self.telegram.notify_admin(
+                                f"🔔 *Smart Garage:* До гаража підходив *{name}* (виявлено о {time_str}, зона: {zone}). Вас зараз немає в гаражі."
+                            )
+                        else:
+                            self.telegram.notify_admin(
+                                f"👋 *Smart Garage:* До гаража підійшов *{name}* (виявлено о {time_str}, зона: {zone})."
+                            )
+
+                    # 2. Automation when owner is absent
+                    if not owner_present:
+                        # Audio voice message via garage speaker (TTS)
+                        absence_msg = dev.get("absence_voice_message", "").strip()
+                        if not absence_msg:
+                            absence_msg = f"{name}, Юри в гаражі немає, гуляйте собі далі."
+
+                        try:
+                            from server.services.neural_tts import neural_tts
+                            neural_tts.speak_locally(absence_msg)
+                            self.logger.info(f"🔊 [GUEST_TTS] Промовлено через динамік для {name}: '{absence_msg}'")
+                        except Exception as e:
+                            self.logger.warning(f"Error speaking guest absence message: {e}")
+
+                        # Direct Telegram notification to guest if chat_id configured
+                        guest_chat_id = dev.get("telegram_chat_id")
+                        if guest_chat_id:
+                            try:
+                                clean_cid = int(str(guest_chat_id).strip())
+                                guest_txt = f"Привіт, {name}! Юрія зараз немає в гаражі. Якщо маєте термінове питання, зателефонуйте або залиште повідомлення."
+                                self.telegram.send_message(clean_cid, guest_txt)
+                                self.logger.info(f"📨 [GUEST_TG] Надіслано Telegram гостю {name} (chat_id: {clean_cid})")
+                            except Exception as e:
+                                self.logger.warning(f"Error sending guest Telegram notification: {e}")
 
             elif event == "DEPARTED":
                 if is_owner:
@@ -107,6 +165,9 @@ class SmartGarage:
                         self.telegram.notify_admin("🚗 *Smart Garage:* Власник залишив зону гаража. Безпека в нормі.")
 
         def _on_presence_event(entry):
+            if os.environ.get("TESTING"):
+                _handle_presence_event_async(entry)
+                return
             # Dispatch to background thread so presence monitor and locks are NEVER blocked
             try:
                 threading.Thread(
@@ -202,8 +263,11 @@ class SmartGarage:
                                 floors[fk]["online"] = True
                             floors[fk]["last_updated"] = fval.get("last_updated") or time.time()
                             floors[fk]["source"] = "esp32"
-                        elif not is_esp_online and fk in floors:
-                            floors[fk]["online"] = False
+                        elif fk in floors and fval.get("temperature") is not None:
+                            # Зберігаємо останні дійсні виміри температури навіть якщо миттєвий прапорець не активний
+                            if floors[fk].get("temperature") is None:
+                                floors[fk]["temperature"] = fval["temperature"]
+                                floors[fk]["humidity"] = fval.get("humidity", floors[fk].get("humidity"))
         return floors
 
     def get_context_snapshot(self) -> str:
@@ -216,9 +280,13 @@ class SmartGarage:
         if hasattr(self, "esp32") and self.esp32:
             st = self.esp32.get_telemetry()
             esp_status = "онлайн (USB-Serial)" if st.get("online") else "офлайн"
-            light = "увімкнено" if st.get("light") else "вимкнено"
-            fan = "увімкнено" if st.get("fan") else "вимкнено"
-            lines.append(f"- Обладнання ESP32-S3: {esp_status} | Світло: {light} | Вентиляція: {fan}")
+            relays_installed = st.get("relays_installed", False)
+            if not relays_installed:
+                lines.append(f"- Обладнання ESP32-S3: {esp_status}")
+            else:
+                light = "увімкнено" if st.get("light") else "вимкнено"
+                fan = "увімкнено" if st.get("fan") else "вимкнено"
+                lines.append(f"- Обладнання ESP32-S3: {esp_status} | Світло: {light} | Вентиляція: {fan}")
 
         # 2. Climate across floors
         floors = self.get_floors_telemetry()
@@ -226,13 +294,24 @@ class SmartGarage:
         f2 = floors.get("floor2", {})
         f1 = floors.get("floor1", {})
 
-        b_desc = f"{fb.get('temperature')}°C, вологість {fb.get('humidity')}%, батарея {fb.get('battery')}% (онлайн)" if fb.get("online") and fb.get("temperature") is not None else "офлайн"
-        f2_desc = f"{f2.get('temperature')}°C, вологість {f2.get('humidity')}% (онлайн)" if f2.get("online") and f2.get("temperature") is not None else "офлайн"
-        f1_desc = f"{f1.get('temperature')}°C" if f1.get("online") and f1.get("temperature") is not None else "очікує встановлення фізичного датчика"
+        def _fmt_desc(f_data, default_text="немає даних"):
+            temp = f_data.get("temperature") if f_data.get("temperature") is not None else f_data.get("last_known_temperature")
+            hum = f_data.get("humidity") if f_data.get("humidity") is not None else f_data.get("last_known_humidity")
+            if temp is not None:
+                hum_str = f", вологість {hum}%" if hum is not None else ""
+                return f"{temp}°C{hum_str}"
+            if not f_data.get("mac") or not f_data.get("installed", True):
+                return "очікує встановлення фізичного датчика"
+            return default_text
 
-        lines.append(f"- Клімат Підвал (LYWSD03MMC): {b_desc}")
-        lines.append(f"- Клімат 2-й поверх (LYWSD03MMC): {f2_desc}")
-        lines.append(f"- Клімат 1-й поверх (Гараж): {f1_desc}")
+        b_desc = _fmt_desc(fb, "офлайн")
+        f2_desc = _fmt_desc(f2, "офлайн")
+        f1_desc = _fmt_desc(f1, "очікує встановлення фізичного датчика")
+
+        lines.append(f"- Клімат Підвал: {b_desc}")
+        lines.append(f"- Клімат 2-й поверх: {f2_desc}")
+        lines.append(f"- Клімат 1-й поверх: {f1_desc}")
+        lines.append(f"- Загальна температура в гаражі: у підвалі {b_desc}, на 2-му поверсі {f2_desc}")
 
         # 3. Presence
         if hasattr(self, "presence") and self.presence:

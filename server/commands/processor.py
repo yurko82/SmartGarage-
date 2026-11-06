@@ -43,8 +43,10 @@ class CommandProcessor:
                                 floors[fk]["online"] = True
                             floors[fk]["last_updated"] = fval.get("last_updated") or time.time()
                             floors[fk]["source"] = "esp32"
-                        elif not is_esp_online and fk in floors:
-                            floors[fk]["online"] = False
+                        elif fk in floors and fval.get("temperature") is not None:
+                            if floors[fk].get("temperature") is None:
+                                floors[fk]["temperature"] = fval["temperature"]
+                                floors[fk]["humidity"] = fval.get("humidity", floors[fk].get("humidity"))
         return floors
 
     def _format_speaker_location(self, locative: bool = True) -> str:
@@ -86,6 +88,15 @@ class CommandProcessor:
         raw_clean = re.sub(r'^[!?.,;:~ \t]+|[!?.,;:~ \t]+$', '', command.strip().lower())
         raw_clean = re.sub(r'\s+', ' ', raw_clean)
 
+        # Anti-loop / echo filter: чиста луна запиту помічника не викликає повторний запит!
+        PROMPT_ECHO_EXACT = {
+            "що тобі потрібно", "що тобі треба", "що треба", "що потрібно",
+            "слухаю", "я слухаю", "що хочете", "яка команда",
+            "що тобі потрібно?", "що тобі треба?"
+        }
+        if raw_clean in PROMPT_ECHO_EXACT:
+            return True, None
+
         WAKE_CALL_EXACT = {
             "альо гараж", "ало гараж", "алло гараж",
             "альо, гараж", "ало, гараж", "алло, гараж",
@@ -97,6 +108,25 @@ class CommandProcessor:
 
         if raw_clean in WAKE_CALL_EXACT or re.fullmatch(r'(?:альо|ало|алло)\s*[, -]?\s*гараж(?:у)?', raw_clean):
             return True, "Що тобі потрібно?"
+
+        # Strip prompt echo prefixes if microphone captured assistant's own question:
+        # e.g. "Що тобі потрібно, увімкни світло" -> "увімкни світло"
+        prompt_echo_match = re.match(
+            r'^(?:що\s*(?:тобі|вам)?\s*(?:потрібно|треба)|слухаю|я\s*слухаю)\s*[,:;!?-]*\s*',
+            command,
+            flags=re.IGNORECASE
+        )
+        if prompt_echo_match:
+            sub_candidate = command[prompt_echo_match.end():].strip()
+            if not sub_candidate:
+                # Чиста луна без команди -> припиняємо цикл, не повторюємо запит
+                return True, None
+            sub_handled, sub_resp = self.execute(sub_candidate, session_id=session_id)
+            if sub_handled:
+                return True, sub_resp
+            command = sub_candidate
+            raw_clean = re.sub(r'^[!?.,;:~ \t]+|[!?.,;:~ \t]+$', '', command.strip().lower())
+            raw_clean = re.sub(r'\s+', ' ', raw_clean)
 
         # Strip wake prefix if combined with command: e.g. "Альо гараж, відчини ворота" or "Ало гараж увімкни світло"
         wake_prefix_match = re.match(
@@ -1025,54 +1055,53 @@ class CommandProcessor:
             state = self.esp32.fan_toggle()
             return True, f"Вентиляцію {'увімкнено' if state else 'вимкнено'}."
 
+        # Якщо це запит на сканування, розмовне питання або запит про загальну температуру/клімат — передаємо на ШІ
+        is_scan_or_ai_inquiry = (
+            any(w in cmd for w in ("скануй", "проскануй", "сканування", "ефір", "ефіру", "знайди пристрої", "пошук пристроїв", "покажи bluetooth", "bluetooth пристрої"))
+            or any(cmd.startswith(q) for q in ("чому ", "як ", "що робити", "чи можна ", "чи варто ", "поясни ", "розкажи ", "порадь ", "який краще", "яка різниця"))
+            or ((any(w in cmd for w in ("в гаражі", "у гаражі", "всьому гаражі", "весь гараж", "в гараж")) or cmd in ("температура", "клімат", "градуси", "яка температура", "яка температура в гаражі", "який клімат", "що з кліматом", "погода в гаражі", "яка погода"))
+                and not any(w in cmd for w in ("підвал", "підвалі", "підвалу", "basement", "2 поверх", "2-й поверх", "2-му повер", "2 повер", "другий поверх", "другому повер", "floor2", "1 поверх", "1-й поверх", "1-му повер", "перший поверх", "першому повер", "floor1")))
+        )
+        if is_scan_or_ai_inquiry:
+            return False, None
+
         # Floor-specific temperature queries
         if any(w in cmd for w in ("підвал", "підвалі", "підвалу", "basement")):
             if any(w in cmd for w in ("температур", "волог", "датчик", "стан", "клімат", "скільки", "що")):
                 floors = self._get_floors()
                 f = floors.get("basement", {})
-                if not f.get("online") or f.get("temperature") is None:
+                t = f.get("temperature") if f.get("temperature") is not None else f.get("last_known_temperature")
+                if t is None:
                     return True, "⚓ Клімат у підвалі: датчик наразі офлайн (немає актуальних даних)."
-                t = f.get("temperature")
-                h = f.get("humidity", "--")
-                b = f.get("battery")
-                b_str = f", 🔋 батарея: {b}%" if b is not None else ""
-                return True, f"⚓ Клімат у підвалі: температура {t}°C, вологість {h}%{b_str}."
+                h = f.get("humidity") if f.get("humidity") is not None else f.get("last_known_humidity", "--")
+                return True, f"⚓ Клімат у підвалі: температура {t}°C, вологість {h}%."
 
         is_floor2 = any(w in cmd for w in ("2 поверх", "2-й поверх", "2-му повер", "2 повер", "другий поверх", "другому повер", "floor2", "2-й", "2-му"))
         if is_floor2 and any(w in cmd for w in ("температур", "волог", "датчик", "стан", "клімат", "скільки", "яка", "що")):
             floors = self._get_floors()
             f = floors.get("floor2", {})
-            if not f.get("online") or f.get("temperature") is None:
+            t = f.get("temperature") if f.get("temperature") is not None else f.get("last_known_temperature")
+            if t is None:
                 return True, "🏢 Клімат на 2-му поверсі: датчик наразі офлайн (немає актуальних даних)."
-            t = f.get("temperature")
-            h = f.get("humidity", "--")
-            b = f.get("battery")
-            b_str = f", 🔋 батарея: {b}%" if b is not None else ""
-            return True, f"🏢 Клімат на 2-му поверсі: температура {t}°C, вологість {h}%{b_str}."
+            h = f.get("humidity") if f.get("humidity") is not None else f.get("last_known_humidity", "--")
+            return True, f"🏢 Клімат на 2-му поверсі: температура {t}°C, вологість {h}%."
 
-        is_floor1 = any(w in cmd for w in ("1 поверх", "1-й поверх", "1-му повер", "1 повер", "перший поверх", "першому повер", "floor1", "1-й", "1-му")) or (
-            any(w in cmd for w in ("в гаражі", "у гаражі", "гараж")) and any(w in cmd for w in ("температур", "градус")) and not any(w in cmd for w in ("стан", "все", "всі", "що"))
-        )
+        is_floor1 = any(w in cmd for w in ("1 поверх", "1-й поверх", "1-му повер", "1 повер", "перший поверх", "першому повер", "floor1"))
         if is_floor1 and any(w in cmd for w in ("температур", "волог", "датчик", "стан", "клімат", "скільки", "яка", "що")):
             floors = self._get_floors()
             f = floors.get("floor1", {})
-            if not f.get("online") or f.get("temperature") is None:
+            t = f.get("temperature") if f.get("temperature") is not None else f.get("last_known_temperature")
+            if t is None:
                 status_txt = "очікує встановлення датчика" if not f.get("mac") else "датчик наразі офлайн"
                 return True, f"🏠 Клімат на 1-му поверсі (Гараж): {status_txt}."
-            t = f.get("temperature")
-            h = f.get("humidity", "--")
-            b = f.get("battery")
-            b_str = f", 🔋 батарея: {b}%" if b is not None else ""
-            return True, f"🏠 Клімат на 1-му поверсі (Гараж): температура {t}°C, вологість {h}%{b_str}."
+            h = f.get("humidity") if f.get("humidity") is not None else f.get("last_known_humidity", "--")
+            return True, f"🏠 Клімат на 1-му поверсі (Гараж): температура {t}°C, вологість {h}%."
 
-        is_sensor_query = (
-            any(w in cmd for w in ("температур", "волог", "датчик", "сенсор", "клімат", "градус", "sensors", "telemetry"))
-            or any(cmd == q for q in (
-                "garage status", "датчики", "стан гаража", "що в гаражі", "стан датчиків",
-                "покажи датчики", "покажи всі датчики", "всі датчики", "всі сенсори", "покажи сенсори",
-                "клімат на поверхах", "температура на поверхах"
-            ))
-        )
+        is_sensor_query = any(cmd == q for q in (
+            "sensors", "telemetry", "status", "garage status", "датчики", "стан гаража", "що в гаражі",
+            "стан датчиків", "покажи датчики", "покажи всі датчики", "всі датчики", "всі сенсори",
+            "покажи сенсори", "клімат на поверхах", "температура на поверхах"
+        ))
         if is_sensor_query:
             tel = self.esp32.get_telemetry()
             floors = self._get_floors()
@@ -1082,14 +1111,20 @@ class CommandProcessor:
             fb = floors.get("basement", {})
 
             online_str = "Онлайн" if tel.get("online") else "Офлайн"
-            light_str = "Увімкнено" if tel.get("light") else "Вимкнено"
-            fan_str = "Увімкнено" if tel.get("fan") else "Вимкнено"
+            relays_installed = tel.get("relays_installed", False)
+            if not relays_installed:
+                light_str = "Очікує реле"
+                fan_str = "Очікує реле"
+            else:
+                light_str = "Увімкнено" if tel.get("light") else "Вимкнено"
+                fan_str = "Увімкнено" if tel.get("fan") else "Вимкнено"
 
             def _fmt_floor(fl, default_offline="Офлайн"):
-                if fl.get("online") and fl.get("temperature") is not None:
-                    h_val = f", вологість {fl.get('humidity')}%" if fl.get("humidity") is not None else ""
-                    b_val = f" (🔋 {fl.get('battery')}%)" if fl.get("battery") is not None else ""
-                    return f"{fl.get('temperature')}°C{h_val}{b_val}"
+                t = fl.get("temperature") if fl.get("temperature") is not None else fl.get("last_known_temperature")
+                if t is not None:
+                    hum = fl.get("humidity") if fl.get("humidity") is not None else fl.get("last_known_humidity")
+                    h_val = f", вологість {hum}%" if hum is not None else ""
+                    return f"{t}°C{h_val}"
                 if not fl.get("mac"):
                     return "очікує встановлення датчика"
                 return default_offline

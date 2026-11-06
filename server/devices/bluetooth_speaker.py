@@ -430,6 +430,8 @@ class BluetoothSpeakerController:
             if manual:
                 self._active_stream = False
                 self._playlist_autoplay = False
+                self._last_stream_url = None
+                self._last_stream_title = None
             if self._player_proc:
                 try:
                     import signal
@@ -445,6 +447,7 @@ class BluetoothSpeakerController:
                         pass
                 self._player_proc = None
             try:
+                subprocess.run(["pkill", "-9", "-f", "souphttpsrc"], capture_output=True, timeout=2.0)
                 subprocess.run(["pkill", "-9", "-f", "gst-launch-1.0"], capture_output=True, timeout=2.0)
                 subprocess.run(["pkill", "-9", "-f", "gst-play-1.0"], capture_output=True, timeout=2.0)
             except Exception:

@@ -113,6 +113,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     let ttsEnabled = true;
     let isListening = false;
+    let isSpeakingApp = false;
+    let isProcessingApp = false;
     let recognition = null;
     let telemetryChart = null;
 
@@ -1319,6 +1321,10 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
+        // Система починає говорити: вимикаємо розпізнавання
+        isSpeakingApp = true;
+        stopListening();
+
         if ('speechSynthesis' in window) {
             try { window.speechSynthesis.cancel(); } catch (_) {}
         }
@@ -1339,6 +1345,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const fireEnded = () => {
             if (endedCalled) return;
             endedCalled = true;
+            isSpeakingApp = false;
             if (currentTtsUrlApp) {
                 try { URL.revokeObjectURL(currentTtsUrlApp); } catch (_) {}
                 currentTtsUrlApp = null;
@@ -1391,6 +1398,22 @@ document.addEventListener('DOMContentLoaded', () => {
             });
     }
 
+    // --- STRIP ECHO & WAKE PREFIXES ---
+    const PROMPT_ECHO_REGEX_APP = /^(?:що\s*(?:тобі|вам)?\s*(?:потрібно|треба)|що\s*(?:потрібно|треба)|потрібно|треба|слухаю|я\s*слухаю)\s*[!?.]*$/i;
+
+    function isPurePromptEchoApp(text) {
+        if (!text || !text.trim()) return true;
+        return PROMPT_ECHO_REGEX_APP.test(text.trim().toLowerCase());
+    }
+
+    function stripEchoAndWakePrefixApp(text) {
+        if (!text || !text.trim()) return '';
+        let clean = text.trim();
+        clean = clean.replace(/^(?:(?:альо|ало|алло|але|оле|ольо)\s*[, -]?\s*гараж(?:у)?|гараж)\s*[,:;!?-]*\s*/i, '');
+        clean = clean.replace(/^(?:що\s*(?:тобі|вам)?\s*(?:потрібно|треба)|слухаю|я\s*слухаю)\s*[,:;!?-]*\s*/i, '');
+        return clean.trim();
+    }
+
     // --- SPEECH RECOGNITION (STT) ---
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
@@ -1403,6 +1426,10 @@ document.addEventListener('DOMContentLoaded', () => {
             inst.lang = 'uk-UA';
 
             inst.onstart = () => {
+                if (isSpeakingApp || isProcessingApp) {
+                    stopListening();
+                    return;
+                }
                 isListening = true;
                 if (voiceBtn) voiceBtn.classList.add('listening');
                 if (voiceListeningBar) voiceListeningBar.style.display = 'flex';
@@ -1416,18 +1443,24 @@ document.addEventListener('DOMContentLoaded', () => {
                 const transcript = (event.results && event.results[0] && event.results[0][0])
                     ? event.results[0][0].transcript.trim()
                     : '';
+                stopListening();
                 if (transcript) {
-                    if (commandInput) commandInput.value = transcript;
+                    if (isPurePromptEchoApp(transcript)) {
+                        console.warn('🔇 [Anti-Loop App] Проігноровано луну запиту помічника:', transcript);
+                        return;
+                    }
+                    const clean = stripEchoAndWakePrefixApp(transcript);
+                    if (!clean || isPurePromptEchoApp(clean)) {
+                        return;
+                    }
+                    if (commandInput) commandInput.value = clean;
                     if (voiceHint) {
-                        voiceHint.textContent = `✅ Розпізнано: "${transcript}"`;
+                        voiceHint.textContent = `✅ Розпізнано: "${clean}"`;
                         voiceHint.style.color = '#10b981';
                     }
                     setTimeout(() => {
-                        stopListening();
-                        sendCommand(transcript);
-                    }, 400);
-                } else {
-                    stopListening();
+                        sendCommand(clean);
+                    }, 250);
                 }
             };
 
@@ -1491,6 +1524,11 @@ document.addEventListener('DOMContentLoaded', () => {
             const warn = '⚠️ Голосовий ввід Web Speech API не підтримується у цьому браузері. Рекомендовано Google Chrome або Microsoft Edge.';
             appendEntry('system', warn);
             alert(warn);
+            return;
+        }
+
+        if (isSpeakingApp || isProcessingApp) {
+            console.log('🔇 Мікрофон тимчасово заблоковано: система зайнята озвученням або обробкою.');
             return;
         }
 
@@ -1616,8 +1654,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- SEND COMMAND ---
     function sendCommand(cmdText) {
-        const command = (cmdText || '').trim();
-        if (!command) return;
+        if (!cmdText || isPurePromptEchoApp(cmdText)) return;
+        let command = stripEchoAndWakePrefixApp(cmdText || '');
+        if (!command || isPurePromptEchoApp(command)) return;
+
+        isProcessingApp = true;
+        stopListening();
 
         appendEntry('user', command);
         if (commandInput) {
@@ -1655,27 +1697,34 @@ document.addEventListener('DOMContentLoaded', () => {
                 sessionStorage.setItem('sg_session_id', data.session_id);
             }
             if (data.success) {
-                const aiResp = data.response || 'Команду виконано.';
+                const aiResp = (data.response || '').trim();
+                if (!aiResp || data.ignored) {
+                    isProcessingApp = false;
+                    return;
+                }
                 appendEntry('ai', aiResp);
-                const isFollowUpPrompt = aiResp.includes('потрібно') || aiResp.includes('Слухаю');
+                const isFollowUpPrompt = /(?:потрібно|треба|слухаю|що\s*хочете|яка\s*команда)/i.test(aiResp);
                 speakText(aiResp, () => {
+                    isProcessingApp = false;
                     if (isFollowUpPrompt && recognition) {
                         setTimeout(() => {
                             try {
-                                if (!isListening) {
+                                if (!isListening && !isSpeakingApp && !isProcessingApp) {
                                     if (voiceHint) voiceHint.textContent = '🎙️ Слухаю команду... Назвіть дію';
-                                    recognition.start();
+                                    toggleListening();
                                 }
                             } catch (_) {}
-                        }, 250);
+                        }, 750);
                     }
                 });
                 updateTelemetry();
             } else {
+                isProcessingApp = false;
                 appendEntry('system', `Помилка: ${data.response || 'Невідома помилка'}`);
             }
         })
         .catch(err => {
+            isProcessingApp = false;
             appendEntry('system', `Помилка запиту: ${err.message}`);
         })
         .finally(() => {
@@ -1754,12 +1803,23 @@ document.addEventListener('DOMContentLoaded', () => {
     const scanResultsBody = document.getElementById('scanResultsBody');
 
     const addDeviceForm = document.getElementById('addDeviceForm');
+    const devEditId = document.getElementById('devEditId');
     const devName = document.getElementById('devName');
     const devRole = document.getElementById('devRole');
     const devType = document.getElementById('devType');
     const devModel = document.getElementById('devModel');
     const devClassicMac = document.getElementById('devClassicMac');
     const devBleMac = document.getElementById('devBleMac');
+    const devAbsenceMsg = document.getElementById('devAbsenceMsg');
+    const devTelegramChatId = document.getElementById('devTelegramChatId');
+    const devNotifyOwner = document.getElementById('devNotifyOwner');
+    const btnCancelEdit = document.getElementById('btnCancelEdit');
+    const formSectionTitle = document.getElementById('formSectionTitle');
+    const btnSaveDeviceText = document.getElementById('btnSaveDeviceText');
+
+    const statTotalGuests = document.getElementById('statTotalGuests');
+    const statVisitsToday = document.getElementById('statVisitsToday');
+    const statPresentNow = document.getElementById('statPresentNow');
 
     const devicesTableBody = document.getElementById('devicesTableBody');
     const logTableBody = document.getElementById('logTableBody');
@@ -1848,6 +1908,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     return;
                 }
 
+                if (statPresentNow && p.present_count !== undefined) {
+                    statPresentNow.textContent = p.present_count;
+                }
+
                 presenceCardsGrid.innerHTML = devices.map(d => {
                     const isPresent = (d.status === 'present');
                     const badgeClass = isPresent ? 'badge-present' : 'badge-away';
@@ -1874,6 +1938,14 @@ document.addEventListener('DOMContentLoaded', () => {
                         macParts.push(`<div><strong>MAC:</strong> <span class="text-muted">Не вказано</span></div>`);
                     }
 
+                    let extraGuestInfo = '';
+                    if (d.absence_voice_message) {
+                        extraGuestInfo += `<div><strong>Фраза динаміка:</strong> <em>"${escapeHtml(d.absence_voice_message)}"</em></div>`;
+                    }
+                    if (d.telegram_chat_id) {
+                        extraGuestInfo += `<div><strong>Telegram Chat:</strong> <code>${escapeHtml(d.telegram_chat_id)}</code></div>`;
+                    }
+
                     return `
                         <div class="presence-card ${isPresent ? 'is-present' : ''}">
                             <div class="presence-card-top">
@@ -1885,6 +1957,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                 ${macParts.join('')}
                                 <div><strong>Дистанція:</strong> ${proxText} ${d.last_rssi ? `(${d.last_rssi} dBm)` : ''}</div>
                                 <div><strong>Останній контакт:</strong> ${lastSeenStr}</div>
+                                ${extraGuestInfo}
                             </div>
                         </div>
                     `;
@@ -1904,7 +1977,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const devices = Object.values(data.presence.devices || {});
 
                 if (!devices.length) {
-                    devicesTableBody.innerHTML = '<tr><td colspan="6" class="text-muted text-center">Немає пристроїв у базі</td></tr>';
+                    devicesTableBody.innerHTML = '<tr><td colspan="7" class="text-muted text-center">Немає пристроїв у базі</td></tr>';
                     return;
                 }
 
@@ -1912,7 +1985,18 @@ document.addEventListener('DOMContentLoaded', () => {
                     const roleUa = d.role === 'owner' ? '👑 Власник' : (d.role === 'family' ? '🏠 Сім\'я' : '👤 Гість');
                     const isPresent = (d.status === 'present');
                     const statusHtml = isPresent ? '<span class="badge badge-present">🟢 Присутній</span>' : '<span class="badge badge-away">⚪ Відсутній</span>';
-                    const macStr = d.classic_mac || (d.recent_ble_rpa && d.recent_ble_rpa[0]) || '—';
+                    const macStr = d.classic_mac || (d.recent_ble_rpa && d.recent_ble_rpa[d.recent_ble_rpa.length - 1]) || '—';
+
+                    let absencePart = '';
+                    if (d.absence_voice_message) {
+                        absencePart += `<div><small title="${escapeHtml(d.absence_voice_message)}">🔊 <em>"${escapeHtml(d.absence_voice_message.length > 25 ? d.absence_voice_message.substring(0, 25) + '...' : d.absence_voice_message)}"</em></small></div>`;
+                    }
+                    if (d.telegram_chat_id) {
+                        absencePart += `<div><small>💬 TG: <code>${escapeHtml(d.telegram_chat_id)}</code></small></div>`;
+                    }
+                    if (!absencePart) {
+                        absencePart = '<span class="text-muted"><small>Стандартне</small></span>';
+                    }
 
                     return `
                         <tr>
@@ -1920,11 +2004,16 @@ document.addEventListener('DOMContentLoaded', () => {
                             <td>${roleUa}</td>
                             <td>${escapeHtml(d.device_name)} (${d.device_type})</td>
                             <td><code>${escapeHtml(macStr)}</code></td>
+                            <td>${absencePart}</td>
                             <td>${statusHtml}</td>
-                            <td>
-                                <button class="btn-ctrl btn-danger-sm btn-delete-device" data-id="${escapeHtml(d.id)}">
-                                    🗑️ Видалити
+                            <td style="white-space: nowrap;">
+                                <button class="btn-ctrl btn-edit-device" data-id="${escapeHtml(d.id)}" style="margin-right: 4px;">
+                                    ✏️ Редагувати
                                 </button>
+                                ${d.role !== 'owner' ? `
+                                <button class="btn-ctrl btn-danger-sm btn-delete-device" data-id="${escapeHtml(d.id)}">
+                                    🗑️
+                                </button>` : ''}
                             </td>
                         </tr>
                     `;
@@ -1939,7 +2028,34 @@ document.addEventListener('DOMContentLoaded', () => {
                             .then(() => {
                                 loadDevicesData();
                                 loadPresenceData();
+                                loadLogData();
                             });
+                    });
+                });
+
+                document.querySelectorAll('.btn-edit-device').forEach(btn => {
+                    btn.addEventListener('click', () => {
+                        const devId = btn.getAttribute('data-id');
+                        const targetDev = devices.find(x => x.id === devId);
+                        if (!targetDev) return;
+                        if (devEditId) devEditId.value = targetDev.id;
+                        if (devName) devName.value = targetDev.name || '';
+                        if (devRole) devRole.value = targetDev.role || 'guest';
+                        if (devType) devType.value = targetDev.device_type || 'phone';
+                        if (devModel) devModel.value = targetDev.device_name || '';
+                        if (devClassicMac) devClassicMac.value = targetDev.classic_mac || '';
+                        if (devBleMac) {
+                            const rpas = targetDev.recent_ble_rpa || [];
+                            devBleMac.value = rpas.length ? rpas[rpas.length - 1] : '';
+                        }
+                        if (devAbsenceMsg) devAbsenceMsg.value = targetDev.absence_voice_message || '';
+                        if (devTelegramChatId) devTelegramChatId.value = targetDev.telegram_chat_id || '';
+                        if (devNotifyOwner) devNotifyOwner.checked = targetDev.notify_owner !== false;
+
+                        if (formSectionTitle) formSectionTitle.textContent = `✏️ Редагування: ${targetDev.name}`;
+                        if (btnSaveDeviceText) btnSaveDeviceText.textContent = `💾 Оновити налаштування "${targetDev.name}"`;
+                        if (btnCancelEdit) btnCancelEdit.style.display = 'inline-block';
+                        if (addDeviceForm) addDeviceForm.scrollIntoView({ behavior: 'smooth' });
                     });
                 });
             });
@@ -1979,6 +2095,16 @@ document.addEventListener('DOMContentLoaded', () => {
                     `;
                 }).join('');
             });
+
+        fetch('/api/presence/report')
+            .then(res => res.json())
+            .then(data => {
+                if (!data.success || !data.report) return;
+                const r = data.report;
+                if (statTotalGuests) statTotalGuests.textContent = r.total_registered_guests || '0';
+                if (statVisitsToday) statVisitsToday.textContent = r.visits_today_count || '0';
+            })
+            .catch(() => {});
     }
 
     if (btnRefreshPresence) btnRefreshPresence.addEventListener('click', loadPresenceData);
@@ -2011,7 +2137,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     const list = data.devices || [];
                     if (!list.length) {
                         if (scanResultsBody) {
-                            scanResultsBody.innerHTML = '<tr><td colspan="4" class="text-muted text-center">Завершено. Пристроїв у радіусі дії не виявлено.</td></tr>';
+                            scanResultsBody.innerHTML = '<tr><td colspan="4" class="text-muted text-center">Завершено. Нових пристроїв у радіусі дії не виявлено (всі наявні датчики та пристрої гаража вже прив\'язані).</td></tr>';
                         }
                         return;
                     }
@@ -2037,9 +2163,19 @@ document.addEventListener('DOMContentLoaded', () => {
                             b.addEventListener('click', () => {
                                 const m = b.getAttribute('data-mac');
                                 const n = b.getAttribute('data-name');
+                                if (devEditId) devEditId.value = '';
+                                if (btnCancelEdit) btnCancelEdit.style.display = 'none';
+                                if (formSectionTitle) formSectionTitle.textContent = '➕ Додати гостя або новий пристрій';
+                                if (btnSaveDeviceText) btnSaveDeviceText.textContent = '💾 Зберегти в базі присутності';
                                 if (devBleMac) devBleMac.value = m;
                                 if (devModel && n) devModel.value = n;
-                                if (devName) devName.focus();
+                                if (devName) {
+                                    devName.value = n || '';
+                                    devName.focus();
+                                }
+                                if (devAbsenceMsg) {
+                                    devAbsenceMsg.value = `${n || 'Друже'}, Юри в гаражі немає, гуляйте собі далі...`;
+                                }
                                 if (addDeviceForm) addDeviceForm.scrollIntoView({ behavior: 'smooth' });
                             });
                         });
@@ -2053,31 +2189,53 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    if (btnCancelEdit) {
+        btnCancelEdit.addEventListener('click', () => {
+            if (devEditId) devEditId.value = '';
+            if (addDeviceForm) addDeviceForm.reset();
+            if (formSectionTitle) formSectionTitle.textContent = '➕ Додати гостя або новий пристрій';
+            if (btnSaveDeviceText) btnSaveDeviceText.textContent = '💾 Зберегти в базі присутності';
+            btnCancelEdit.style.display = 'none';
+        });
+    }
+
     if (addDeviceForm) {
         addDeviceForm.addEventListener('submit', (e) => {
             e.preventDefault();
             const name = (devName ? devName.value : '').trim();
             if (!name) return;
 
+            const editId = devEditId ? devEditId.value.trim() : '';
             const payload = {
                 name: name,
                 role: devRole ? devRole.value : 'guest',
                 device_type: devType ? devType.value : 'phone',
                 device_name: (devModel && devModel.value.trim()) || name,
                 classic_mac: (devClassicMac && devClassicMac.value.trim()) || '',
-                ble_mac: (devBleMac && devBleMac.value.trim()) || ''
+                ble_mac: (devBleMac && devBleMac.value.trim()) || '',
+                absence_voice_message: (devAbsenceMsg && devAbsenceMsg.value.trim()) || '',
+                telegram_chat_id: (devTelegramChatId && devTelegramChatId.value.trim()) || '',
+                notify_owner: devNotifyOwner ? devNotifyOwner.checked : true,
+                auto_welcome: true
             };
 
-            fetch('/api/presence/devices', {
-                method: 'POST',
+            const url = editId ? `/api/presence/devices/${editId}` : '/api/presence/devices';
+            const method = editId ? 'PUT' : 'POST';
+
+            fetch(url, {
+                method: method,
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
             })
             .then(res => res.json())
             .then(data => {
                 if (data.success) {
-                    alert(`✅ Гостя/пристрій "${name}" успішно зареєстровано в базі!`);
+                    alert(editId ? `✅ Дані гостя "${name}" успішно оновлено!` : `✅ Гостя/пристрій "${name}" успішно зареєстровано в базі!`);
                     addDeviceForm.reset();
+                    if (devEditId) devEditId.value = '';
+                    if (btnCancelEdit) btnCancelEdit.style.display = 'none';
+                    if (formSectionTitle) formSectionTitle.textContent = '➕ Додати гостя або новий пристрій';
+                    if (btnSaveDeviceText) btnSaveDeviceText.textContent = '💾 Зберегти в базі присутності';
                     loadDevicesData();
                     loadPresenceData();
                     loadLogData();
