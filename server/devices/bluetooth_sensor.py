@@ -129,8 +129,9 @@ class BluetoothSensorManager:
                 for mac, vals in cached.items():
                     mac_u = mac.upper().strip()
                     if mac_u in self.sensors:
-                        # On restart/load, cached data is strictly last_known; sensor remains offline until fresh measurement
-                        self.sensors[mac_u]["online"] = False
+                        last_ts = vals.get("last_updated")
+                        is_fresh = bool(last_ts and (time.time() - last_ts < SENSOR_FRESHNESS_THRESHOLD_SECONDS))
+                        self.sensors[mac_u]["online"] = is_fresh
                         self.sensors[mac_u]["source"] = SOURCE_CACHE
                         # Always preserve last known physical measurements from cache
                         for k in ("temperature", "humidity", "battery", "last_updated"):
@@ -154,8 +155,8 @@ class BluetoothSensorManager:
                             s["humidity"] = db_rec.get("humidity")
                             s["battery"] = db_rec.get("battery")
                             s["last_updated"] = last_ts
-                            # Historical SQLite data is strictly last_known, not online
-                            s["online"] = False
+                            is_db_fresh = bool(last_ts and (time.time() - last_ts < SENSOR_FRESHNESS_THRESHOLD_SECONDS))
+                            s["online"] = is_db_fresh
                             s["source"] = SOURCE_SQLITE_HISTORY
             except Exception as e:
                 logger.error(f"Error falling back to telemetry DB in sensor manager: {e}")

@@ -231,16 +231,16 @@ document.addEventListener('DOMContentLoaded', () => {
                             subText = `Актуально • ${lastTime}`;
                             tooltip = `${defaultName}: Актуально (${srcName}) • Оновлено о ${lastTime}`;
                         } else if (status === 'stale') {
-                            tempText = '-- °C';
-                            humText = '-- %';
+                            tempText = lastTemp !== null ? `${Number(lastTemp).toFixed(1)} °C` : '-- °C';
+                            humText = lastHum !== null ? `${Number(lastHum).toFixed(0)} %` : '-- %';
                             badgeText = 'Дані застаріли';
                             badgeClass = 'floor-badge warning';
                             const lastValStr = lastTemp !== null ? ` (ост. ${Number(lastTemp).toFixed(1)} °C)` : '';
                             subText = `Дані застаріли${lastValStr} • ${lastRel || lastTime}`;
                             tooltip = `${defaultName}: Дані застаріли (${srcName}) • Останній вимір: ${lastTemp !== null ? Number(lastTemp).toFixed(1) + ' °C о ' : ''}${lastTime}`;
                         } else if (status === 'offline') {
-                            tempText = '-- °C';
-                            humText = '-- %';
+                            tempText = lastTemp !== null ? `${Number(lastTemp).toFixed(1)} °C` : '-- °C';
+                            humText = lastHum !== null ? `${Number(lastHum).toFixed(0)} %` : '-- %';
                             badgeText = 'Офлайн';
                             badgeClass = 'floor-badge warning';
                             const lastValStr = lastTemp !== null ? ` (${Number(lastTemp).toFixed(1)} °C)` : '';

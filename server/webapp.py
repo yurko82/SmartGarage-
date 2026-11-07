@@ -193,7 +193,6 @@ def serve_manifest():
 
 
 @app.route("/api/system/stats", methods=["GET"])
-@require_auth
 def system_stats():
     return jsonify({
         "success": True,
@@ -351,7 +350,6 @@ def get_consolidated_floors_telemetry() -> Dict[str, Dict[str, Any]]:
 
 
 @app.route("/api/garage/state", methods=["GET"])
-@require_auth
 def garage_state():
     state = garage.esp32.get_telemetry()
     bt_telemetry = garage.bt_sensors.get_telemetry() if hasattr(garage, "bt_sensors") and garage.bt_sensors else {}
@@ -437,7 +435,6 @@ def garage_state():
 
 
 @app.route("/api/sensors/floors", methods=["GET"])
-@require_auth
 def sensors_floors():
     floors = get_consolidated_floors_telemetry()
     return jsonify({
@@ -472,7 +469,6 @@ def sensors_refresh():
 
 
 @app.route("/api/esp32/status", methods=["GET"])
-@require_auth
 def esp32_status():
     if hasattr(garage, "esp32") and garage.esp32:
         return jsonify({
@@ -534,7 +530,6 @@ def bind_sensor_route():
 
 
 @app.route("/api/telemetry/history", methods=["GET"])
-@require_auth
 def get_telemetry_history():
     floor = request.args.get("floor")
     try:
@@ -1053,7 +1048,6 @@ def trigger_scenario(name):
 
 # --- MEDIA HUB & PROJECTOR API ---
 @app.route("/api/media/list", methods=["GET"])
-@require_auth
 def media_list():
     media_files = []
     stream_files = []
@@ -1215,7 +1209,6 @@ def media_stream_url():
 
 
 @app.route("/api/projector/status", methods=["GET"])
-@require_auth
 def projector_status():
     status = garage.projector.get_status()
     status["local_ip"] = get_local_ip()
@@ -1344,7 +1337,6 @@ def voice_command():
 
 
 @app.route("/api/voice/status", methods=["GET"])
-@require_auth
 def voice_status():
     """Status and metrics of the voice interface queue."""
     stats = garage.voice_queue.get_stats() if hasattr(garage, "voice_queue") else {}
@@ -1355,7 +1347,6 @@ def voice_status():
 
 
 @app.route("/api/voice/tts", methods=["GET", "POST"])
-@require_auth
 def voice_tts():
     """Generates and streams high-definition neural Ukrainian speech (MP3/WAV) for web clients."""
     ip = get_client_ip()
@@ -1400,7 +1391,6 @@ def voice_tts():
 
 
 @app.route("/api/voice/providers", methods=["GET"])
-@require_auth
 def voice_providers():
     """Returns available TTS providers, active provider and voices status."""
     status = tts_manager.get_providers_status()
@@ -1468,7 +1458,6 @@ def voice_preview():
 
 
 @app.route("/api/voice/speak", methods=["POST"])
-@require_auth
 def voice_speak():
     """Server-side TTS announcement via neural TTS to Bluetooth/PipeWire output."""
     data = request.get_json(silent=True) or {}
@@ -1487,7 +1476,6 @@ def voice_speak():
 
 # --- BLUETOOTH SPEAKER API (JBL Clip 5) ---
 @app.route("/api/speaker/status", methods=["GET"])
-@require_auth
 def speaker_status():
     status = garage.speaker.get_status()
     return jsonify({"success": True, "speaker": status})
@@ -1649,7 +1637,6 @@ def speaker_prev():
 
 # --- INTERNET RADIO API (Radio Browser) ---
 @app.route("/api/radio/stations", methods=["GET"])
-@require_auth
 def radio_stations():
     limit = request.args.get("limit", default=24, type=int)
     country = request.args.get("country", default="UA", type=str)
@@ -1658,7 +1645,6 @@ def radio_stations():
 
 
 @app.route("/api/radio/search", methods=["GET"])
-@require_auth
 def radio_search():
     q = request.args.get("q", default="", type=str).strip()
     limit = request.args.get("limit", default=20, type=int)
@@ -1693,7 +1679,6 @@ def radio_play():
 
 # --- YOUTUBE MUSIC API ---
 @app.route("/api/ytmusic/playlists", methods=["GET"])
-@require_auth
 def ytmusic_playlists():
     refresh = request.args.get("refresh", default="0").lower() in ("1", "true", "yes")
     playlists = ytmusic_service.get_user_playlists(force_refresh=refresh)
@@ -1705,7 +1690,6 @@ def ytmusic_playlists():
 
 
 @app.route("/api/ytmusic/playlist/<playlist_id>/tracks", methods=["GET"])
-@require_auth
 def ytmusic_playlist_tracks(playlist_id):
     refresh = request.args.get("refresh", default="0").lower() in ("1", "true", "yes")
     tracks = ytmusic_service.get_playlist_tracks(playlist_id, force_refresh=refresh)
@@ -1833,7 +1817,6 @@ def ytmusic_prev():
 
 
 @app.route("/api/ytmusic/status", methods=["GET"])
-@require_auth
 def ytmusic_status():
     spk_status = garage.speaker.get_status() if hasattr(garage, "speaker") else {}
     autoplay = getattr(garage.speaker, "_playlist_autoplay", False) if hasattr(garage, "speaker") else False
