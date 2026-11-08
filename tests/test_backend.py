@@ -111,6 +111,18 @@ class TestCommandProcessor(unittest.TestCase):
         self.assertTrue(handled)
         self.assertIn("Projector HY350MAX", resp)
 
+        handled, resp = self.processor.execute("стан проектора")
+        self.assertTrue(handled)
+        self.assertIn("Проектор HY350MAX", resp)
+
+        handled, resp = self.processor.execute("підключись до проектора")
+        self.assertTrue(handled)
+        self.assertIn("HY350MAX", resp)
+
+        handled, resp = self.processor.execute("спроби з'єднатися з проектором")
+        self.assertTrue(handled)
+        self.assertIn("HY350MAX", resp)
+
         handled, resp = self.processor.execute("project pause")
         self.assertTrue(handled)
         self.assertIn("паузу", resp)
@@ -1991,7 +2003,8 @@ class TestOwnerSecurityConstraints(unittest.TestCase):
 
     def test_presence_api_crud_and_report_workflow(self):
         """Full CRUD and reporting workflow for guest presence."""
-        headers_pin = {"X-Admin-PIN": "9876"}
+        admin_pin = os.getenv("ADMIN_PIN") or "9876"
+        headers_pin = {"X-Admin-PIN": admin_pin}
 
         # 1. Register guest Max
         res_post = self.client.post("/api/presence/devices", json={
@@ -2030,13 +2043,14 @@ class TestOwnerSecurityConstraints(unittest.TestCase):
         res_forbidden = self.client.post("/api/device/light/toggle", headers={"X-Enforce-Auth": "true", "X-Admin-PIN": "7777"})
         self.assertEqual(res_forbidden.status_code, 401)
 
-        # Configured admin PIN 9876 allows execution
-        headers_pin = {"X-Enforce-Auth": "true", "X-Admin-PIN": "9876"}
+        # Configured admin PIN allows execution
+        admin_pin = os.getenv("ADMIN_PIN") or "9876"
+        headers_pin = {"X-Enforce-Auth": "true", "X-Admin-PIN": admin_pin}
         res = self.client.post("/api/device/light/toggle", headers=headers_pin)
         self.assertEqual(res.status_code, 200)
         self.assertTrue(res.get_json()["success"])
 
-        headers_bearer = {"X-Enforce-Auth": "true", "Authorization": "Bearer 9876"}
+        headers_bearer = {"X-Enforce-Auth": "true", "Authorization": f"Bearer {admin_pin}"}
         res2 = self.client.post("/api/speaker/volume", json={"value": 35}, headers=headers_bearer)
         self.assertEqual(res2.status_code, 200)
         self.assertTrue(res2.get_json()["success"])
@@ -2493,6 +2507,14 @@ class TestMusicStopRegression(unittest.TestCase):
         self.assertEqual(res_guard["action"], "stop")
         mock_garage.speaker.stop.assert_called_once()
         mock_garage.speaker.play_youtube.assert_not_called()
+
+        # 3. Projector control tool
+        mock_garage.projector.is_reachable.return_value = True
+        mock_garage.projector.get_status.return_value = {"ip": "192.168.100.191", "port": 57000}
+        res_proj = dispatcher.execute("projector_control", {"action": "status"})
+        self.assertTrue(res_proj["success"])
+        self.assertTrue(res_proj["online"])
+        self.assertIn("192.168.100.191", res_proj["message"])
 
 
 class TestBleScanFiltering(unittest.TestCase):

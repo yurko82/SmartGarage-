@@ -280,6 +280,8 @@ class ESP32Controller:
                     port_to_try = self._find_available_serial_port()
                     if port_to_try and os.path.exists(port_to_try):
                         self._serial = serial.Serial(port_to_try, self.baudrate, timeout=1.0, write_timeout=1.0)
+                        self._serial.dtr = False
+                        self._serial.rts = False
                         self.serial_port_name = port_to_try
                         with self._lock:
                             self._serial_handshake_verified = False
@@ -294,10 +296,10 @@ class ESP32Controller:
                         time.sleep(2)
                         continue
 
-                # Check Heartbeat TTL (20s)
+                # Check Heartbeat TTL (45s to accommodate BLE polling duration)
                 now = time.time()
                 last_seen = self.state.get("last_seen") or 0
-                if getattr(self, "_serial_handshake_verified", False) and (now - last_seen > 20.0):
+                if getattr(self, "_serial_handshake_verified", False) and (now - last_seen > 45.0):
                     with self._lock:
                         self._serial_handshake_verified = False
                         self.state["online"] = False
@@ -308,6 +310,7 @@ class ESP32Controller:
                 # Periodically query telemetry in background every 5 seconds if verified
                 if getattr(self, "_serial_handshake_verified", False) and (now - last_poll_cmd > 5.0):
                     self._send_serial_command("CMD:GET_TELEMETRY")
+                    self._send_serial_command("CMD:RF_STATUS")
                     last_poll_cmd = now
                 elif not getattr(self, "_serial_handshake_verified", False) and (now - last_poll_cmd > 3.0):
                     self._send_raw_serial("CMD:PING")
@@ -351,6 +354,12 @@ class ESP32Controller:
                 self.state["transport"] = "serial"
             self.log_event("connection", "success", "Підключено та верифіковано через USB Serial", f"Порт: {self.serial_port_name}")
             return
+
+        if line.startswith("[BLE]") or line.startswith("[AHT10]") or line.startswith("[RF_RX]") or line.startswith("[RF_PULSES]") or line.startswith("[RF_DETECT]"):
+            with self._lock:
+                self.state["last_seen"] = time.time()
+                if getattr(self, "_serial_handshake_verified", False):
+                    self.state["online"] = True
 
         if line.startswith("TELEMETRY:"):
             raw_json = line[len("TELEMETRY:"):].strip()
@@ -402,12 +411,62 @@ class ESP32Controller:
                         dev["service_uuids"] = [u] if u else []
                     with self._lock:
                         self.last_ble_scan_results = devices
+                elif "cc1101" in data or "rssi" in data or "diag" in data:
+                    with self._lock:
+                        self._serial_handshake_verified = True
+                        if "diag" in data:
+                            self.state["rf_diag"] = data
+                            self.log_event("rf", "info", "CC1101 SPI Diag", f"VER={data.get('ver')}, MARC={data.get('marc')}, GDO0={data.get('gdo0')}, Edges={data.get('edges')}", data)
+                        else:
+                            self.state["rf_status"] = data
                 else:
                     with self._lock:
                         self._serial_handshake_verified = True
                     self.update_from_webhook(data, transport="serial")
             except Exception:
                 pass
+        elif "[RF_RX]" in line or "[RF_RX_ADAPTIVE]" in line:
+            # Приклад: [RF_RX] Код: 15835393 (0xF1A101) | Біти: 24 | Протокол: 1 | Затримка: 320
+            # Або: [RF_RX_ADAPTIVE] Код: 15835393 (0xF1A101) | Біти: 24 | Синхропауза: 9800 us | Імпульсів: 49
+            try:
+                import re
+                m = re.search(r"Код:\s*(\d+)\s*\((0x[0-9a-fA-F]+)\)\s*\|\s*Біти:\s*(\d+)", line)
+                if m:
+                    code_val = int(m.group(1))
+                    hex_val = m.group(2)
+                    bits_val = int(m.group(3))
+                    proto_m = re.search(r"Протокол:\s*(\d+)", line)
+                    proto_val = int(proto_m.group(1)) if proto_m else 1
+                    delay_m = re.search(r"Затримка:\s*(\d+)", line)
+                    delay_val = int(delay_m.group(1)) if delay_m else 320
+                    rf_info = {
+                        "code": code_val,
+                        "hex": hex_val,
+                        "bits": bits_val,
+                        "protocol": proto_val,
+                        "delay": delay_val,
+                        "timestamp": time.time(),
+                        "mode": "adaptive" if "[RF_RX_ADAPTIVE]" in line else "standard"
+                    }
+                    with self._lock:
+                        self.state["last_rf_sniffed"] = rf_info
+                    self.log_event(
+                        "rf",
+                        "success",
+                        "📡 Перехоплено 433 МГц радіосигнал!",
+                        f"Код: {code_val} ({hex_val}) | Біти: {bits_val} | Протокол: {proto_val} | Затримка: {delay_val} мкс",
+                        rf_info
+                    )
+                else:
+                    self.log_event("rf", "info", "ESP32 RF_RX", line)
+            except Exception as e:
+                self.log_event("rf", "warning", "Помилка парсингу RF_RX", f"{e}: {line}")
+        elif "[RF_DETECT]" in line:
+            self.log_event("rf", "info", "📡 Сплеск 433 МГц сигналу", line)
+        elif "[RF_PULSES]" in line:
+            self.log_event("rf", "info", "📡 Зафіксовано радіоімпульси 433 МГц", line)
+        elif "[RF_RX_RAW]" in line:
+            self.log_event("rf", "warning", "📡 Сигнал 433 МГц виявлено (невідомий протокол)", line)
         else:
             if line:
                 # Arbitrary serial line does NOT verify port or make online
@@ -649,6 +708,25 @@ class ESP32Controller:
                 return self.light_off()
             return self.light_on()
 
+    def rf_pair(self, duration_sec: int = 30) -> bool:
+        """Запуск безперервної трансляції коду сполучення для запису в пам'ять реле."""
+        with self._lock:
+            ok = self._send_serial_command(f"CMD:RF_PAIR:{duration_sec}")
+            self.log_event("command", "info", "Режим навчання 433 МГц", f"Запущено постійну трансляцію коду на {duration_sec} сек")
+            return ok
+
+    def rf_pair_stop(self) -> bool:
+        """Зупинка режиму сполучення."""
+        with self._lock:
+            ok = self._send_serial_command("CMD:RF_PAIR_STOP")
+            self.log_event("command", "info", "Режим навчання 433 МГц", "Зупинено трансляцію коду")
+            return ok
+
+    def rf_diag(self) -> bool:
+        """Запит детальної апаратної діагностики CC1101."""
+        with self._lock:
+            return self._send_serial_command("CMD:RF_DIAG")
+
     # --- FAN / VENTILATION ---
     def fan_on(self):
         with self._lock:
@@ -773,11 +851,12 @@ class ESP32Controller:
                             fval["last_known_humidity"] = f_hum
                             fval["last_read_formatted"] = time.strftime("%H:%M:%S (%d.%m.%Y)", time.localtime(f_sample_ts))
                             fval["last_read_time"] = time.strftime("%H:%M:%S", time.localtime(f_sample_ts))
+                            bat_str = f", Заряд: {f_bat}%" if f_bat is not None else ""
                             self.log_event(
                                 "sensor_read",
                                 "success",
                                 f"Зчитано датчик: {f_name}",
-                                f"Температура: {f_temp}°C, Вологість: {f_hum}%, Заряд: {f_bat or 100}%",
+                                f"Температура: {f_temp}°C, Вологість: {f_hum}%{bat_str}",
                                 {"floor": fk, "mac": mac, "temp": f_temp, "hum": f_hum, "battery": f_bat, "transport": transport}
                             )
                         else:
@@ -876,6 +955,8 @@ class ESP32Controller:
                 "wifi_ip": self.state.get("wifi_ip") or self.host,
                 "stats": dict(self.stats),
                 "sensors": sensor_details,
+                "rf_status": self.state.get("rf_status"),
+                "last_rf_sniffed": self.state.get("last_rf_sniffed"),
                 "logs": logs_list[:80]
             }
 

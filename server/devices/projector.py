@@ -11,13 +11,14 @@ from server.config import config
 
 
 def get_local_ip(target_ip=None):
-    if target_ip:
+    if target_ip and not str(target_ip).startswith("127."):
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             s.connect((target_ip, 80))
             ip = s.getsockname()[0]
             s.close()
-            return ip
+            if ip and not ip.startswith("127."):
+                return ip
         except Exception:
             pass
 
@@ -51,7 +52,7 @@ class ProjectorController:
     def __init__(self, ip=None, port=None):
         cfg = config.get("projector", {}) if isinstance(config, dict) else {}
         self.ip = ip or cfg.get("ip", "192.168.100.191")
-        self.port = port or cfg.get("airplay_port", cfg.get("port", 57000))
+        self.port = port or cfg.get("airplay_port", cfg.get("port", 32017))
         self.dlna_port = cfg.get("dlna_port", 36887)
         self.dlna_uuid = cfg.get("dlna_uuid", "86257d31-b925-3e7f-9a41-b9ac6b4e0d1a")
         self.ip6 = None
@@ -93,7 +94,7 @@ class ProjectorController:
         try:
             res = subprocess.run(['ip', '-6', 'neigh'], capture_output=True, text=True, timeout=1.5)
             for line in res.stdout.splitlines():
-                if '88:91:49:a1:6e:ca' in line.lower() or 'fe80::' in line.lower():
+                if '88:91:49:a1:6e:ca' in line.lower():
                     parts = line.split()
                     if len(parts) >= 3 and 'dev' in parts:
                         ip6 = parts[0]
@@ -169,7 +170,7 @@ class ProjectorController:
     def is_reachable(self, timeout=1.5):
         if os.environ.get("TESTING"):
             return True
-        ports_to_try = [self.rest_port, self.port, 57000, 7000, 32017]
+        ports_to_try = [self.port, 32017, self.rest_port, 57000, 7000]
         for p in ports_to_try:
             try:
                 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -177,7 +178,7 @@ class ProjectorController:
                 res = s.connect_ex((self.ip, int(p)))
                 s.close()
                 if res == 0:
-                    if int(p) in (57000, 32017, 7000):
+                    if int(p) in (32017, 57000, 7000):
                         self.port = p
                     return True
             except Exception:

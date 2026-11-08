@@ -278,8 +278,8 @@ class TelegramBot:
         return {
             "keyboard": [
                 [{"text": "📊 Статус гаража"}, {"text": "🌡️ Температура"}],
-                [{"text": "👥 Присутність"}],
-                [{"text": "💡 Світло"}, {"text": "💨 Вентиляція"}]
+                [{"text": "💡 Світло"}, {"text": "💨 Вентиляція"}],
+                [{"text": "👥 Присутність"}, {"text": "📌 Розпіновка"}]
             ],
             "resize_keyboard": True,
             "one_time_keyboard": False
@@ -301,6 +301,21 @@ class TelegramBot:
         user = msg.get("from", {})
         text = (msg.get("text") or "").strip()
         voice = msg.get("voice")
+        logger.info(f"Telegram message from {user.get('username') or user.get('first_name')} (chat_id={chat_id}): '{text}'")
+
+        # Automatically save admin_chat_id if not set yet
+        if not self.admin_chat_id and chat_id:
+            self._save_admin_chat_id(chat_id)
+
+        # Public info commands (pinout is always accessible)
+        low = text.lower()
+        if low in ("/pinout", "розпіновка", "піни", "підключення", "схема", "📌 розпіновка", "скинь розпіновку"):
+            self._send_pinout(chat_id)
+            return
+
+        if low in ("/rf", "/sniffer", "сніфер", "радіокод", "код", "📡 радіокод"):
+            self._send_rf_sniffer(chat_id)
+            return
 
         # Authorization check
         is_admin = (self.admin_chat_id is not None and str(chat_id) == str(self.admin_chat_id))
@@ -316,11 +331,12 @@ class TelegramBot:
                     f"Тепер ви можете повністю керувати системою, отримувати сповіщення та ставити будь-які запитання."
                 )
                 self.send_message(chat_id, welcome, reply_markup=self._get_main_keyboard())
+                self._send_pinout(chat_id)
                 return
             else:
                 self.send_message(
                     chat_id,
-                    "🔒 *Доступ обмежено.*\n\nВведіть правильний PIN-код адміністратора (наприклад: `7777`), щоб отримати доступ до керування гаражем."
+                    "🔒 *Smart Garage Bot*\n\nВведіть PIN-код адміністратора (наприклад: `7777`), щоб отримати доступ до керування гаражем.\n\n📌 Щоб переглянути схему підключення плати, натисніть /pinout."
                 )
                 return
 
@@ -380,6 +396,15 @@ class TelegramBot:
         elif low in ("💨 вентиляція", "/fan", "вентиляція"):
             self._send_fan_menu(chat_id)
 
+        elif low in ("/pinout", "розпіновка", "піни", "підключення", "схема"):
+            self._send_pinout(chat_id)
+
+        elif low in ("/pair", "сполучення", "навчання", "прив'язка", "режим сполучення", "📡 сполучення", "прив'язати реле"):
+            self._start_rf_pairing(chat_id)
+
+        elif low in ("/rf", "/sniffer", "сніфер", "радіокод", "код", "📡 радіокод"):
+            self._send_rf_sniffer(chat_id)
+
         else:
             # Route to Smart Garage AI Router (Fast Gemini 2.5 Flash / Commands)
             try:
@@ -396,12 +421,83 @@ class TelegramBot:
         bt = self.garage.bt_sensors.get_telemetry() if hasattr(self.garage, "bt_sensors") and self.garage.bt_sensors else {}
         return bt.get("floors", {})
 
+    def _start_rf_pairing(self, chat_id: int):
+        esp = getattr(self.garage, "esp32", None)
+        if esp:
+            esp.rf_pair(30)
+            text = (
+                "📡 *Режим безперервного сполучення 433 МГц запущено на 30 секунд!*\n\n"
+                "🟣 *Світлодіод на ESP32 блимає фіолетовим* — радіомодуль CC1101 кожні 120 мс транслює код керування світлом `0xF1A101`.\n\n"
+                "👉 *Ваші дії прямо зараз:*\n"
+                "1. Підійдіть до блоку 4-канального реле 12V.\n"
+                "2. Натисніть кнопку навчання на платі реле **2 рази** (для режиму Toggle / самоблокування).\n"
+                "3. Світлодіод на реле засвітиться, отримає постійний сигнал від ESP32, кілька разів моргне і згасне.\n\n"
+                "✅ Після цього реле збереже код і світло буде вмикатися та вимикатися кнопкою у додатку!"
+            )
+            self.send_message(chat_id, text)
+        else:
+            self.send_message(chat_id, "⚠️ ESP32 не підключено або недоступний.")
+
+    def _send_pinout(self, chat_id: int):
+        pinout_text = (
+            "📌 *Апаратна розпіновка Smart Garage (CC1101 + AHT10 + ESP32-S3)*\n\n"
+            "🔍 *Зверніть увагу на плату ESP32-S3 DevKitC-1:*\n"
+            "Усі піни підключення розташовані на **лівому роз'ємі (Header J1)**, якщо тримати плату мікросхемою та антеною догори, а портами USB вниз:\n\n"
+            "📡 *Радіомодуль CC1101 → ESP32-S3:*\n"
+            "• Пін 1 (GND) ───► `GND` (нижній пін 22 на лівій гребінці або будь-який GND)\n"
+            "• Пін 2 (VCC) ───► `3V3` (верхній пін 1 або 2 на лівій гребінці. ⚠️ *Тільки 3.3V! Не 5V!*)\n"
+            "• Пін 3 (GDO0) ──► `7` (7-й зверху пін на лівій гребінці, напис '7')\n"
+            "• Пін 4 (CSN) ───► `10` (16-й зверху пін, напис '10')\n"
+            "• Пін 5 (SCK) ───► `12` (18-й зверху пін, напис '12')\n"
+            "• Пін 6 (MOSI) ──► `11` (17-й зверху пін, напис '11')\n"
+            "• Пін 7 (MISO) ──► `13` (19-й зверху пін, напис '13')\n"
+            "• Пін 8 (GDO2) ──► *НЕ ПІДКЛЮЧАТИ* (залишається вільним)\n\n"
+            "🌡️ *Кліматичний датчик AHT10 (I2C) → ESP32-S3:*\n"
+            "• Пін VIN ───────► `3V3` (3.3V)\n"
+            "• Пін GND ───────► `GND`\n"
+            "• Пін SCL ───────► `9` (15-й зверху пін, напис '9')\n"
+            "• Пін SDA ───────► `8` (12-й зверху пін, напис '8')\n\n"
+            "💡 *Команди для перевірки:*\n"
+            "• /pair — запустити трансляцію коду для навчання реле на 30 сек\n"
+            "• /rf — подивитися перехоплені радіокоди"
+        )
+        self.send_message(chat_id, pinout_text)
+
+    def _send_rf_sniffer(self, chat_id: int):
+        esp = getattr(self.garage, "esp32", None)
+        last_rf = esp.state.get("last_rf_sniffed") if esp else None
+        if not last_rf:
+            self.send_message(
+                chat_id,
+                "📡 *433 МГц Радіосніфер ESP32 (CC1101)*\n\n"
+                "ℹ️ Перехоплених сигналів поки немає.\n\n"
+                "👉 Натисніть клавішу на настінному вимикачі чи пульті поруч із гаражем / ESP32. "
+                "Модуль CC1101 зафіксує радіокод у пам'яті, після чого введіть /rf для перегляду!"
+            )
+            return
+
+        from server.sensors.freshness import format_relative_time_ua
+        ts_rel = format_relative_time_ua(last_rf.get("timestamp"))
+        text = (
+            "📡 *Останній перехоплений 433 МГц радіосигнал:*\n\n"
+            f"• 🔢 *Десятковий код:* `{last_rf.get('code')}`\n"
+            f"• 🏷️ *Шістнадцятковий (HEX):* `{last_rf.get('hex')}`\n"
+            f"• ⏱️ *Розрядність:* `{last_rf.get('bits')}` біт\n"
+            f"• ⚙️ *Протокол:* `{last_rf.get('protocol')}`\n"
+            f"• ⏳ *Затримка пульсу:* `{last_rf.get('delay')} мкс`\n"
+            f"• 🕒 *Час перехоплення:* {ts_rel}\n\n"
+            "💡 _Цей код зчитано безпосередньо з вимикача без необхідності натискати кнопку на реле! "
+            "ESP32 тепер може транслювати цей самий код для керування освітленням._"
+        )
+        self.send_message(chat_id, text)
+
     def _send_status(self, chat_id: int):
         try:
             state = self.garage.esp32.get_telemetry()
             floors = self._get_floors()
             fb = floors.get("basement", {})
             f2 = floors.get("floor2", {})
+            f1 = floors.get("floor1", {})
 
             esp_online = "🟢 Онлайн (USB Serial)" if state.get("online") else "🔴 Офлайн"
             temp_str = f"{fb.get('temperature', '--')}°C" if fb.get("temperature") is not None else "--"
@@ -412,14 +508,22 @@ class TelegramBot:
             f2_online_mark = "🟢" if f2.get("online") else "🔴"
             f2_status_desc = f"{f2_online_mark} `{temp_f2_str}` (Вологість: `{hum_f2_str}`)" if f2.get("online") and f2.get("temperature") is not None else f"🔴 `{temp_f2_str}` (Офлайн)"
 
+            temp_f1_str = f"{f1.get('temperature', '--')}°C" if f1.get("temperature") is not None else "--"
+            hum_f1_str = f"{f1.get('humidity', '--')}%" if f1.get("humidity") is not None else "--"
+            f1_online_mark = "🟢" if f1.get("online") else "🔴"
+            f1_status_desc = f"{f1_online_mark} `{temp_f1_str}` (Вологість: `{hum_f1_str}`)" if f1.get("online") and f1.get("temperature") is not None else f"🔴 `{temp_f1_str}` (Офлайн)"
+
+            light_status = "🟢 Увімкнено" if state.get("light") else "⚪ Вимкнено"
+            fan_status = "🟢 Увімкнено" if state.get("fan") else "⚪ Вимкнено"
+
             text = (
                 f"📊 *Стан Smart Garage:*\n\n"
                 f"• 📡 *ESP32-S3:* {esp_online}\n"
+                f"• 🏠 *1-й поверх (AHT10):* {f1_status_desc}\n"
                 f"• ⚓ *Підвал (LYWSD03MMC):* `{temp_str}` (Вологість: `{hum_str}`)\n"
                 f"• 🏢 *2-й поверх (LYWSD03MMC):* {f2_status_desc}\n"
-                f"• 🏠 *1-й поверх:* Очікує датчик\n"
-                f"• 🚪 *Ворота:* Невідомо (привід не встановлений)\n"
-                f"• 💡 *Світло:* Очікує реле\n"
+                f"• 💡 *Світло:* {light_status}\n"
+                f"• 💨 *Вентиляція:* {fan_status}\n"
             )
             self.send_message(chat_id, text, reply_markup=self._get_main_keyboard())
         except Exception as e:
@@ -476,16 +580,26 @@ class TelegramBot:
             self.send_message(chat_id, f"Помилка даних клімату: {e}")
 
     def _send_floor1_details(self, chat_id: int, message_id: Optional[int] = None):
+        floors = self._get_floors()
+        f1 = floors.get("floor1", {})
+        temp = f1.get("temperature") if f1.get("temperature") is not None else f1.get("last_known_temperature")
+        hum = f1.get("humidity") if f1.get("humidity") is not None else f1.get("last_known_humidity")
+        is_online = f1.get("online", False) and temp is not None
+        status_mark = "🟢 Актуально" if is_online else "🔴 Офлайн"
+
+        temp_str = f"{temp}°C" if temp is not None else "--"
+        hum_str = f"{hum}%" if hum is not None else "--"
+
         msg = (
-            "🏠 *1-й поверх (Гараж)*\n\n"
-            "• Стан: ⏳ Фізичний датчик очікує підключення до ESP32-S3 (DHT22 / BME280).\n"
-            "• Температура: `--`\n"
-            "• Вологість: `--`\n\n"
-            "ℹ️ _Ви можете переглянути графік температури підвалу, де працює активний датчик._"
+            f"🏠 *1-й поверх (Гараж)*\n\n"
+            f"• Датчик: `AHT10 (ESP32 I2C)`\n"
+            f"• Стан: {status_mark}\n"
+            f"• Температура: `{temp_str}`\n"
+            f"• Вологість: `{hum_str}`\n"
         )
         reply_markup = {
             "inline_keyboard": [
-                [{"text": "📈 Графік (Підвал)", "callback_data": "chart_basement_24"}],
+                [{"text": "📈 Графік (1-й поверх)", "callback_data": "chart_floor1_24"}],
                 [{"text": "🔙 До меню температури", "callback_data": "clim_menu"}]
             ]
         }

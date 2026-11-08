@@ -991,11 +991,29 @@ class CommandProcessor:
             mirror_str = "Active" if status["mirroring"] else "Inactive"
             return True, f"Projector {status['device']}: {online_str} ({status['ip']}:{status['port']}) | Mirroring: {mirror_str}"
 
-        if cmd in ("стан проектора", "статус проектора"):
+        if cmd in ("стан проектора", "статус проектора", "проектор стан", "проектор статус"):
             status = self.projector.get_status()
-            online_str = "Онлайн" if status["online"] else "Офлайн"
+            online_str = "Онлайн" if status["online"] else "Офлайн (вимкнено/очікування)"
             mirror_str = "Активна" if status["mirroring"] else "Неактивна"
             return True, f"Проектор {status['device']}: {online_str} ({status['ip']}:{status['port']}) | Трансляція: {mirror_str}"
+
+        if cmd in (
+            "підключи проектор", "підключись до проектора", "підключися до проектора",
+            "з'єднайся з проектором", "з'єднай з проектором", "з'єднатися з проектором",
+            "спроби з'єднатися з проектором", "спробуй з'єднатися з проектором", "спробуй підключитися до проектора",
+            "попробуй з'єднатися з проектором", "попробуй підключитися до проектора",
+            "перевір проектор", "перевір зв'язок з проектором", "перевірити проектор", "перевірити зв'язок з проектором"
+        ):
+            is_alive = self.projector.is_reachable()
+            if is_alive:
+                return True, (
+                    f"✅ Зв'язок із проектором {self.projector.ip} (HY350MAX) встановлено! "
+                    "Проектор онлайн у мережі та готовий до трансляції відео, фільмів або екрана."
+                )
+            return True, (
+                f"⚠️ Проектор HY350MAX ({self.projector.ip}) зараз недосяжний у локальній мережі. "
+                "Перевірте, будь ласка, чи увімкнено його живлення (пультом або кнопкою) та чи підключений він до Wi-Fi."
+            )
 
         if cmd in ("project slide", "слайд проектора"):
             if not self.projector.is_reachable():

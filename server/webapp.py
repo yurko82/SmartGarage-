@@ -38,6 +38,7 @@ from server.sensors.freshness import (
     STATUS_NEVER_SEEN,
     SOURCE_BLE_DIRECT,
     SOURCE_ESP32_BRIDGE,
+    SOURCE_ESP32_SENSOR,
     SOURCE_SQLITE_HISTORY,
     SOURCE_CACHE,
     SOURCE_NONE,
@@ -294,8 +295,8 @@ def get_consolidated_floors_telemetry() -> Dict[str, Dict[str, Any]]:
             base_payload = build_sensor_payload(
                 floor=fk,
                 name=default_names[fk],
-                mac=None,
-                installed=(fk != "floor1"),
+                mac="ESP32-AHT10" if fk == "floor1" else None,
+                installed=True,
                 now=now
             )
 
@@ -308,14 +309,14 @@ def get_consolidated_floors_telemetry() -> Dict[str, Dict[str, Any]]:
             esp_payload = build_sensor_payload(
                 floor=fk,
                 name=ef.get("name") or base_payload.get("name") or default_names[fk],
-                mac=ef.get("mac") or base_payload.get("mac"),
+                mac=ef.get("mac") or base_payload.get("mac") or ("ESP32-AHT10" if fk == "floor1" else None),
                 temperature=ef.get("temperature"),
                 humidity=ef.get("humidity"),
                 battery=ef.get("battery"),
                 last_updated=last_read,
                 is_online_reported=esp_reported_online,
-                source=SOURCE_ESP32_BRIDGE,
-                installed=bool(ef.get("mac") or base_payload.get("mac")),
+                source=SOURCE_ESP32_SENSOR if fk == "floor1" else SOURCE_ESP32_BRIDGE,
+                installed=True,
                 now=now
             )
             # Merge: fresher reading wins, offline cannot overwrite fresh online
@@ -501,6 +502,34 @@ def esp32_poll():
             "result": res,
             "status": garage.esp32.get_diagnostics()
         })
+    return jsonify({"success": False, "error": "ESP32 не ініціалізовано"}), 500
+
+
+@app.route("/api/rf/pair", methods=["POST"])
+@require_auth
+def rf_pair_start():
+    data = request.get_json(silent=True) or {}
+    duration = int(data.get("duration", 30))
+    if hasattr(garage, "esp32") and garage.esp32:
+        ok = garage.esp32.rf_pair(duration_sec=duration)
+        return jsonify({"success": ok, "pairing": True, "duration_sec": duration})
+    return jsonify({"success": False, "error": "ESP32 не ініціалізовано"}), 500
+
+
+@app.route("/api/rf/pair_stop", methods=["POST"])
+@require_auth
+def rf_pair_stop():
+    if hasattr(garage, "esp32") and garage.esp32:
+        ok = garage.esp32.rf_pair_stop()
+        return jsonify({"success": ok, "pairing": False})
+    return jsonify({"success": False, "error": "ESP32 не ініціалізовано"}), 500
+
+
+@app.route("/api/rf/diag", methods=["GET", "POST"])
+def rf_diag_route():
+    if hasattr(garage, "esp32") and garage.esp32:
+        garage.esp32.rf_diag()
+        return jsonify({"success": True, "rf_status": garage.esp32.state.get("rf_status")})
     return jsonify({"success": False, "error": "ESP32 не ініціалізовано"}), 500
 
 

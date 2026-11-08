@@ -2566,7 +2566,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const FLOOR_INFO = {
         floor1: {
             title: '1-й поверх (Гараж)',
-            subtitle: 'Датчик очікує підключення',
+            subtitle: 'AHT10 (ESP32)',
             icon: '🏠'
         },
         floor2: {
@@ -2643,9 +2643,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (modalEmptyState) {
                     modalEmptyState.style.display = 'flex';
                     if (modalEmptyMsg) {
-                        modalEmptyMsg.textContent = activeModalFloor === 'floor1'
-                            ? 'Для 1-го поверху фізичний датчик ще не встановлено.'
-                            : 'Накопичення історії замірів триває (заміри фіксуються кожні кілька хвилин)...';
+                        modalEmptyMsg.textContent = 'Накопичення історії замірів триває (заміри фіксуються кожні кілька хвилин)...';
                     }
                 }
                 updateModalStats(null);

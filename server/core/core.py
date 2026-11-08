@@ -270,10 +270,10 @@ class SmartGarage:
         f2_desc = _fmt_desc(f2, "офлайн")
         f1_desc = _fmt_desc(f1, "очікує встановлення фізичного датчика")
 
+        lines.append(f"- Клімат 1-й поверх (гараж): {f1_desc}")
         lines.append(f"- Клімат Підвал: {b_desc}")
         lines.append(f"- Клімат 2-й поверх: {f2_desc}")
-        lines.append(f"- Клімат 1-й поверх: {f1_desc}")
-        lines.append(f"- Загальна температура в гаражі: у підвалі {b_desc}, на 2-му поверсі {f2_desc}")
+        lines.append(f"- Загальна температура в гаражі: на 1-му поверсі {f1_desc}, у підвалі {b_desc}, на 2-му поверсі {f2_desc}")
 
         # 3. Presence
         if hasattr(self, "presence") and self.presence:

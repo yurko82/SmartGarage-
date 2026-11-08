@@ -23,6 +23,7 @@ STATUS_NEVER_SEEN = "never_seen"
 
 SOURCE_BLE_DIRECT = "ble_direct"
 SOURCE_ESP32_BRIDGE = "esp32_ble_bridge"
+SOURCE_ESP32_SENSOR = "esp32_sensor"
 SOURCE_SQLITE_HISTORY = "sqlite_history"
 SOURCE_CACHE = "cache"
 SOURCE_NONE = "none"
@@ -30,6 +31,7 @@ SOURCE_NONE = "none"
 SOURCE_DESCRIPTIONS = {
     SOURCE_BLE_DIRECT: "Прямий BLE-зв'язок",
     SOURCE_ESP32_BRIDGE: "BLE через міст ESP32",
+    SOURCE_ESP32_SENSOR: "ESP32 (AHT10)",
     SOURCE_SQLITE_HISTORY: "Історія SQLite",
     SOURCE_CACHE: "Локальний кеш",
     SOURCE_NONE: "Немає джерела"

@@ -159,6 +159,24 @@ GARAGE_TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "projector_control",
+            "description": "Перевірка стану зв'язку або керування проектором HY350MAX (status - перевірити зв'язок/онлайн, power_off - вимкнути, mirror_stop - зупинити трансляцію).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["status", "power_off", "mirror_stop"],
+                        "description": "Дія: status (перевірити доступність у мережі), power_off (вимкнути живлення), mirror_stop (зупинити трансляцію)."
+                    }
+                },
+                "required": ["action"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "run_scenario",
             "description": "Активація комплексного автоматизованого сценарію розумного гаража.",
             "parameters": {
@@ -553,6 +571,7 @@ class ToolDispatcher:
             "seek_music_track",
             "play_media",
             "stop_media",
+            "projector_control",
             "run_scenario",
             "speaker_control",
             "get_climate_history",
@@ -647,6 +666,38 @@ class ToolDispatcher:
                     res = {"success": True, "message": "Відтворення на проекторі зупинено"}
                 else:
                     res = {"success": False, "error": "Контролер проектора недоступний"}
+
+            elif tool_name == "projector_control":
+                action = arguments.get("action", "status")
+                if not hasattr(self.garage, "projector") or not self.garage.projector:
+                    res = {"success": False, "error": "Контролер проектора недоступний"}
+                else:
+                    if action == "status":
+                        alive = self.garage.projector.is_reachable()
+                        status = self.garage.projector.get_status()
+                        if alive:
+                            res = {
+                                "success": True,
+                                "online": True,
+                                "message": f"Проектор HY350MAX ({status['ip']}:{status['port']}) онлайн і доступний у мережі."
+                            }
+                        else:
+                            res = {
+                                "success": False,
+                                "online": False,
+                                "error": f"Проектор HY350MAX ({status['ip']}) зараз недосяжний у локальній мережі (вимкнено або не підключено до Wi-Fi)."
+                            }
+                    elif action == "power_off":
+                        self.garage.projector.stop_mirroring()
+                        self.garage.projector.stop_video()
+                        self.garage.projector.send_rest_command("POWER")
+                        res = {"success": True, "message": "Проектор HY350MAX вимкнено (надіслано сигнал POWER)."}
+                    elif action == "mirror_stop":
+                        self.garage.projector.stop_mirroring()
+                        self.garage.projector.stop_video()
+                        res = {"success": True, "message": "Трансляцію на проектор зупинено."}
+                    else:
+                        res = {"success": False, "error": f"Невідома дія: {action}"}
 
             elif tool_name == "run_scenario":
                 scenario = arguments.get("scenario")
