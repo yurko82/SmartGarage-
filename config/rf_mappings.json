@@ -1,0 +1,36 @@
+{
+  "version": "1.0",
+  "updated_at": 1794171718.4934633,
+  "settings": {
+    "dedup_window_sec": 0.8,
+    "allow_rf_turn_on": false
+  },
+  "mappings": {
+    "15835393": {
+      "code": 15835393,
+      "hex": "0xF1A101",
+      "name": "Пульт Кнопка A (Підвал)",
+      "zone": "basement_light",
+      "action": "off",
+      "enabled": true,
+      "protocol": 1,
+      "bits": 24,
+      "delay": 320,
+      "created_at": 1794171603.8054986,
+      "last_triggered": null
+    },
+    "15835394": {
+      "code": 15835394,
+      "hex": "0xF1A102",
+      "name": "Пульт Кнопка B (2-й поверх)",
+      "zone": "floor2_light",
+      "action": "off",
+      "enabled": true,
+      "protocol": 1,
+      "bits": 24,
+      "delay": 320,
+      "created_at": 1794171603.8054996,
+      "last_triggered": null
+    }
+  }
+}

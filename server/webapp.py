@@ -217,6 +217,20 @@ def set_light():
     return jsonify({"success": True, "light": state})
 
 
+@app.route("/api/device/light/zone/off", methods=["POST"])
+@require_auth
+def light_zone_off():
+    data = request.get_json(silent=True) or {}
+    zone = data.get("zone", "main_light")
+    if hasattr(garage, "turn_off_light_zone"):
+        ok = garage.turn_off_light_zone(zone)
+        return jsonify({"success": True, "zone": zone, "action": "off", "executed": ok})
+    elif hasattr(garage, "esp32") and garage.esp32:
+        ok = garage.esp32.light_off_zone(zone)
+        return jsonify({"success": True, "zone": zone, "action": "off", "executed": ok})
+    return jsonify({"success": False, "error": "ESP32 не ініціалізовано"}), 500
+
+
 @app.route("/api/device/fan/toggle", methods=["POST"])
 @require_auth
 def toggle_fan():
@@ -526,11 +540,108 @@ def rf_pair_stop():
 
 
 @app.route("/api/rf/diag", methods=["GET", "POST"])
+@require_auth
 def rf_diag_route():
     if hasattr(garage, "esp32") and garage.esp32:
         garage.esp32.rf_diag()
         return jsonify({"success": True, "rf_status": garage.esp32.state.get("rf_status")})
     return jsonify({"success": False, "error": "ESP32 не ініціалізовано"}), 500
+
+
+@app.route("/api/rf/learn/start", methods=["POST"])
+@require_auth
+def rf_learn_start_route():
+    data = request.get_json(silent=True) or {}
+    duration = int(data.get("duration", 30))
+    if hasattr(garage, "esp32") and garage.esp32:
+        ok = garage.esp32.rf_learn_start(duration_sec=duration)
+        return jsonify({"success": ok, "learning": True, "duration_sec": duration})
+    return jsonify({"success": False, "error": "ESP32 не ініціалізовано"}), 500
+
+
+@app.route("/api/rf/learn/stop", methods=["POST"])
+@require_auth
+def rf_learn_stop_route():
+    if hasattr(garage, "esp32") and garage.esp32:
+        ok = garage.esp32.rf_learn_stop()
+        return jsonify({"success": ok, "learning": False})
+    return jsonify({"success": False, "error": "ESP32 не ініціалізовано"}), 500
+
+
+@app.route("/api/rf/learn/status", methods=["GET"])
+@require_auth
+def rf_learn_status_route():
+    if hasattr(garage, "esp32") and garage.esp32:
+        status = garage.esp32.rf_learn_status()
+        return jsonify({"success": True, "status": status})
+    return jsonify({"success": False, "error": "ESP32 не ініціалізовано"}), 500
+
+
+@app.route("/api/rf/mappings", methods=["GET"])
+@require_auth
+def rf_mappings_get():
+    if hasattr(garage, "esp32") and garage.esp32:
+        mappings = garage.esp32.get_rf_mappings()
+        return jsonify({"success": True, "mappings": mappings})
+    return jsonify({"success": False, "error": "ESP32 не ініціалізовано"}), 500
+
+
+@app.route("/api/rf/mappings", methods=["POST"])
+@require_auth
+def rf_mappings_set():
+    data = request.get_json(silent=True) or {}
+    code = data.get("code")
+    zone = data.get("zone")
+    name = data.get("name", "")
+    if not code or not zone:
+        return jsonify({"success": False, "error": "Параметри 'code' та 'zone' є обов'язковими"}), 400
+    try:
+        code_int = int(code)
+    except ValueError:
+        return jsonify({"success": False, "error": "Невірний числовий формат коду"}), 400
+        
+    if hasattr(garage, "esp32") and garage.esp32:
+        try:
+            ok = garage.esp32.set_rf_mapping(
+                code=code_int,
+                zone=zone,
+                name=name,
+                action="off",
+                protocol=int(data.get("protocol", 1)),
+                bits=int(data.get("bits", 24)),
+                delay=int(data.get("delay", 320))
+            )
+            return jsonify({"success": ok, "code": code_int, "zone": zone, "action": "off"})
+        except ValueError as ve:
+            return jsonify({"success": False, "error": str(ve)}), 400
+    return jsonify({"success": False, "error": "ESP32 не ініціалізовано"}), 500
+
+
+@app.route("/api/rf/mappings/<code_id>", methods=["DELETE"])
+@require_auth
+def rf_mappings_delete(code_id):
+    try:
+        code_int = int(code_id)
+    except ValueError:
+        return jsonify({"success": False, "error": "Невірний формат code_id"}), 400
+    if hasattr(garage, "esp32") and garage.esp32:
+        ok = garage.esp32.delete_rf_mapping(code_int)
+        return jsonify({"success": ok, "deleted_code": code_int})
+    return jsonify({"success": False, "error": "ESP32 не ініціалізовано"}), 500
+
+
+@app.route("/api/automation/rules", methods=["GET"])
+@require_auth
+def get_automation_rules():
+    rules_file = Path(__file__).resolve().parent.parent / "config" / "automation_rules.json"
+    if rules_file.exists():
+        try:
+            with open(rules_file, "r", encoding="utf-8") as f:
+                rules_data = json.load(f)
+            return jsonify({"success": True, "rules": rules_data.get("rules", [])})
+        except Exception as e:
+            return jsonify({"success": False, "error": str(e)}), 500
+    return jsonify({"success": True, "rules": []})
 
 
 @app.route("/api/esp32/clear_logs", methods=["POST"])

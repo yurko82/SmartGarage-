@@ -123,6 +123,10 @@ class ESP32Controller:
             f"Налаштовано хост {self.host}:{self.port}, інтерфейс: {self.interface or 'авто (ОС)'}"
         )
 
+        # Менеджер 433 МГц радіосигналів, зон освітлення та дедуплікації
+        from server.devices.rf_manager import RfManager
+        self.rf_manager = RfManager()
+
         # Старт послідовного порту (якщо налаштовано)
         if self.mode in ("auto", "serial") and serial is not None and not os.environ.get("TESTING"):
             self._start_serial_reader()
@@ -425,38 +429,72 @@ class ESP32Controller:
                     self.update_from_webhook(data, transport="serial")
             except Exception:
                 pass
-        elif "[RF_RX]" in line or "[RF_RX_ADAPTIVE]" in line:
+        elif "[RF_RX]" in line or "[RF_RX_ADAPTIVE]" in line or "[RF_LEARN]" in line:
             # Приклад: [RF_RX] Код: 15835393 (0xF1A101) | Біти: 24 | Протокол: 1 | Затримка: 320
-            # Або: [RF_RX_ADAPTIVE] Код: 15835393 (0xF1A101) | Біти: 24 | Синхропауза: 9800 us | Імпульсів: 49
+            # Або: [RF_LEARN] {"code":15835393,"hex":"0xF1A101","bits":24,"proto":1,"delay":320}
             try:
                 import re
-                m = re.search(r"Код:\s*(\d+)\s*\((0x[0-9a-fA-F]+)\)\s*\|\s*Біти:\s*(\d+)", line)
-                if m:
-                    code_val = int(m.group(1))
-                    hex_val = m.group(2)
-                    bits_val = int(m.group(3))
-                    proto_m = re.search(r"Протокол:\s*(\d+)", line)
-                    proto_val = int(proto_m.group(1)) if proto_m else 1
-                    delay_m = re.search(r"Затримка:\s*(\d+)", line)
-                    delay_val = int(delay_m.group(1)) if delay_m else 320
+                code_val = None
+                hex_val = None
+                bits_val = 24
+                proto_val = 1
+                delay_val = 320
+                sync_val = None
+                mode = "standard"
+
+                if "[RF_LEARN]" in line:
+                    idx = line.find("[RF_LEARN]")
+                    payload_str = line[idx + len("[RF_LEARN]"):].strip()
+                    try:
+                        learn_data = json.loads(payload_str)
+                        code_val = learn_data.get("code")
+                        hex_val = learn_data.get("hex")
+                        bits_val = learn_data.get("bits", 24)
+                        proto_val = learn_data.get("proto", 1)
+                        delay_val = learn_data.get("delay", 320)
+                        sync_val = learn_data.get("sync")
+                        mode = learn_data.get("mode", "learn")
+                    except Exception:
+                        pass
+
+                if code_val is None:
+                    m = re.search(r"Код:\s*(\d+)\s*\((0x[0-9a-fA-F]+)\)\s*\|\s*Біти:\s*(\d+)", line)
+                    if m:
+                        code_val = int(m.group(1))
+                        hex_val = m.group(2)
+                        bits_val = int(m.group(3))
+                        proto_m = re.search(r"Протокол:\s*(\d+)", line)
+                        proto_val = int(proto_m.group(1)) if proto_m else 1
+                        delay_m = re.search(r"Затримка:\s*(\d+)", line)
+                        delay_val = int(delay_m.group(1)) if delay_m else 320
+                        sync_m = re.search(r"Синхропауза:\s*(\d+)", line)
+                        sync_val = int(sync_m.group(1)) if sync_m else None
+                        mode = "adaptive" if "[RF_RX_ADAPTIVE]" in line else "standard"
+
+                if code_val is not None:
                     rf_info = {
                         "code": code_val,
-                        "hex": hex_val,
+                        "hex": hex_val or hex(code_val),
                         "bits": bits_val,
                         "protocol": proto_val,
                         "delay": delay_val,
+                        "sync": sync_val,
                         "timestamp": time.time(),
-                        "mode": "adaptive" if "[RF_RX_ADAPTIVE]" in line else "standard"
+                        "mode": mode
                     }
                     with self._lock:
                         self.state["last_rf_sniffed"] = rf_info
-                    self.log_event(
-                        "rf",
-                        "success",
-                        "📡 Перехоплено 433 МГц радіосигнал!",
-                        f"Код: {code_val} ({hex_val}) | Біти: {bits_val} | Протокол: {proto_val} | Затримка: {delay_val} мкс",
-                        rf_info
-                    )
+
+                    # Передача в RF Manager для дедуплікації та прив'язки дій до зон освітлення
+                    res = self.rf_manager.process_rf_event(rf_info, callback_zone_off=self.light_off_zone)
+
+                    log_msg = f"Код: {code_val} ({hex_val}) | Біти: {bits_val} | Протокол: {proto_val} | Затримка: {delay_val} мкс"
+                    if res.get("status") == "executed":
+                        self.log_event("rf", "success", f"💡 Вимкнено {res.get('zone')} за RF-кнопкою!", log_msg, rf_info)
+                    elif res.get("status") == "learning":
+                        self.log_event("rf", "info", "📡 Захоплено сигнал у режимі навчання", log_msg, rf_info)
+                    elif not res.get("deduplicated"):
+                        self.log_event("rf", "info", "📡 Перехоплено 433 МГц радіосигнал", log_msg, rf_info)
                 else:
                     self.log_event("rf", "info", "ESP32 RF_RX", line)
             except Exception as e:
@@ -708,6 +746,74 @@ class ESP32Controller:
                 return self.light_off()
             return self.light_on()
 
+    def light_off_zone(self, zone: str) -> bool:
+        """
+        Гарантоване вимкнення світла для окремої зони.
+        Ніколи не перемикає (toggle) і не вмикає світло через RF-подію.
+        """
+        with self._lock:
+            zone_norm = (zone or "main_light").lower().strip()
+            if zone_norm in ("basement_light", "basement"):
+                ok = self._send_serial_command("CMD:LIGHT:BASEMENT:OFF")
+                self.log_event("command", "info", "Вимкнення світла: Підвал", "Надіслано команду вимкнення для зони basement_light")
+                return ok
+            elif zone_norm in ("floor2_light", "floor2"):
+                ok = self._send_serial_command("CMD:LIGHT:FLOOR2:OFF")
+                self.log_event("command", "info", "Вимкнення світла: 2-й поверх", "Надіслано команду вимкнення для зони floor2_light")
+                return ok
+            elif zone_norm in ("main_light", "garage", "floor1", "light"):
+                self.light_off()
+                self._send_serial_command("CMD:LIGHT:MAIN:OFF")
+                return True
+            elif zone_norm in ("all", "all_lights", "всі", "все"):
+                self.light_off()
+                self._send_serial_command("CMD:LIGHT:MAIN:OFF")
+                self._send_serial_command("CMD:LIGHT:BASEMENT:OFF")
+                self._send_serial_command("CMD:LIGHT:FLOOR2:OFF")
+                return True
+            else:
+                logger.warning(f"Unknown light zone '{zone}', executing main light off")
+                self.light_off()
+                return True
+
+    def rf_learn_start(self, duration_sec: int = 30) -> bool:
+        """Запуск окремого діагностичного режиму навчання 433 МГц."""
+        with self._lock:
+            if hasattr(self, "rf_manager"):
+                self.rf_manager.start_learning(duration_sec)
+            ok = self._send_serial_command(f"CMD:RF_LEARN:START:{duration_sec}")
+            self.log_event("rf", "info", "Режим навчання 433 МГц", f"Запущено режим навчання на {duration_sec} сек")
+            return ok
+
+    def rf_learn_stop(self) -> bool:
+        """Зупинка режиму навчання 433 МГц."""
+        with self._lock:
+            if hasattr(self, "rf_manager"):
+                self.rf_manager.stop_learning()
+            ok = self._send_serial_command("CMD:RF_LEARN:STOP")
+            self.log_event("rf", "info", "Режим навчання 433 МГц", "Зупинено режим навчання")
+            return ok
+
+    def rf_learn_status(self) -> dict:
+        if hasattr(self, "rf_manager"):
+            return self.rf_manager.get_learning_status()
+        return {"learning_active": False, "remaining_sec": 0, "captured_count": 0, "recent_events": []}
+
+    def get_rf_mappings(self) -> dict:
+        if hasattr(self, "rf_manager"):
+            return self.rf_manager.get_mappings()
+        return {}
+
+    def set_rf_mapping(self, code: int, zone: str, name: str = "", action: str = "off", **kwargs) -> bool:
+        if hasattr(self, "rf_manager"):
+            return self.rf_manager.set_mapping(code=code, zone=zone, name=name, action="off", **kwargs)
+        return False
+
+    def delete_rf_mapping(self, code: int) -> bool:
+        if hasattr(self, "rf_manager"):
+            return self.rf_manager.delete_mapping(code)
+        return False
+
     def rf_pair(self, duration_sec: int = 30) -> bool:
         """Запуск безперервної трансляції коду сполучення для запису в пам'ять реле."""
         with self._lock:
@@ -956,6 +1062,8 @@ class ESP32Controller:
                 "stats": dict(self.stats),
                 "sensors": sensor_details,
                 "rf_status": self.state.get("rf_status"),
+                "rf_learning": self.rf_learn_status(),
+                "rf_mappings": self.get_rf_mappings(),
                 "last_rf_sniffed": self.state.get("last_rf_sniffed"),
                 "logs": logs_list[:80]
             }

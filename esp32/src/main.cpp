@@ -74,6 +74,12 @@ unsigned long lastMqttRetryTime = 0;
 #define PIN_CC1101_CSN   10
 #define PIN_CC1101_GDO0  7
 
+uint8_t g_pin_cc1101_sck  = PIN_CC1101_SCK;
+uint8_t g_pin_cc1101_miso = PIN_CC1101_MISO;
+uint8_t g_pin_cc1101_mosi = PIN_CC1101_MOSI;
+uint8_t g_pin_cc1101_csn  = PIN_CC1101_CSN;
+uint8_t g_pin_cc1101_gdo0 = PIN_CC1101_GDO0;
+
 #ifndef PIN_RGB_LED
   #ifdef RGB_BUILTIN
     #define PIN_RGB_LED RGB_BUILTIN
@@ -98,10 +104,22 @@ RCSwitch mySwitch = RCSwitch();
 bool cc1101Available = false;
 volatile unsigned long g_rf_edge_count = 0;
 
+inline void enableRfReceive() {
+  mySwitch.enableReceive(digitalPinToInterrupt(g_pin_cc1101_gdo0));
+}
+
+inline void disableRfReceive() {
+  mySwitch.disableReceive();
+}
+
 // Режим безперервного сполучення (Pairing Mode) для надійного запису коду в реле
 bool rfPairingActive = false;
 unsigned long rfPairingEndTime = 0;
 unsigned long lastPairSendTime = 0;
+
+// Режим навчання/діагностики радіокодів (Learning Mode)
+bool rfLearningActive = false;
+unsigned long rfLearningEndTime = 0;
 
 // 1-й поверх (локальний мікроклімат гаража AHT10)
 float floor1_temp = 0.0;
@@ -343,7 +361,7 @@ void readAht10() {
 
 void transmitRfCode(unsigned long code, unsigned int repeats = 10) {
   if (!cc1101Available) return;
-  mySwitch.disableReceive();
+  disableRfReceive();
 
   // 1. Налаштовуємо пін GDO0 на прийом модуляційних імпульсів від ESP32 (High-Z / Serial Data Input)
   ELECHOUSE_cc1101.SpiWriteReg(CC1101_IOCFG0, 0x2E);
@@ -377,7 +395,7 @@ void transmitRfCode(unsigned long code, unsigned int repeats = 10) {
   // 7. Повертаємо трансивер у режим очікування прийому RX
   ELECHOUSE_cc1101.SetRx();
   delayMicroseconds(500);
-  mySwitch.enableReceive(digitalPinToInterrupt(PIN_CC1101_GDO0));
+  enableRfReceive();
 
   Serial.printf("[RF433] Сигнал 0x%lX (%lu) надіслано в ефір (повторів=%u)\n", code, code, repeats);
 }
@@ -390,7 +408,7 @@ void transmitRfLight(bool state) {
 
 void setRfCarrier(bool enable) {
   if (!cc1101Available) return;
-  mySwitch.disableReceive();
+  disableRfReceive();
   if (enable) {
     ELECHOUSE_cc1101.SpiWriteReg(CC1101_IOCFG0, 0x2E);
     pinMode(PIN_CC1101_GDO0, OUTPUT);
@@ -405,17 +423,11 @@ void setRfCarrier(bool enable) {
     ELECHOUSE_cc1101.SpiWriteReg(CC1101_IOCFG0, 0x0D);
     ELECHOUSE_cc1101.SetRx();
     delayMicroseconds(500);
-    mySwitch.enableReceive(digitalPinToInterrupt(PIN_CC1101_GDO0));
+    enableRfReceive();
     setLedColor(0, 160, 255);
     Serial.println("RESP:{\"status\":\"ok\",\"carrier\":false}");
   }
 }
-
-uint8_t g_pin_cc1101_sck  = PIN_CC1101_SCK;
-uint8_t g_pin_cc1101_miso = PIN_CC1101_MISO;
-uint8_t g_pin_cc1101_mosi = PIN_CC1101_MOSI;
-uint8_t g_pin_cc1101_csn  = PIN_CC1101_CSN;
-uint8_t g_pin_cc1101_gdo0 = PIN_CC1101_GDO0;
 
 bool autoDetectCC1101Pins() {
   // Тестуємо комбінації пінів SPI на випадок переплутаних дротів
@@ -495,7 +507,7 @@ bool autoDetectCC1101Pins() {
 }
 
 void runRfDiagnostics() {
-  mySwitch.disableReceive();
+  disableRfReceive();
 
   bool detected = autoDetectCC1101Pins();
 
@@ -548,7 +560,7 @@ void runRfDiagnostics() {
     ELECHOUSE_cc1101.setRxBW(270.0);
     ELECHOUSE_cc1101.SpiWriteReg(CC1101_IOCFG0, 0x0D);
     ELECHOUSE_cc1101.SetRx();
-    mySwitch.enableReceive(digitalPinToInterrupt(g_pin_cc1101_gdo0));
+    enableRfReceive();
     cc1101Available = true;
     setLedColor(0, 160, 255);
   }
@@ -819,6 +831,36 @@ void processSerialCommand(String cmd) {
   } else if (cmd.equalsIgnoreCase("LIGHT_OFF") || cmd.equalsIgnoreCase("CMD:LIGHT_OFF") || cmd == "{\"command\":\"light_off\"}") {
     setLight(false);
     Serial.println("RESP:{\"status\":\"ok\",\"light\":false}");
+  } else if (cmd.equalsIgnoreCase("LIGHT:BASEMENT:OFF") || cmd.equalsIgnoreCase("CMD:LIGHT:BASEMENT:OFF")) {
+    transmitRfCode(RF_CODE_LIGHT_OFF, 10);
+    Serial.println("RESP:{\"status\":\"ok\",\"zone\":\"basement_light\",\"action\":\"off\"}");
+  } else if (cmd.equalsIgnoreCase("LIGHT:FLOOR2:OFF") || cmd.equalsIgnoreCase("CMD:LIGHT:FLOOR2:OFF")) {
+    transmitRfCode(RF_CODE_LIGHT_OFF, 10);
+    Serial.println("RESP:{\"status\":\"ok\",\"zone\":\"floor2_light\",\"action\":\"off\"}");
+  } else if (cmd.equalsIgnoreCase("LIGHT:MAIN:OFF") || cmd.equalsIgnoreCase("CMD:LIGHT:MAIN:OFF")) {
+    digitalWrite(PIN_RELAY_LIGHT, LOW);
+    lightState = false;
+    Serial.println("RESP:{\"status\":\"ok\",\"zone\":\"main_light\",\"action\":\"off\"}");
+  } else if (cmd.startsWith("RF_LEARN:START") || cmd.startsWith("CMD:RF_LEARN:START")) {
+    int colIdx = cmd.lastIndexOf(':');
+    int durSec = 30;
+    if (colIdx != -1 && colIdx < cmd.length() - 1) {
+      durSec = cmd.substring(colIdx + 1).toInt();
+      if (durSec <= 0) durSec = 30;
+    }
+    rfLearningActive = true;
+    rfLearningEndTime = millis() + (unsigned long)durSec * 1000UL;
+    setLedColor(140, 0, 200); // Фіолетовий: режим навчання
+    Serial.printf("RESP:{\"status\":\"ok\",\"rf_learning\":true,\"duration_sec\":%d}\n", durSec);
+  } else if (cmd.equalsIgnoreCase("RF_LEARN:STOP") || cmd.equalsIgnoreCase("CMD:RF_LEARN:STOP")) {
+    rfLearningActive = false;
+    setLedColor(0, 160, 255);
+    Serial.println("RESP:{\"status\":\"ok\",\"rf_learning\":false}");
+  } else if (cmd.equalsIgnoreCase("RF_LEARN:STATUS") || cmd.equalsIgnoreCase("CMD:RF_LEARN:STATUS")) {
+    int remain = rfLearningActive ? (int)((rfLearningEndTime - millis()) / 1000) : 0;
+    if (remain < 0) remain = 0;
+    Serial.printf("RESP:{\"status\":\"ok\",\"rf_learning\":%s,\"remaining_sec\":%d}\n",
+                  rfLearningActive ? "true" : "false", remain);
   } else if (cmd.equalsIgnoreCase("FAN_ON") || cmd.equalsIgnoreCase("CMD:FAN_ON") || cmd == "{\"command\":\"fan_on\"}") {
     setFan(true);
     Serial.println("RESP:{\"status\":\"ok\",\"fan\":true}");
@@ -984,7 +1026,7 @@ void setup() {
     Serial.println("[DBG] 9: SpiWriteReg done");
     ELECHOUSE_cc1101.SetRx();
     Serial.println("[DBG] 10: SetRx done");
-    mySwitch.enableReceive(digitalPinToInterrupt(g_pin_cc1101_gdo0));
+    enableRfReceive();
     Serial.println("[DBG] 11: enableReceive done");
     mySwitch.setReceiveTolerance(80);
     cc1101Available = true;
@@ -1208,6 +1250,13 @@ void loop() {
     }
   }
 
+  // Перевірка таймауту режиму навчання
+  if (rfLearningActive && millis() > rfLearningEndTime) {
+    rfLearningActive = false;
+    setLedColor(0, 160, 255);
+    Serial.println("[RF_LEARN] Режим навчання завершено (таймаут).");
+  }
+
   // Обробка вхідних 433 МГц радіосигналів (перехоплення / слухання вимикачів)
   static unsigned long lastEdgeCount = 0;
   static unsigned long lastRssiCheck = 0;
@@ -1226,6 +1275,10 @@ void loop() {
 
       if (val != 0) {
         Serial.printf("[RF_RX] Код: %lu (0x%lX) | Біти: %u | Протокол: %u | Затримка: %u\n", val, val, bits, proto, delay);
+        if (rfLearningActive) {
+          Serial.printf("[RF_LEARN] {\"code\":%lu,\"hex\":\"0x%lX\",\"bits\":%u,\"proto\":%u,\"delay\":%u,\"mode\":\"rcswitch\"}\n",
+                        val, val, bits, proto, delay);
+        }
         setLedColor(0, 200, 0); // Яскравий зелений: 100% успішно розпізнано!
         currentLedState = 2;
         ledResetTime = millis() + 1500;
@@ -1263,6 +1316,10 @@ void loop() {
       if (decodeSuccess) {
         Serial.printf("[RF_RX_ADAPTIVE] Код: %lu (0x%lX) | Біти: %u | Синхропауза: %u us | Імпульсів: %u\n",
                       decodedCode, decodedCode, decodedBits, sync, count);
+        if (rfLearningActive) {
+          Serial.printf("[RF_LEARN] {\"code\":%lu,\"hex\":\"0x%lX\",\"bits\":%u,\"sync\":%u,\"pulses\":%u,\"mode\":\"adaptive\"}\n",
+                        decodedCode, decodedCode, decodedBits, sync, count);
+        }
         setLedColor(0, 200, 0); // Яскравий зелений: адаптивно розпізнано!
         currentLedState = 2;
         ledResetTime = millis() + 1500;

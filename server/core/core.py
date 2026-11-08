@@ -382,6 +382,12 @@ class SmartGarage:
         self._voice_worker_thread.start()
         self.logger.info("VoiceQueueWorker thread initialized.")
 
+    def turn_off_light_zone(self, zone: str) -> bool:
+        """Гарантоване вимкнення світла для окремої зони (basement_light, floor2_light, main_light)."""
+        if hasattr(self, "esp32") and self.esp32:
+            return self.esp32.light_off_zone(zone)
+        return False
+
     def start(self):
 
         self.logger.info("Starting Smart Garage...")

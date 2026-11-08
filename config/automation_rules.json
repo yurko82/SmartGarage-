@@ -1,0 +1,44 @@
+{
+  "version": "1.0",
+  "description": "Конфігурація правил автоматизації вимкнення освітлення Smart Garage. За замовчуванням усі правила вимкнено (enabled=false).",
+  "rules": [
+    {
+      "id": "rule_auto_off_basement_inactivity",
+      "name": "Автоматичне вимкнення світла в підвалі за відсутності руху/присутності",
+      "zone": "basement_light",
+      "action": "off",
+      "enabled": false,
+      "trigger": "inactivity_timeout",
+      "params": {
+        "timeout_minutes": 30,
+        "check_presence": true
+      },
+      "comment": "Потребує підтвердження користувачем перед активацією: час очікування (хв)"
+    },
+    {
+      "id": "rule_auto_off_floor2_schedule",
+      "name": "Нічне вимкнення світла 2-го поверху за розкладом",
+      "zone": "floor2_light",
+      "action": "off",
+      "enabled": false,
+      "trigger": "time_schedule",
+      "params": {
+        "schedule_time": "23:00",
+        "days_of_week": [1, 2, 3, 4, 5, 6, 7]
+      },
+      "comment": "Потребує підтвердження користувачем: точний час нічного вимкнення"
+    },
+    {
+      "id": "rule_auto_off_garage_departure",
+      "name": "Вимкнення світла при відході власника з гаража",
+      "zone": "main_light",
+      "action": "off",
+      "enabled": false,
+      "trigger": "owner_departure",
+      "params": {
+        "delay_seconds": 60
+      },
+      "comment": "Потребує підтвердження користувачем: затримка після зміни статусу присутності"
+    }
+  ]
+}

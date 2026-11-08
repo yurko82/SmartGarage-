@@ -305,7 +305,7 @@ class CommandProcessor:
                 "вимкни колонку", "виключ колонку", "виключи колонку",
                 "вимкни все", "виключ все", "виключи все", "вируби все", "зупини все"
             ))
-        )
+        ) and not any(w in cmd for w in ("світло", "світла", "вентиляц", "витяжк"))
 
         if is_stop_intent:
             self.speaker.stop()
@@ -1056,6 +1056,33 @@ class CommandProcessor:
         ):
             self.esp32.light_off()
             return True, "Освітлення гаража вимкнено."
+
+        if cmd in (
+            "вимкни світло в підвалі", "вимкни світло підвал", "погаси світло в підвалі",
+            "вимкнути світло в підвалі", "вимкнути світло підвал", "підвал світло вимкни",
+            "вимкни підвал"
+        ):
+            if hasattr(self.esp32, "light_off_zone"):
+                self.esp32.light_off_zone("basement_light")
+            return True, "Світло в підвалі вимкнено."
+
+        if cmd in (
+            "вимкни світло на другому поверсі", "вимкни світло 2 поверх", "вимкни світло другий поверх",
+            "погаси світло на другому поверсі", "вимкнути світло на другому поверсі", "другий поверх світло вимкни",
+            "вимкни другий поверх"
+        ):
+            if hasattr(self.esp32, "light_off_zone"):
+                self.esp32.light_off_zone("floor2_light")
+            return True, "Світло на другому поверсі вимкнено."
+
+        if cmd in (
+            "вимкни все світло", "погаси все світло", "вимкнути все світло", "виключи все світло"
+        ):
+            if hasattr(self.esp32, "light_off_zone"):
+                self.esp32.light_off_zone("all")
+            else:
+                self.esp32.light_off()
+            return True, "Усе світло у всіх зонах (гараж, підвал, 2-й поверх) вимкнено."
 
         if cmd in ("light toggle", "toggle light", "світло перемкнути", "перемкни світло"):
             state = self.esp32.light_toggle()
