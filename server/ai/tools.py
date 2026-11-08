@@ -12,14 +12,18 @@ GARAGE_TOOLS = [
         "type": "function",
         "function": {
             "name": "control_device",
-            "description": "Керування фізичними виконавчими пристроями гаража через ESP32-S3 (освітлення по зонах: light, basement_light, floor2_light, main_light, витяжна вентиляція). Привід воріт не планується.",
+            "description": "Керування фізичними виконавчими пристроями гаража через ESP32-S3 (освітлення та вентиляція по зонах: light, basement_light, basement_fan, floor2_kitchen, floor2_living_room, floor2_light, main_light, fan). Привід воріт не планується.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "device": {
                         "type": "string",
-                        "enum": ["light", "fan", "basement_light", "floor2_light", "main_light"],
-                        "description": "Тип пристрою: light (усе освітлення), basement_light (підвал), floor2_light (2-й поверх), main_light (гараж/1-й поверх), fan (витяжна вентиляція)."
+                        "enum": [
+                            "light", "fan", "basement_light", "basement_fan",
+                            "floor2_kitchen", "floor2_living_room", "floor2_light",
+                            "main_light", "main_fan"
+                        ],
+                        "description": "Зона/пристрій: light (усе освітлення), basement_light (світло підвал), basement_fan (витяжка підвал), floor2_kitchen (кухня 2-й поверх), floor2_living_room (вітальня 2-й поверх), floor2_light (загальне 2-й поверх), main_light (світло гараж), fan/main_fan (витяжка гараж)."
                     },
                     "action": {
                         "type": "string",
@@ -474,8 +478,13 @@ class ToolDispatcher:
         if tool_name == "control_device":
             device = args.get("device")
             action = args.get("action")
-            if device not in ("light", "fan", "door", "basement_light", "floor2_light", "main_light"):
-                return False, f"неприпустимий пристрій '{device}' (дозволено: 'light', 'fan', 'basement_light', 'floor2_light', 'main_light')"
+            valid_devs = (
+                "light", "fan", "door", "basement_light", "basement_fan",
+                "floor2_kitchen", "floor2_living_room", "floor2_light",
+                "main_light", "main_fan"
+            )
+            if device not in valid_devs:
+                return False, f"неприпустимий пристрій '{device}' (дозволено: {', '.join(valid_devs)})"
             if action not in ("on", "off", "toggle", "open", "close"):
                 return False, f"неприпустима дія '{action}' (дозволено: 'on', 'off', 'toggle')"
 
@@ -847,26 +856,63 @@ class ToolDispatcher:
 
         elif device in ("basement_light", "basement"):
             if action == "off":
-                if hasattr(esp, "light_off_zone"):
+                if hasattr(esp, "control_zone"):
+                    esp.control_zone("basement_light", "off")
+                elif hasattr(esp, "light_off_zone"):
                     esp.light_off_zone("basement_light")
                 return {"success": True, "message": "Світло в підвалі вимкнено"}
             elif action == "on":
-                # Відправка коду увімкнення світла підвалу
-                if hasattr(esp, "_send_serial_command"):
+                if hasattr(esp, "control_zone"):
+                    esp.control_zone("basement_light", "on")
+                elif hasattr(esp, "_send_serial_command"):
                     esp._send_serial_command("CMD:RF_SEND:15835393:24:1:320")
-                return {"success": True, "message": "Надіслано команду увімкнення світла в підвалі"}
+                return {"success": True, "message": "Світло в підвалі увімкнено"}
+
+        elif device in ("basement_fan", "basement_ventilation"):
+            if action == "off":
+                if hasattr(esp, "control_zone"):
+                    esp.control_zone("basement_fan", "off")
+                return {"success": True, "message": "Вентиляцію в підвалі вимкнено"}
+            elif action == "on":
+                if hasattr(esp, "control_zone"):
+                    esp.control_zone("basement_fan", "on")
+                return {"success": True, "message": "Вентиляцію в підвалі увімкнено"}
+
+        elif device in ("floor2_kitchen", "kitchen"):
+            if action == "off":
+                if hasattr(esp, "control_zone"):
+                    esp.control_zone("floor2_kitchen", "off")
+                return {"success": True, "message": "Світло на кухні (2-й поверх) вимкнено"}
+            elif action == "on":
+                if hasattr(esp, "control_zone"):
+                    esp.control_zone("floor2_kitchen", "on")
+                return {"success": True, "message": "Світло на кухні (2-й поверх) увімкнено"}
+
+        elif device in ("floor2_living_room", "living_room"):
+            if action == "off":
+                if hasattr(esp, "control_zone"):
+                    esp.control_zone("floor2_living_room", "off")
+                return {"success": True, "message": "Світло у вітальні (2-й поверх) вимкнено"}
+            elif action == "on":
+                if hasattr(esp, "control_zone"):
+                    esp.control_zone("floor2_living_room", "on")
+                return {"success": True, "message": "Світло у вітальні (2-й поверх) увімкнено"}
 
         elif device in ("floor2_light", "floor2"):
             if action == "off":
-                if hasattr(esp, "light_off_zone"):
+                if hasattr(esp, "control_zone"):
+                    esp.control_zone("floor2_light", "off")
+                elif hasattr(esp, "light_off_zone"):
                     esp.light_off_zone("floor2_light")
                 return {"success": True, "message": "Світло на 2-му поверсі вимкнено"}
             elif action == "on":
-                if hasattr(esp, "_send_serial_command"):
+                if hasattr(esp, "control_zone"):
+                    esp.control_zone("floor2_light", "on")
+                elif hasattr(esp, "_send_serial_command"):
                     esp._send_serial_command("CMD:RF_SEND:15835394:24:1:320")
-                return {"success": True, "message": "Надіслано команду увімкнення світла на 2-му поверсі"}
+                return {"success": True, "message": "Світло на 2-му поверсі увімкнено"}
 
-        elif device == "fan":
+        elif device in ("fan", "main_fan"):
             if action == "on":
                 esp.fan_on()
                 return {"success": True, "message": "Витяжну вентиляцію увімкнено"}

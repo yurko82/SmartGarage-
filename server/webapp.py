@@ -231,6 +231,21 @@ def light_zone_off():
     return jsonify({"success": False, "error": "ESP32 не ініціалізовано"}), 500
 
 
+@app.route("/api/device/zone/control", methods=["POST"])
+@require_auth
+def device_zone_control():
+    data = request.get_json(silent=True) or {}
+    zone = data.get("zone", "main_light")
+    action = data.get("action", "off")
+    if hasattr(garage, "control_zone"):
+        ok = garage.control_zone(zone, action)
+        return jsonify({"success": True, "zone": zone, "action": action, "executed": ok})
+    elif hasattr(garage, "esp32") and garage.esp32:
+        ok = garage.esp32.control_zone(zone, action)
+        return jsonify({"success": True, "zone": zone, "action": action, "executed": ok})
+    return jsonify({"success": False, "error": "ESP32 не ініціалізовано"}), 500
+
+
 @app.route("/api/device/fan/toggle", methods=["POST"])
 @require_auth
 def toggle_fan():
@@ -627,6 +642,151 @@ def rf_mappings_delete(code_id):
     if hasattr(garage, "esp32") and garage.esp32:
         ok = garage.esp32.delete_rf_mapping(code_int)
         return jsonify({"success": ok, "deleted_code": code_int})
+    return jsonify({"success": False, "error": "ESP32 не ініціалізовано"}), 500
+
+
+@app.route("/api/rf/status", methods=["GET"])
+@require_auth
+def rf_status_get():
+    if hasattr(garage, "esp32") and garage.esp32:
+        metrics = garage.esp32.get_rf_metrics()
+        activity = garage.esp32.get_rf_activity(limit=25)
+        learn_status = garage.esp32.rf_learn_status()
+        rf_status = garage.esp32.state.get("rf_status") or {"cc1101": True, "freq": 433.92, "rssi": -85}
+        return jsonify({
+            "success": True,
+            "metrics": metrics,
+            "activity": activity,
+            "learning": learn_status,
+            "rf_status": rf_status
+        })
+    return jsonify({"success": False, "error": "ESP32 не ініціалізовано"}), 500
+
+
+@app.route("/api/rf/activity", methods=["GET"])
+@require_auth
+def rf_activity_get():
+    limit = int(request.args.get("limit", 50))
+    if hasattr(garage, "esp32") and garage.esp32:
+        activity = garage.esp32.get_rf_activity(limit=limit)
+        metrics = garage.esp32.get_rf_metrics()
+        return jsonify({"success": True, "activity": activity, "metrics": metrics})
+    return jsonify({"success": False, "error": "ESP32 не ініціалізовано"}), 500
+
+
+@app.route("/api/rf/zones", methods=["GET"])
+@require_auth
+def rf_zones_get():
+    from server.devices.rf_manager import VALID_ZONES, ZONE_DESCRIPTIONS
+    zones = []
+    for z in VALID_ZONES:
+        cat = "basement" if "basement" in z else ("floor2" if "floor2" in z else "garage")
+        zones.append({"id": z, "name": ZONE_DESCRIPTIONS.get(z, z), "category": cat})
+    return jsonify({"success": True, "zones": zones})
+
+
+@app.route("/api/rf/relays", methods=["GET"])
+@require_auth
+def rf_relays_get():
+    if hasattr(garage, "esp32") and garage.esp32:
+        relays = garage.esp32.get_rf_relays()
+        return jsonify({"success": True, "relays": relays})
+    return jsonify({"success": False, "error": "ESP32 не ініціалізовано"}), 500
+
+
+@app.route("/api/rf/relays", methods=["POST"])
+@require_auth
+def rf_relays_set():
+    data = request.get_json(silent=True) or {}
+    zone = data.get("zone")
+    name = data.get("name", "")
+    code_on = data.get("code_on")
+    code_off = data.get("code_off")
+    relay_id = data.get("id") or f"relay_{zone}_{int(time.time())}"
+    if not zone or code_on is None or code_off is None:
+        return jsonify({"success": False, "error": "Параметри 'zone', 'code_on' та 'code_off' обов'язкові"}), 400
+    try:
+        on_int = int(code_on)
+        off_int = int(code_off)
+    except ValueError:
+        return jsonify({"success": False, "error": "Невірний числовий формат кодів ON/OFF"}), 400
+    if hasattr(garage, "esp32") and garage.esp32:
+        try:
+            ok = garage.esp32.set_rf_relay(
+                relay_id=relay_id,
+                zone=zone,
+                name=name,
+                code_on=on_int,
+                code_off=off_int,
+                protocol=int(data.get("protocol", 1)),
+                bits=int(data.get("bits", 24)),
+                delay=int(data.get("delay", 320)),
+                enabled=bool(data.get("enabled", True))
+            )
+            return jsonify({"success": ok, "relay_id": relay_id, "zone": zone, "name": name})
+        except ValueError as ve:
+            return jsonify({"success": False, "error": str(ve)}), 400
+    return jsonify({"success": False, "error": "ESP32 не ініціалізовано"}), 500
+
+
+@app.route("/api/rf/relays/<relay_id>", methods=["DELETE"])
+@require_auth
+def rf_relays_delete(relay_id):
+    if hasattr(garage, "esp32") and garage.esp32:
+        ok = garage.esp32.delete_rf_relay(relay_id)
+        return jsonify({"success": ok, "deleted_relay_id": relay_id})
+    return jsonify({"success": False, "error": "ESP32 не ініціалізовано"}), 500
+
+
+@app.route("/api/rf/relays/<relay_id>/test", methods=["POST"])
+@require_auth
+def rf_relays_test(relay_id):
+    data = request.get_json(silent=True) or {}
+    action = data.get("action", "on")
+    if hasattr(garage, "esp32") and garage.esp32:
+        ok = garage.esp32.test_rf_relay(relay_id, action=action)
+        return jsonify({"success": ok, "relay_id": relay_id, "action": action})
+    return jsonify({"success": False, "error": "ESP32 не ініціалізовано"}), 500
+
+
+@app.route("/api/rf/relays/<relay_id>/pair", methods=["POST"])
+@require_auth
+def rf_relays_pair(relay_id):
+    data = request.get_json(silent=True) or {}
+    action = data.get("action", "on")
+    duration = int(data.get("duration", 15))
+    if hasattr(garage, "esp32") and garage.esp32:
+        ok = garage.esp32.pair_rf_relay(relay_id, action=action, duration_sec=duration)
+        return jsonify({"success": ok, "relay_id": relay_id, "action": action, "duration": duration})
+    return jsonify({"success": False, "error": "ESP32 не ініціалізовано"}), 500
+
+
+@app.route("/api/rf/transmit", methods=["POST"])
+@require_auth
+def rf_transmit_route():
+    data = request.get_json(silent=True) or {}
+    code = data.get("code")
+    if code is None:
+        return jsonify({"success": False, "error": "Параметр 'code' обов'язковий"}), 400
+    try:
+        code_int = int(code)
+    except ValueError:
+        return jsonify({"success": False, "error": "Невірний формат коду"}), 400
+    zone = data.get("zone")
+    action = data.get("action", "transmit")
+    name = data.get("name", "")
+    if hasattr(garage, "esp32") and garage.esp32:
+        ok = garage.esp32.rf_transmit(
+            code=code_int,
+            zone=zone,
+            action=action,
+            name=name,
+            repeats=int(data.get("repeats", 10)),
+            protocol=int(data.get("protocol", 1)),
+            bits=int(data.get("bits", 24)),
+            delay=int(data.get("delay", 320))
+        )
+        return jsonify({"success": ok, "code": code_int, "zone": zone, "action": action})
     return jsonify({"success": False, "error": "ESP32 не ініціалізовано"}), 500
 
 

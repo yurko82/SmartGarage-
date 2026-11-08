@@ -1057,28 +1057,102 @@ class CommandProcessor:
             self.esp32.light_off()
             return True, "Освітлення гаража вимкнено."
 
+        # Підвал: Світло та Вентиляція
+        if cmd in (
+            "увімкни світло в підвалі", "увімкни світло підвал", "засвіти світло в підвалі",
+            "підвал світло увімкни", "увімкни підвал", "включи світло в підвалі"
+        ):
+            if hasattr(self.esp32, "control_zone"):
+                self.esp32.control_zone("basement_light", "on")
+            return True, "Світло в підвалі увімкнено."
+
         if cmd in (
             "вимкни світло в підвалі", "вимкни світло підвал", "погаси світло в підвалі",
             "вимкнути світло в підвалі", "вимкнути світло підвал", "підвал світло вимкни",
-            "вимкни підвал"
+            "вимкни підвал", "виключи світло в підвалі"
         ):
-            if hasattr(self.esp32, "light_off_zone"):
+            if hasattr(self.esp32, "control_zone"):
+                self.esp32.control_zone("basement_light", "off")
+            elif hasattr(self.esp32, "light_off_zone"):
                 self.esp32.light_off_zone("basement_light")
             return True, "Світло в підвалі вимкнено."
 
         if cmd in (
+            "увімкни вентиляцію в підвалі", "увімкни витяжку в підвалі", "включи витяжку в підвалі",
+            "включи вентиляцію в підвалі", "підвал витяжка увімкни", "підвал вентиляція увімкни"
+        ):
+            if hasattr(self.esp32, "control_zone"):
+                self.esp32.control_zone("basement_fan", "on")
+            return True, "Вентиляцію в підвалі увімкнено."
+
+        if cmd in (
+            "вимкни вентиляцію в підвалі", "вимкни витяжку в підвалі", "виключи витяжку в підвалі",
+            "виключи вентиляцію в підвалі", "підвал витяжка вимкни", "підвал вентиляція вимкни"
+        ):
+            if hasattr(self.esp32, "control_zone"):
+                self.esp32.control_zone("basement_fan", "off")
+            return True, "Вентиляцію в підвалі вимкнено."
+
+        # 2-й поверх: Кімната 1 (Кухня)
+        if cmd in (
+            "увімкни світло на кухні", "увімкни світло кухня", "засвіти світло на кухні",
+            "кухня світло увімкни", "увімкни кухню", "включи світло на кухні"
+        ):
+            if hasattr(self.esp32, "control_zone"):
+                self.esp32.control_zone("floor2_kitchen", "on")
+            return True, "Світло на кухні (2-й поверх) увімкнено."
+
+        if cmd in (
+            "вимкни світло на кухні", "вимкни світло кухня", "погаси світло на кухні",
+            "кухня світло вимкни", "вимкни кухню", "виключи світло на кухні"
+        ):
+            if hasattr(self.esp32, "control_zone"):
+                self.esp32.control_zone("floor2_kitchen", "off")
+            return True, "Світло на кухні (2-й поверх) вимкнено."
+
+        # 2-й поверх: Кімната 2 (Вітальня)
+        if cmd in (
+            "увімкни світло у вітальні", "увімкни світло вітальня", "засвіти світло у вітальні",
+            "вітальня світло увімкни", "увімкни вітальню", "включи світло у вітальні"
+        ):
+            if hasattr(self.esp32, "control_zone"):
+                self.esp32.control_zone("floor2_living_room", "on")
+            return True, "Світло у вітальні (2-й поверх) увімкнено."
+
+        if cmd in (
+            "вимкни світло у вітальні", "вимкни світло вітальня", "погаси світло у вітальні",
+            "вітальня світло вимкни", "вимкни вітальню", "виключи світло у вітальні"
+        ):
+            if hasattr(self.esp32, "control_zone"):
+                self.esp32.control_zone("floor2_living_room", "off")
+            return True, "Світло у вітальні (2-й поверх) вимкнено."
+
+        # 2-й поверх: Загальне освітлення
+        if cmd in (
+            "увімкни світло на другому поверсі", "увімкни світло 2 поверх", "увімкни світло другий поверх",
+            "засвіти світло на другому поверсі", "другий поверх світло увімкни", "увімкни другий поверх"
+        ):
+            if hasattr(self.esp32, "control_zone"):
+                self.esp32.control_zone("floor2_light", "on")
+            return True, "Світло на другому поверсі увімкнено."
+
+        if cmd in (
             "вимкни світло на другому поверсі", "вимкни світло 2 поверх", "вимкни світло другий поверх",
             "погаси світло на другому поверсі", "вимкнути світло на другому поверсі", "другий поверх світло вимкни",
-            "вимкни другий поверх"
+            "вимкни другий поверх", "виключи світло на другому поверсі"
         ):
-            if hasattr(self.esp32, "light_off_zone"):
+            if hasattr(self.esp32, "control_zone"):
+                self.esp32.control_zone("floor2_light", "off")
+            elif hasattr(self.esp32, "light_off_zone"):
                 self.esp32.light_off_zone("floor2_light")
             return True, "Світло на другому поверсі вимкнено."
 
         if cmd in (
             "вимкни все світло", "погаси все світло", "вимкнути все світло", "виключи все світло"
         ):
-            if hasattr(self.esp32, "light_off_zone"):
+            if hasattr(self.esp32, "control_zone"):
+                self.esp32.control_zone("all", "off")
+            elif hasattr(self.esp32, "light_off_zone"):
                 self.esp32.light_off_zone("all")
             else:
                 self.esp32.light_off()

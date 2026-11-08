@@ -1219,8 +1219,9 @@ document.addEventListener('DOMContentLoaded', () => {
     setInterval(() => {
         if (sessionStorage.getItem('sg_admin_auth') === 'true' && document.getElementById('adminTab')?.classList.contains('active')) {
             loadPresenceData();
+            loadRfStatus();
         }
-    }, 20000);
+    }, 5000);
     // Auto-update climate chart every 30 minutes (1800000 ms)
     setInterval(() => {
         if (document.getElementById('chartsTab')?.classList.contains('active')) {
@@ -1865,6 +1866,8 @@ document.addEventListener('DOMContentLoaded', () => {
             loadPresenceData();
             loadDevicesData();
             loadLogData();
+            loadRfStatus();
+            loadRelays();
         } else {
             if (adminAuthSection) adminAuthSection.style.display = 'block';
             if (adminContentSection) adminContentSection.style.display = 'none';
@@ -2268,6 +2271,464 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             })
             .catch(err => alert('Помилка збереження: ' + err.message));
+        });
+    }
+
+    // --- 433 MHz RF TRANSCEIVER & RADIO RELAYS LOGIC ---
+    const btnRefreshRfActivity = document.getElementById('btnRefreshRfActivity');
+    const btnRfDiag = document.getElementById('btnRfDiag');
+    const statRfModuleStatus = document.getElementById('statRfModuleStatus');
+    const statRfRssi = document.getElementById('statRfRssi');
+    const statRfTxCount = document.getElementById('statRfTxCount');
+    const statRfRxCount = document.getElementById('statRfRxCount');
+    const statRfDedupCount = document.getElementById('statRfDedupCount');
+    const statRfLastTx = document.getElementById('statRfLastTx');
+    const statRfLastRx = document.getElementById('statRfLastRx');
+    const rfActivityTableBody = document.getElementById('rfActivityTableBody');
+
+    const btnRefreshRelays = document.getElementById('btnRefreshRelays');
+    const relaysTableBody = document.getElementById('relaysTableBody');
+    const relayConfigForm = document.getElementById('relayConfigForm');
+    const relayZoneSelect = document.getElementById('relayZoneSelect');
+    const relayNameInput = document.getElementById('relayNameInput');
+    const relayCodeOnInput = document.getElementById('relayCodeOnInput');
+    const relayCodeOffInput = document.getElementById('relayCodeOffInput');
+    const btnGenRelayCodes = document.getElementById('btnGenRelayCodes');
+    const btnPairRelayOn = document.getElementById('btnPairRelayOn');
+    const btnPairRelayOff = document.getElementById('btnPairRelayOff');
+    const btnTestRelayOn = document.getElementById('btnTestRelayOn');
+    const btnTestRelayOff = document.getElementById('btnTestRelayOff');
+    const pairStatusIndicator = document.getElementById('pairStatusIndicator');
+    const pairStatusMsg = document.getElementById('pairStatusMsg');
+
+    const btnStartRfLearn = document.getElementById('btnStartRfLearn');
+    const rfLearnStatusBox = document.getElementById('rfLearnStatusBox');
+    const rfLearnStatusText = document.getElementById('rfLearnStatusText');
+
+    let pairTimer = null;
+
+    function formatTime(ts) {
+        if (!ts) return 'ніколи';
+        const d = new Date(ts * 1000);
+        return d.toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    }
+
+    function loadRfStatus() {
+        fetch('/api/rf/status')
+            .then(res => res.json())
+            .then(data => {
+                if (!data.success) return;
+                const m = data.metrics || {};
+                const rf = data.rf_status || {};
+                if (statRfModuleStatus) {
+                    const ok = rf.cc1101 !== false;
+                    statRfModuleStatus.innerHTML = ok ? '🟢 Онлайн (433.92 МГц)' : '🔴 Офлайн';
+                    statRfModuleStatus.style.color = ok ? 'var(--success)' : 'var(--danger)';
+                }
+                if (statRfRssi) {
+                    statRfRssi.textContent = (rf.rssi !== undefined && rf.rssi !== null) ? `Сигнал (RSSI): ${rf.rssi} dBm` : 'Сигнал: готовність';
+                }
+                if (statRfTxCount) statRfTxCount.textContent = m.tx_count || 0;
+                if (statRfRxCount) statRfRxCount.textContent = m.rx_count || 0;
+                if (statRfDedupCount) statRfDedupCount.textContent = m.burst_dedup_count || 0;
+
+                if (statRfLastTx) {
+                    statRfLastTx.textContent = m.last_tx_time ? `Остання: ${formatTime(m.last_tx_time)}` : 'Остання: ніколи';
+                }
+                if (statRfLastRx) {
+                    statRfLastRx.textContent = m.last_rx_time ? `Остання: ${formatTime(m.last_rx_time)}` : 'Остання: ніколи';
+                }
+
+                if (rfActivityTableBody && data.activity) {
+                    if (data.activity.length === 0) {
+                        rfActivityTableBody.innerHTML = '<tr><td colspan="6" class="text-muted">Немає зафіксованих подій в ефірі</td></tr>';
+                    } else {
+                        rfActivityTableBody.innerHTML = data.activity.map(item => {
+                            const isTx = item.direction === 'TX';
+                            const dirBadge = isTx 
+                                ? '<span class="badge" style="background:#2563eb; color:#fff;">TX ⬆️ Передача</span>' 
+                                : '<span class="badge" style="background:#059669; color:#fff;">RX ⬇️ Прийом</span>';
+                            const actBadge = item.is_repeat 
+                                ? '<span class="badge" style="background:rgba(255,255,255,0.1); color:#cbd5e1;">Повтор (Burst)</span>' 
+                                : (item.action === 'off' ? '<span class="badge" style="background:#ef4444; color:#fff;">OFF</span>' : (item.action === 'on' ? '<span class="badge" style="background:#22c55e; color:#fff;">ON</span>' : `<span class="badge" style="background:rgba(255,255,255,0.1); color:#cbd5e1;">${escapeHtml(item.action)}</span>`));
+                            return `
+                                <tr>
+                                    <td><strong>${escapeHtml(item.time)}</strong></td>
+                                    <td>${dirBadge}</td>
+                                    <td><code>${escapeHtml(item.hex)}</code> <span class="text-muted">(${item.code})</span></td>
+                                    <td>${escapeHtml(item.zone_title || item.zone || '—')}</td>
+                                    <td>${actBadge}</td>
+                                    <td><small>${escapeHtml(item.details || '—')}</small></td>
+                                </tr>
+                            `;
+                        }).join('');
+                    }
+                }
+            })
+            .catch(() => {});
+    }
+
+    function loadRelays() {
+        fetch('/api/rf/relays')
+            .then(res => res.json())
+            .then(data => {
+                if (!data.success || !relaysTableBody) return;
+                const relays = Object.values(data.relays || {});
+                if (relays.length === 0) {
+                    relaysTableBody.innerHTML = '<tr><td colspan="6" class="text-muted">Немає прив\'язаних радіореле</td></tr>';
+                    return;
+                }
+                relaysTableBody.innerHTML = relays.map(r => {
+                    const onHex = r.code_on_hex || ('0x' + Number(r.code_on).toString(16).toUpperCase());
+                    const offHex = r.code_off_hex || ('0x' + Number(r.code_off).toString(16).toUpperCase());
+                    const lastAct = r.last_action ? `${r.last_action.toUpperCase()} (${formatTime(r.last_switched)})` : 'Не вмикалось';
+                    return `
+                        <tr>
+                            <td><strong>${escapeHtml(r.name)}</strong></td>
+                            <td><code>${escapeHtml(r.zone)}</code></td>
+                            <td><span style="color:var(--success)">${onHex}</span> <small class="text-muted">(${r.code_on})</small></td>
+                            <td><span style="color:var(--danger)">${offHex}</span> <small class="text-muted">(${r.code_off})</small></td>
+                            <td><small>${lastAct}</small></td>
+                            <td>
+                                <div style="display:flex; gap:4px; flex-wrap:wrap;">
+                                    <button class="btn-sm btn-relay-test" data-id="${escapeHtml(r.id)}" data-action="on" title="Надіслати код ON">⚡ ON</button>
+                                    <button class="btn-sm btn-relay-test" data-id="${escapeHtml(r.id)}" data-action="off" title="Надіслати код OFF">⚡ OFF</button>
+                                    <button class="btn-sm btn-relay-pair" data-id="${escapeHtml(r.id)}" data-action="on" title="Сполучення коду ON з реле">📡 Pair ON</button>
+                                    <button class="btn-sm btn-relay-pair" data-id="${escapeHtml(r.id)}" data-action="off" title="Сполучення коду OFF з реле">📡 Pair OFF</button>
+                                    <button class="btn-sm btn-danger btn-relay-del" data-id="${escapeHtml(r.id)}" title="Видалити реле">🗑️</button>
+                                </div>
+                            </td>
+                        </tr>
+                    `;
+                }).join('');
+            })
+            .catch(() => {});
+    }
+
+    // Event delegation for zone buttons & relay action buttons
+    document.addEventListener('click', (e) => {
+        const btnZone = e.target.closest('.btn-zone-action');
+        if (btnZone) {
+            const zone = btnZone.getAttribute('data-zone');
+            const action = btnZone.getAttribute('data-action');
+            if (!zone || !action) return;
+
+            btnZone.disabled = true;
+            fetch('/api/device/zone/control', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ zone: zone, action: action })
+            })
+            .then(res => res.json())
+            .then(d => {
+                btnZone.disabled = false;
+                if (d.success) {
+                    loadRfStatus();
+                    loadRelays();
+                } else {
+                    alert('Помилка: ' + (d.error || 'не вдалося виконати команду'));
+                }
+            })
+            .catch(err => {
+                btnZone.disabled = false;
+                alert('Помилка запиту: ' + err.message);
+            });
+            return;
+        }
+
+        const btnTest = e.target.closest('.btn-relay-test');
+        if (btnTest) {
+            const rId = btnTest.getAttribute('data-id');
+            const act = btnTest.getAttribute('data-action');
+            btnTest.disabled = true;
+            fetch(`/api/rf/relays/${rId}/test`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: act })
+            })
+            .then(res => res.json())
+            .then(d => {
+                btnTest.disabled = false;
+                if (d.success) {
+                    loadRfStatus();
+                    loadRelays();
+                } else {
+                    alert('Помилка тестування реле: ' + (d.error || ''));
+                }
+            })
+            .catch(err => {
+                btnTest.disabled = false;
+                alert('Помилка запиту: ' + err.message);
+            });
+            return;
+        }
+
+        const btnPair = e.target.closest('.btn-relay-pair');
+        if (btnPair) {
+            const rId = btnPair.getAttribute('data-id');
+            const act = btnPair.getAttribute('data-action');
+            startPairingRelay(rId, act);
+            return;
+        }
+
+        const btnDel = e.target.closest('.btn-relay-del');
+        if (btnDel) {
+            const rId = btnDel.getAttribute('data-id');
+            if (confirm(`Ви впевнені, що бажаєте видалити радіореле "${rId}"?`)) {
+                fetch(`/api/rf/relays/${rId}`, { method: 'DELETE' })
+                    .then(res => res.json())
+                    .then(d => {
+                        if (d.success) {
+                            loadRelays();
+                        } else {
+                            alert('Помилка видалення: ' + (d.error || ''));
+                        }
+                    })
+                    .catch(err => alert('Помилка запиту: ' + err.message));
+            }
+            return;
+        }
+    });
+
+    function startPairingRelay(relayId, action = 'on') {
+        if (pairTimer) clearInterval(pairTimer);
+        if (pairStatusIndicator && pairStatusMsg) {
+            pairStatusIndicator.style.display = 'block';
+            let remain = 15;
+            pairStatusMsg.textContent = `📡 Трансляція коду ${action.toUpperCase()} для реле (${remain}с)... Утримуйте кнопку навчання на радіореле!`;
+
+            pairTimer = setInterval(() => {
+                remain -= 1;
+                if (remain <= 0) {
+                    clearInterval(pairTimer);
+                    pairStatusMsg.textContent = '✅ Сполучення завершено. Перевірте роботу реле кнопками "⚡ Тест ON/OFF"!';
+                    setTimeout(() => { if (pairStatusIndicator) pairStatusIndicator.style.display = 'none'; }, 4000);
+                } else {
+                    pairStatusMsg.textContent = `📡 Трансляція коду ${action.toUpperCase()} для реле (${remain}с)... Утримуйте кнопку навчання на радіореле!`;
+                }
+            }, 1000);
+        }
+
+        fetch(`/api/rf/relays/${relayId}/pair`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: action, duration: 15 })
+        })
+        .then(res => res.json())
+        .then(d => {
+            if (d.success) {
+                loadRfStatus();
+            } else {
+                alert('Помилка запуску сполучення: ' + (d.error || ''));
+            }
+        })
+        .catch(err => alert('Помилка: ' + err.message));
+    }
+
+    if (btnRefreshRfActivity) {
+        btnRefreshRfActivity.addEventListener('click', () => loadRfStatus());
+    }
+
+    if (btnRefreshRelays) {
+        btnRefreshRelays.addEventListener('click', () => loadRelays());
+    }
+
+    if (btnRfDiag) {
+        btnRfDiag.addEventListener('click', () => {
+            fetch('/api/rf/diag', { method: 'POST' })
+                .then(res => res.json())
+                .then(() => {
+                    alert('Запит апаратної діагностики CC1101 надіслано до ESP32. Оновлення...');
+                    setTimeout(loadRfStatus, 1000);
+                })
+                .catch(err => alert('Помилка: ' + err.message));
+        });
+    }
+
+    if (btnGenRelayCodes) {
+        btnGenRelayCodes.addEventListener('click', () => {
+            const baseCode = Math.floor(15800000 + Math.random() * 50000);
+            if (relayCodeOnInput) relayCodeOnInput.value = baseCode;
+            if (relayCodeOffInput) relayCodeOffInput.value = baseCode + 1;
+        });
+    }
+
+    if (btnPairRelayOn) {
+        btnPairRelayOn.addEventListener('click', () => {
+            const code = relayCodeOnInput ? relayCodeOnInput.value : '';
+            if (!code) { alert('Спочатку введіть або згенеруйте код ON'); return; }
+            triggerDirectPair(code, 'ON');
+        });
+    }
+
+    if (btnPairRelayOff) {
+        btnPairRelayOff.addEventListener('click', () => {
+            const code = relayCodeOffInput ? relayCodeOffInput.value : '';
+            if (!code) { alert('Спочатку введіть або згенеруйте код OFF'); return; }
+            triggerDirectPair(code, 'OFF');
+        });
+    }
+
+    function triggerDirectPair(code, actName) {
+        if (pairTimer) clearInterval(pairTimer);
+        if (pairStatusIndicator && pairStatusMsg) {
+            pairStatusIndicator.style.display = 'block';
+            let remain = 15;
+            pairStatusMsg.textContent = `📡 Безперервна трансляція коду ${code} (${actName}) [${remain}с]... Утримуйте кнопку на реле!`;
+
+            pairTimer = setInterval(() => {
+                remain -= 1;
+                if (remain <= 0) {
+                    clearInterval(pairTimer);
+                    pairStatusMsg.textContent = '✅ Трансляцію коду сполучення завершено.';
+                    setTimeout(() => { if (pairStatusIndicator) pairStatusIndicator.style.display = 'none'; }, 4000);
+                } else {
+                    pairStatusMsg.textContent = `📡 Безперервна трансляція коду ${code} (${actName}) [${remain}с]... Утримуйте кнопку на реле!`;
+                }
+            }, 1000);
+        }
+
+        fetch('/api/rf/pair', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ duration: 15, code: Number(code) })
+        })
+        .then(res => res.json())
+        .then(() => loadRfStatus())
+        .catch(err => alert('Помилка: ' + err.message));
+    }
+
+    if (btnTestRelayOn) {
+        btnTestRelayOn.addEventListener('click', () => {
+            const code = relayCodeOnInput ? relayCodeOnInput.value : '';
+            const zone = relayZoneSelect ? relayZoneSelect.value : '';
+            if (!code) { alert('Введіть код ON для тесту'); return; }
+            fetch('/api/rf/transmit', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ code: Number(code), zone: zone, action: 'on', name: 'Тест ON' })
+            })
+            .then(res => res.json())
+            .then(d => {
+                if (d.success) loadRfStatus();
+                else alert('Помилка передачі: ' + (d.error || ''));
+            })
+            .catch(err => alert('Помилка: ' + err.message));
+        });
+    }
+
+    if (btnTestRelayOff) {
+        btnTestRelayOff.addEventListener('click', () => {
+            const code = relayCodeOffInput ? relayCodeOffInput.value : '';
+            const zone = relayZoneSelect ? relayZoneSelect.value : '';
+            if (!code) { alert('Введіть код OFF для тесту'); return; }
+            fetch('/api/rf/transmit', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ code: Number(code), zone: zone, action: 'off', name: 'Тест OFF' })
+            })
+            .then(res => res.json())
+            .then(d => {
+                if (d.success) loadRfStatus();
+                else alert('Помилка передачі: ' + (d.error || ''));
+            })
+            .catch(err => alert('Помилка: ' + err.message));
+        });
+    }
+
+    if (relayConfigForm) {
+        relayConfigForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const zone = relayZoneSelect ? relayZoneSelect.value : '';
+            const name = (relayNameInput ? relayNameInput.value : '').trim();
+            const codeOn = relayCodeOnInput ? relayCodeOnInput.value : '';
+            const codeOff = relayCodeOffInput ? relayCodeOffInput.value : '';
+            if (!zone || !name || !codeOn || !codeOff) {
+                alert('Заповніть усі поля форми');
+                return;
+            }
+
+            const payload = {
+                zone: zone,
+                name: name,
+                code_on: Number(codeOn),
+                code_off: Number(codeOff),
+                protocol: 1,
+                bits: 24,
+                delay: 320,
+                enabled: true
+            };
+
+            fetch('/api/rf/relays', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            })
+            .then(res => res.json())
+            .then(d => {
+                if (d.success) {
+                    alert(`✅ Радіореле "${name}" для зони "${zone}" успішно збережено!`);
+                    relayConfigForm.reset();
+                    loadRelays();
+                    loadRfStatus();
+                } else {
+                    alert('Помилка збереження реле: ' + (d.error || ''));
+                }
+            })
+            .catch(err => alert('Помилка: ' + err.message));
+        });
+    }
+
+    if (btnStartRfLearn) {
+        btnStartRfLearn.addEventListener('click', () => {
+            btnStartRfLearn.disabled = true;
+            if (rfLearnStatusBox && rfLearnStatusText) {
+                rfLearnStatusBox.style.display = 'block';
+                rfLearnStatusText.textContent = '📡 Запуск режиму навчання... Натисніть кнопку на фізичному пульті 433 МГц!';
+            }
+
+            fetch('/api/rf/learn/start', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ duration: 30 })
+            })
+            .then(res => res.json())
+            .then(d => {
+                if (d.success) {
+                    let pollCount = 0;
+                    const learnPoll = setInterval(() => {
+                        pollCount += 1;
+                        fetch('/api/rf/learn/status')
+                            .then(r => r.json())
+                            .then(sd => {
+                                if (sd.success && sd.status) {
+                                    const st = sd.status;
+                                    if (st.learning_active) {
+                                        rfLearnStatusText.textContent = `🎯 Режим навчання активний (${st.remaining_sec}с). Захоплено сигналів: ${st.captured_count}. Натисніть кнопку пульта!`;
+                                    } else {
+                                        clearInterval(learnPoll);
+                                        btnStartRfLearn.disabled = false;
+                                        rfLearnStatusText.textContent = `✅ Режим навчання завершено. Захоплено кодів: ${st.captured_count}. Перевірте журнал активності.`;
+                                        loadRfStatus();
+                                    }
+                                }
+                            })
+                            .catch(() => {});
+
+                        if (pollCount > 35) {
+                            clearInterval(learnPoll);
+                            btnStartRfLearn.disabled = false;
+                        }
+                    }, 1000);
+                } else {
+                    btnStartRfLearn.disabled = false;
+                    alert('Не вдалося запустити режим навчання: ' + (d.error || ''));
+                }
+            })
+            .catch(err => {
+                btnStartRfLearn.disabled = false;
+                alert('Помилка: ' + err.message);
+            });
         });
     }
 

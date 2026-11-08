@@ -116,6 +116,7 @@ inline void disableRfReceive() {
 bool rfPairingActive = false;
 unsigned long rfPairingEndTime = 0;
 unsigned long lastPairSendTime = 0;
+unsigned long rfPairingCode = RF_CODE_LIGHT_ON;
 
 // Режим навчання/діагностики радіокодів (Learning Mode)
 bool rfLearningActive = false;
@@ -870,25 +871,40 @@ void processSerialCommand(String cmd) {
   } else if (cmd.startsWith("RF_SEND:") || cmd.startsWith("CMD:RF_SEND:")) {
     int colIdx = cmd.lastIndexOf(':');
     if (colIdx != -1 && colIdx < cmd.length() - 1) {
-      unsigned long code = strtoul(cmd.substring(colIdx + 1).c_str(), NULL, 10);
+      unsigned long code = strtoul(cmd.substring(colIdx + 1).c_str(), NULL, 0);
       if (cc1101Available) {
         transmitRfCode(code, 10);
-        Serial.printf("RESP:{\"status\":\"ok\",\"rf_sent\":%lu}\n", code);
+        Serial.printf("RESP:{\"status\":\"ok\",\"rf_sent\":%lu,\"hex\":\"0x%lX\"}\n", code, code);
       } else {
         Serial.println("RESP:{\"status\":\"error\",\"error\":\"CC1101 offline\"}");
       }
     }
   } else if (cmd.startsWith("RF_PAIR:") || cmd.startsWith("CMD:RF_PAIR:")) {
-    int colIdx = cmd.lastIndexOf(':');
-    int durSec = 30;
-    if (colIdx != -1 && colIdx < cmd.length() - 1) {
-      durSec = cmd.substring(colIdx + 1).toInt();
-      if (durSec <= 0) durSec = 30;
+    int prefixLen = cmd.startsWith("CMD:") ? 12 : 8;
+    String args = cmd.substring(prefixLen);
+    args.trim();
+    int durSec = 15;
+    unsigned long pairCode = RF_CODE_LIGHT_ON;
+    int sep = args.indexOf(':');
+    if (sep != -1) {
+      pairCode = strtoul(args.substring(0, sep).c_str(), NULL, 0);
+      durSec = args.substring(sep + 1).toInt();
+    } else if (args.length() > 0) {
+      unsigned long val = strtoul(args.c_str(), NULL, 0);
+      if (val > 120) {
+        pairCode = val;
+        durSec = 15;
+      } else {
+        durSec = (int)val;
+      }
     }
+    if (durSec <= 0) durSec = 15;
+    if (pairCode == 0) pairCode = RF_CODE_LIGHT_ON;
+    rfPairingCode = pairCode;
     rfPairingActive = true;
     rfPairingEndTime = millis() + (unsigned long)durSec * 1000UL;
     lastPairSendTime = 0;
-    Serial.printf("RESP:{\"status\":\"ok\",\"pairing\":true,\"duration_sec\":%d,\"code\":%lu}\n", durSec, (unsigned long)RF_CODE_LIGHT_ON);
+    Serial.printf("RESP:{\"status\":\"ok\",\"pairing\":true,\"duration_sec\":%d,\"code\":%lu,\"hex\":\"0x%lX\"}\n", durSec, pairCode, pairCode);
   } else if (cmd.equalsIgnoreCase("RF_PAIR_STOP") || cmd.equalsIgnoreCase("CMD:RF_PAIR_STOP")) {
     rfPairingActive = false;
     setLedColor(0, 160, 255);
@@ -1240,7 +1256,7 @@ void loop() {
     if (millis() < rfPairingEndTime) {
       if (millis() - lastPairSendTime >= 120) {
         lastPairSendTime = millis();
-        transmitRfCode(RF_CODE_LIGHT_ON, 4);
+        transmitRfCode(rfPairingCode, 4);
         setLedColor(140, 0, 140); // Фіолетовий індикатор: активна постійна трансляція коду
       }
     } else {

@@ -573,6 +573,8 @@ class ESP32Controller:
 
     def _send_serial_command(self, cmd: str) -> bool:
         with self._lock:
+            if self.mode == "mock" or os.environ.get("TESTING"):
+                return True
             if not getattr(self, "_serial_handshake_verified", False):
                 return False
             if self._serial and self._serial.is_open:
@@ -746,35 +748,169 @@ class ESP32Controller:
                 return self.light_off()
             return self.light_on()
 
+    def control_zone(self, zone: str, action: str = "off") -> bool:
+        """
+        Керування пристроєм у зоні (підвал: світло/вентиляція, 2-й поверх: кухня/вітальня/загальне, гараж).
+        Підтримує радіореле 433 МГц та прямі апаратні канали.
+        """
+        with self._lock:
+            zone_norm = (zone or "main_light").lower().strip()
+            act_norm = (action or "off").lower().strip()
+
+            if zone_norm in ("main_light", "garage", "floor1", "light"):
+                if act_norm == "on":
+                    return self.light_on()
+                else:
+                    self.light_off()
+                    self._send_serial_command("CMD:LIGHT:MAIN:OFF")
+                    return True
+
+            elif zone_norm in ("main_fan", "garage_fan"):
+                if act_norm == "on":
+                    return self.fan_on()
+                else:
+                    return self.fan_off()
+
+            elif zone_norm in ("all", "all_lights", "всі", "все"):
+                if act_norm == "off":
+                    self.light_off()
+                    self._send_serial_command("CMD:LIGHT:MAIN:OFF")
+                    self._send_serial_command("CMD:LIGHT:BASEMENT:OFF")
+                    self._send_serial_command("CMD:LIGHT:FLOOR2:OFF")
+                    for z in ("floor2_kitchen", "floor2_living_room"):
+                        if hasattr(self, "rf_manager"):
+                            r = self.rf_manager.get_relay_by_zone(z)
+                            if r:
+                                self.rf_transmit(r["code_off"], zone=z, action="off", name=r.get("name"))
+                    return True
+                else:
+                    return self.light_on()
+
+            # Обробка зон через RfManager та радіореле 433 МГц
+            relay = None
+            if hasattr(self, "rf_manager"):
+                relay = self.rf_manager.get_relay_by_zone(zone_norm)
+
+            if relay:
+                code = relay["code_on"] if act_norm == "on" else relay["code_off"]
+                name = relay.get("name", zone_norm)
+                ok = self.rf_transmit(
+                    code=code,
+                    zone=zone_norm,
+                    action=act_norm,
+                    name=name,
+                    protocol=relay.get("protocol", 1),
+                    bits=relay.get("bits", 24),
+                    delay=relay.get("delay", 320)
+                )
+                if hasattr(self, "rf_manager"):
+                    self.rf_manager.update_relay_state(relay["id"], act_norm)
+                return ok
+
+            # Fallback для стандартних зон без окремого запису реле
+            if zone_norm in ("basement_light", "basement"):
+                if act_norm == "off":
+                    ok = self._send_serial_command("CMD:LIGHT:BASEMENT:OFF")
+                    self.log_event("command", "info", "Вимкнення світла: Підвал", "Надіслано команду вимкнення для зони basement_light")
+                    if hasattr(self, "rf_manager"):
+                        self.rf_manager.log_activity("TX", 15835394, action="off", zone="basement_light", details="Fallback serial command")
+                    return ok
+                else:
+                    return self.rf_transmit(15835393, zone="basement_light", action="on", name="Підвал: Світло")
+
+            elif zone_norm in ("basement_fan", "basement_ventilation"):
+                code = 15835395 if act_norm == "on" else 15835396
+                return self.rf_transmit(code, zone="basement_fan", action=act_norm, name="Підвал: Вентиляція")
+
+            elif zone_norm in ("floor2_kitchen", "kitchen"):
+                code = 15835397 if act_norm == "on" else 15835398
+                return self.rf_transmit(code, zone="floor2_kitchen", action=act_norm, name="2-й поверх: Кімната 1 (Кухня)")
+
+            elif zone_norm in ("floor2_living_room", "living_room"):
+                code = 15835399 if act_norm == "on" else 15835400
+                return self.rf_transmit(code, zone="floor2_living_room", action=act_norm, name="2-й поверх: Кімната 2 (Вітальня)")
+
+            elif zone_norm in ("floor2_light", "floor2"):
+                if act_norm == "off":
+                    ok = self._send_serial_command("CMD:LIGHT:FLOOR2:OFF")
+                    self.log_event("command", "info", "Вимкнення світла: 2-й поверх", "Надіслано команду вимкнення для зони floor2_light")
+                    if hasattr(self, "rf_manager"):
+                        self.rf_manager.log_activity("TX", 15835394, action="off", zone="floor2_light", details="Fallback serial command")
+                    return ok
+                else:
+                    return self.rf_transmit(15835394, zone="floor2_light", action="on", name="2-й поверх: Загальне світло")
+
+            else:
+                self.log_event("command", "warning", f"Невідома зона '{zone}'", f"Виконується дія за замовчуванням: {act_norm}")
+                if act_norm == "off":
+                    return self.light_off()
+                return self.light_on()
+
     def light_off_zone(self, zone: str) -> bool:
         """
         Гарантоване вимкнення світла для окремої зони.
         Ніколи не перемикає (toggle) і не вмикає світло через RF-подію.
         """
+        return self.control_zone(zone, "off")
+
+    def rf_transmit(
+        self,
+        code: int,
+        zone: Optional[str] = None,
+        action: str = "transmit",
+        name: str = "",
+        repeats: int = 10,
+        protocol: int = 1,
+        bits: int = 24,
+        delay: int = 320
+    ) -> bool:
+        """Трансляція 433 МГц радіосигналу в ефір через CC1101 із записом у журнал активності."""
         with self._lock:
-            zone_norm = (zone or "main_light").lower().strip()
-            if zone_norm in ("basement_light", "basement"):
-                ok = self._send_serial_command("CMD:LIGHT:BASEMENT:OFF")
-                self.log_event("command", "info", "Вимкнення світла: Підвал", "Надіслано команду вимкнення для зони basement_light")
-                return ok
-            elif zone_norm in ("floor2_light", "floor2"):
-                ok = self._send_serial_command("CMD:LIGHT:FLOOR2:OFF")
-                self.log_event("command", "info", "Вимкнення світла: 2-й поверх", "Надіслано команду вимкнення для зони floor2_light")
-                return ok
-            elif zone_norm in ("main_light", "garage", "floor1", "light"):
-                self.light_off()
-                self._send_serial_command("CMD:LIGHT:MAIN:OFF")
-                return True
-            elif zone_norm in ("all", "all_lights", "всі", "все"):
-                self.light_off()
-                self._send_serial_command("CMD:LIGHT:MAIN:OFF")
-                self._send_serial_command("CMD:LIGHT:BASEMENT:OFF")
-                self._send_serial_command("CMD:LIGHT:FLOOR2:OFF")
-                return True
-            else:
-                logger.warning(f"Unknown light zone '{zone}', executing main light off")
-                self.light_off()
-                return True
+            c_int = int(code)
+            ok = self._send_serial_command(f"CMD:RF_SEND:{c_int}")
+            hex_code = hex(c_int).upper().replace("X", "x")
+            from server.devices.rf_manager import ZONE_DESCRIPTIONS
+            desc = name or (ZONE_DESCRIPTIONS.get(zone) if zone else f"Код {hex_code}")
+            log_title = f"📡 Передача 433 МГц: {desc}"
+            log_msg = f"Код: {c_int} ({hex_code}) | Дія: {action.upper()}"
+            self.log_event("rf", "info", log_title, log_msg, {"code": c_int, "hex": hex_code, "zone": zone, "action": action})
+
+            if hasattr(self, "rf_manager"):
+                self.rf_manager.log_activity(
+                    direction="TX",
+                    code=c_int,
+                    action=action,
+                    zone=zone,
+                    zone_title=desc,
+                    status="success" if ok else "warning",
+                    details=f"Команда {action.upper()} для {desc}",
+                    protocol=protocol,
+                    bits=bits,
+                    delay=delay
+                )
+            return ok
+
+    def rf_pair_relay(self, code: int, duration_sec: int = 15, name: str = "") -> bool:
+        """Безперервна трансляція коду для запису в нове радіореле під час сполучення."""
+        with self._lock:
+            c_int = int(code)
+            ok = self._send_serial_command(f"CMD:RF_PAIR:{c_int}:{duration_sec}")
+            hex_code = hex(c_int).upper().replace("X", "x")
+            desc = name or f"Реле {hex_code}"
+            self.log_event(
+                "rf", "info", f"📡 Сполучення радіореле: {desc}",
+                f"Трансляція коду {c_int} ({hex_code}) на {duration_sec} сек"
+            )
+            if hasattr(self, "rf_manager"):
+                self.rf_manager.log_activity(
+                    direction="TX",
+                    code=c_int,
+                    action="pair",
+                    zone_title=f"Сполучення: {desc}",
+                    status="info",
+                    details=f"Безперервна трансляція {duration_sec}с для прив'язки реле"
+                )
+            return ok
 
     def rf_learn_start(self, duration_sec: int = 30) -> bool:
         """Запуск окремого діагностичного режиму навчання 433 МГц."""
@@ -813,6 +949,55 @@ class ESP32Controller:
         if hasattr(self, "rf_manager"):
             return self.rf_manager.delete_mapping(code)
         return False
+
+    def get_rf_relays(self) -> dict:
+        if hasattr(self, "rf_manager"):
+            return self.rf_manager.get_relays()
+        return {}
+
+    def set_rf_relay(self, relay_id: str, zone: str, name: str, code_on: int, code_off: int, **kwargs) -> bool:
+        if hasattr(self, "rf_manager"):
+            return self.rf_manager.set_relay(relay_id=relay_id, zone=zone, name=name, code_on=code_on, code_off=code_off, **kwargs)
+        return False
+
+    def delete_rf_relay(self, relay_id: str) -> bool:
+        if hasattr(self, "rf_manager"):
+            return self.rf_manager.delete_relay(relay_id)
+        return False
+
+    def test_rf_relay(self, relay_id: str, action: str = "on") -> bool:
+        if hasattr(self, "rf_manager"):
+            relay = self.rf_manager.get_relay(relay_id)
+            if relay:
+                code = relay["code_on"] if action.lower() == "on" else relay["code_off"]
+                return self.rf_transmit(
+                    code=code,
+                    zone=relay.get("zone"),
+                    action=action.lower(),
+                    name=relay.get("name"),
+                    protocol=relay.get("protocol", 1),
+                    bits=relay.get("bits", 24),
+                    delay=relay.get("delay", 320)
+                )
+        return False
+
+    def pair_rf_relay(self, relay_id: str, action: str = "on", duration_sec: int = 15) -> bool:
+        if hasattr(self, "rf_manager"):
+            relay = self.rf_manager.get_relay(relay_id)
+            if relay:
+                code = relay["code_on"] if action.lower() == "on" else relay["code_off"]
+                return self.rf_pair_relay(code, duration_sec=duration_sec, name=f"{relay.get('name')} ({action.upper()})")
+        return False
+
+    def get_rf_activity(self, limit: int = 50) -> list:
+        if hasattr(self, "rf_manager"):
+            return self.rf_manager.get_activity_log(limit=limit)
+        return []
+
+    def get_rf_metrics(self) -> dict:
+        if hasattr(self, "rf_manager"):
+            return self.rf_manager.get_metrics()
+        return {}
 
     def rf_pair(self, duration_sec: int = 30) -> bool:
         """Запуск безперервної трансляції коду сполучення для запису в пам'ять реле."""

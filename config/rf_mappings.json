@@ -1,6 +1,6 @@
 {
-  "version": "1.0",
-  "updated_at": 1794171718.4934633,
+  "version": "2.0",
+  "updated_at": 1794173728.8291485,
   "settings": {
     "dedup_window_sec": 0.8,
     "allow_rf_turn_on": false
@@ -9,7 +9,7 @@
     "15835393": {
       "code": 15835393,
       "hex": "0xF1A101",
-      "name": "Пульт Кнопка A (Підвал)",
+      "name": "Пульт Кнопка A (Підвал: Світло)",
       "zone": "basement_light",
       "action": "off",
       "enabled": true,
@@ -22,7 +22,7 @@
     "15835394": {
       "code": 15835394,
       "hex": "0xF1A102",
-      "name": "Пульт Кнопка B (2-й поверх)",
+      "name": "Пульт Кнопка B (2-й поверх: Світло)",
       "zone": "floor2_light",
       "action": "off",
       "enabled": true,
@@ -31,6 +31,64 @@
       "delay": 320,
       "created_at": 1794171603.8054996,
       "last_triggered": null
+    }
+  },
+  "relays": {
+    "relay_basement_light": {
+      "id": "relay_basement_light",
+      "name": "Підвал: Світло",
+      "zone": "basement_light",
+      "code_on": 15835393,
+      "code_off": 15835394,
+      "protocol": 1,
+      "bits": 24,
+      "delay": 320,
+      "enabled": true,
+      "created_at": 1794171603.8054986,
+      "last_switched": null,
+      "last_action": null
+    },
+    "relay_basement_fan": {
+      "id": "relay_basement_fan",
+      "name": "Підвал: Вентиляція",
+      "zone": "basement_fan",
+      "code_on": 15835395,
+      "code_off": 15835396,
+      "protocol": 1,
+      "bits": 24,
+      "delay": 320,
+      "enabled": true,
+      "created_at": 1794171603.8054986,
+      "last_switched": 1794173728.8236535,
+      "last_action": "on"
+    },
+    "relay_floor2_kitchen": {
+      "id": "relay_floor2_kitchen",
+      "name": "2-й поверх: Кімната 1 (Кухня)",
+      "zone": "floor2_kitchen",
+      "code_on": 15835397,
+      "code_off": 15835398,
+      "protocol": 1,
+      "bits": 24,
+      "delay": 320,
+      "enabled": true,
+      "created_at": 1794171603.8054986,
+      "last_switched": null,
+      "last_action": null
+    },
+    "relay_floor2_living_room": {
+      "id": "relay_floor2_living_room",
+      "name": "2-й поверх: Кімната 2 (Вітальня)",
+      "zone": "floor2_living_room",
+      "code_on": 15835399,
+      "code_off": 15835400,
+      "protocol": 1,
+      "bits": 24,
+      "delay": 320,
+      "enabled": true,
+      "created_at": 1794171603.8054986,
+      "last_switched": null,
+      "last_action": null
     }
   }
 }
