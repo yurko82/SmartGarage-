@@ -5,6 +5,7 @@ import json
 import threading
 import os
 import uuid
+import logging
 from collections import deque
 from typing import Optional, Dict, Any, List
 from server.config import config
@@ -14,6 +15,8 @@ from server.sensors.freshness import (
     format_iso_timestamp,
     format_relative_time_ua
 )
+
+logger = logging.getLogger(__name__)
 
 try:
     import serial
@@ -155,6 +158,8 @@ class ESP32Controller:
                 "details": details or {}
             }
             self.activity_logs.append(entry)
+            if event_type == "rf" or status in ("warning", "error"):
+                logger.info("[%s] %s: %s", event_type.upper(), title, message)
 
     def _start_mqtt_worker(self):
         """Запуск фонового MQTT підписника для моніторингу статусу ESP32."""
@@ -501,10 +506,31 @@ class ESP32Controller:
                 self.log_event("rf", "warning", "Помилка парсингу RF_RX", f"{e}: {line}")
         elif "[RF_DETECT]" in line:
             self.log_event("rf", "info", "📡 Сплеск 433 МГц сигналу", line)
+            logger.info("📡 [RF_DETECT] %s", line)
+            if hasattr(self, "rf_manager"):
+                self.rf_manager.log_activity(
+                    direction="RX",
+                    code=0,
+                    action="detect",
+                    zone_title="Детекція несучої",
+                    status="info",
+                    details=line
+                )
         elif "[RF_PULSES]" in line:
             self.log_event("rf", "info", "📡 Зафіксовано радіоімпульси 433 МГц", line)
-        elif "[RF_RX_RAW]" in line:
+            logger.info("📡 [RF_PULSES] %s", line)
+        elif "[RF_RX_RAW]" in line or "[RF_RAW_DATA]" in line:
             self.log_event("rf", "warning", "📡 Сигнал 433 МГц виявлено (невідомий протокол)", line)
+            logger.info("📡 [RF_RAW] %s", line)
+            if hasattr(self, "rf_manager"):
+                self.rf_manager.log_activity(
+                    direction="RX",
+                    code=0,
+                    action="raw",
+                    zone_title="Невідомий пакет",
+                    status="warning",
+                    details=line
+                )
         else:
             if line:
                 # Arbitrary serial line does NOT verify port or make online

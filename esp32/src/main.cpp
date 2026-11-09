@@ -105,6 +105,12 @@ bool cc1101Available = false;
 volatile unsigned long g_rf_edge_count = 0;
 
 inline void enableRfReceive() {
+  pinMode(g_pin_cc1101_gdo0, INPUT);
+  ELECHOUSE_cc1101.SpiWriteReg(CC1101_IOCFG0, 0x0D);
+  ELECHOUSE_cc1101.SpiWriteReg(CC1101_MDMCFG2, 0x30);
+  ELECHOUSE_cc1101.SpiWriteReg(CC1101_PKTCTRL0, 0x32);
+  ELECHOUSE_cc1101.SpiWriteReg(CC1101_MCSM1, 0x00);
+  ELECHOUSE_cc1101.SetRx();
   mySwitch.enableReceive(digitalPinToInterrupt(g_pin_cc1101_gdo0));
 }
 
@@ -368,8 +374,8 @@ void transmitRfCode(unsigned long code, unsigned int repeats = 10) {
   ELECHOUSE_cc1101.SpiWriteReg(CC1101_IOCFG0, 0x2E);
 
   // 2. Ініціалізуємо лінію передачі
-  pinMode(PIN_CC1101_GDO0, OUTPUT);
-  digitalWrite(PIN_CC1101_GDO0, LOW);
+  pinMode(g_pin_cc1101_gdo0, OUTPUT);
+  digitalWrite(g_pin_cc1101_gdo0, LOW);
 
   // 3. Переводимо CC1101 в режим передачі TX
   ELECHOUSE_cc1101.SpiStrobe(CC1101_SIDLE);
@@ -383,19 +389,14 @@ void transmitRfCode(unsigned long code, unsigned int repeats = 10) {
   }
 
   // 5. Передача 24-бітного ASK/OOK коду
-  mySwitch.enableTransmit(PIN_CC1101_GDO0);
+  mySwitch.enableTransmit(g_pin_cc1101_gdo0);
   mySwitch.setPulseLength(RF_PULSE_LENGTH);
   mySwitch.setRepeatTransmit(repeats);
   mySwitch.send(code, 24);
   mySwitch.disableTransmit();
 
-  // 6. Повертаємо GDO0 в режим виходу демодулятора (0x0D = Serial Data Output)
-  pinMode(PIN_CC1101_GDO0, INPUT);
-  ELECHOUSE_cc1101.SpiWriteReg(CC1101_IOCFG0, 0x0D);
-
-  // 7. Повертаємо трансивер у режим очікування прийому RX
-  ELECHOUSE_cc1101.SetRx();
-  delayMicroseconds(500);
+  // 6. Повертаємо GDO0 в режим прийому RX
+  pinMode(g_pin_cc1101_gdo0, INPUT);
   enableRfReceive();
 
   Serial.printf("[RF433] Сигнал 0x%lX (%lu) надіслано в ефір (повторів=%u)\n", code, code, repeats);
@@ -412,18 +413,15 @@ void setRfCarrier(bool enable) {
   disableRfReceive();
   if (enable) {
     ELECHOUSE_cc1101.SpiWriteReg(CC1101_IOCFG0, 0x2E);
-    pinMode(PIN_CC1101_GDO0, OUTPUT);
-    digitalWrite(PIN_CC1101_GDO0, HIGH); // Continuous carrier on 433.92 MHz
+    pinMode(g_pin_cc1101_gdo0, OUTPUT);
+    digitalWrite(g_pin_cc1101_gdo0, HIGH); // Continuous carrier on 433.92 MHz
     ELECHOUSE_cc1101.SpiStrobe(CC1101_SIDLE);
     delay(1);
     ELECHOUSE_cc1101.SpiStrobe(CC1101_STX);
     setLedColor(180, 0, 0); // Червоний: несуча активна
     Serial.println("RESP:{\"status\":\"ok\",\"carrier\":true,\"freq\":433.92}");
   } else {
-    pinMode(PIN_CC1101_GDO0, INPUT);
-    ELECHOUSE_cc1101.SpiWriteReg(CC1101_IOCFG0, 0x0D);
-    ELECHOUSE_cc1101.SetRx();
-    delayMicroseconds(500);
+    pinMode(g_pin_cc1101_gdo0, INPUT);
     enableRfReceive();
     setLedColor(0, 160, 255);
     Serial.println("RESP:{\"status\":\"ok\",\"carrier\":false}");
@@ -508,66 +506,18 @@ bool autoDetectCC1101Pins() {
 }
 
 void runRfDiagnostics() {
-  disableRfReceive();
+  enableRfReceive();
+  delay(10);
 
-  bool detected = autoDetectCC1101Pins();
+  byte ver = ELECHOUSE_cc1101.SpiReadStatus(0x31);
+  byte marc = ELECHOUSE_cc1101.SpiReadStatus(0x35) & 0x1F;
+  int rssi = ELECHOUSE_cc1101.getRssi();
+  int gdo0 = digitalRead(g_pin_cc1101_gdo0);
+  cc1101Available = true;
+  setLedColor(0, 160, 255);
 
-  pinMode(g_pin_cc1101_csn, OUTPUT);
-  pinMode(g_pin_cc1101_sck, OUTPUT);
-  pinMode(g_pin_cc1101_mosi, OUTPUT);
-  pinMode(g_pin_cc1101_miso, INPUT_PULLUP);
-
-  digitalWrite(g_pin_cc1101_csn, HIGH);
-  digitalWrite(g_pin_cc1101_sck, LOW);
-  digitalWrite(g_pin_cc1101_mosi, LOW);
-  delayMicroseconds(50);
-  int miso_idle = digitalRead(g_pin_cc1101_miso);
-
-  digitalWrite(g_pin_cc1101_csn, LOW);
-  delayMicroseconds(50);
-  int miso_csn_low = digitalRead(g_pin_cc1101_miso);
-
-  // Bit-bang 0xF1 (VERSION)
-  uint8_t cmd = 0xF1;
-  uint8_t status_byte = 0;
-  for (int i = 7; i >= 0; i--) {
-    digitalWrite(g_pin_cc1101_mosi, (cmd >> i) & 1);
-    delayMicroseconds(5);
-    digitalWrite(g_pin_cc1101_sck, HIGH);
-    delayMicroseconds(5);
-    status_byte = (status_byte << 1) | digitalRead(g_pin_cc1101_miso);
-    digitalWrite(g_pin_cc1101_sck, LOW);
-    delayMicroseconds(5);
-  }
-
-  uint8_t version_val = 0;
-  for (int i = 7; i >= 0; i--) {
-    digitalWrite(g_pin_cc1101_mosi, 0);
-    delayMicroseconds(5);
-    digitalWrite(g_pin_cc1101_sck, HIGH);
-    delayMicroseconds(5);
-    version_val = (version_val << 1) | digitalRead(g_pin_cc1101_miso);
-    digitalWrite(g_pin_cc1101_sck, LOW);
-    delayMicroseconds(5);
-  }
-  digitalWrite(g_pin_cc1101_csn, HIGH);
-
-  if (detected) {
-    ELECHOUSE_cc1101.setSpiPin(g_pin_cc1101_sck, g_pin_cc1101_miso, g_pin_cc1101_mosi, g_pin_cc1101_csn);
-    ELECHOUSE_cc1101.setGDO0(g_pin_cc1101_gdo0);
-    ELECHOUSE_cc1101.Init();
-    ELECHOUSE_cc1101.setMHZ(RF_FREQUENCY);
-    ELECHOUSE_cc1101.setModulation(2);
-    ELECHOUSE_cc1101.setRxBW(270.0);
-    ELECHOUSE_cc1101.SpiWriteReg(CC1101_IOCFG0, 0x0D);
-    ELECHOUSE_cc1101.SetRx();
-    enableRfReceive();
-    cc1101Available = true;
-    setLedColor(0, 160, 255);
-  }
-
-  Serial.printf("RESP:{\"diag\":\"spi_raw\",\"detected\":%s,\"csn\":%d,\"mosi\":%d,\"sck\":%d,\"miso\":%d,\"ver\":\"0x%02X\",\"miso_idle\":%d,\"miso_csn_low\":%d,\"gdo0\":%d,\"edges\":%lu}\n",
-                detected ? "true" : "false", g_pin_cc1101_csn, g_pin_cc1101_mosi, g_pin_cc1101_sck, g_pin_cc1101_miso, version_val, miso_idle, miso_csn_low, digitalRead(g_pin_cc1101_gdo0), g_rf_edge_count);
+  Serial.printf("RESP:{\"diag\":\"spi_active\",\"ver\":\"0x%02X\",\"marc\":%d,\"rssi\":%d,\"gdo0\":%d,\"edges\":%lu,\"csn\":%d,\"mosi\":%d,\"sck\":%d,\"miso\":%d}\n",
+                ver, marc, rssi, gdo0, g_rf_edge_count, g_pin_cc1101_csn, g_pin_cc1101_mosi, g_pin_cc1101_sck, g_pin_cc1101_miso);
 }
 
 void readSensors() {
@@ -1029,21 +979,22 @@ void setup() {
     Serial.println("[DBG] 6: setMHZ done");
     ELECHOUSE_cc1101.setModulation(2); // ASK/OOK
     Serial.println("[DBG] 7: setModulation done");
-    ELECHOUSE_cc1101.setRxBW(270.0);
+    ELECHOUSE_cc1101.setRxBW(812.50); // Максимальна смуга пропускання для гарантованого прийому будь-яких пультів
     Serial.println("[DBG] 8: setRxBW done");
     ELECHOUSE_cc1101.setPA(12);
-    // Оптимізовані налаштування TI DN022 для стабільного прийому/передачі ASK/OOK
-    ELECHOUSE_cc1101.SpiWriteReg(CC1101_AGCCTRL2, 0x03);
-    ELECHOUSE_cc1101.SpiWriteReg(CC1101_AGCCTRL1, 0x40);
-    ELECHOUSE_cc1101.SpiWriteReg(CC1101_AGCCTRL0, 0x91);
+    // Відновлюємо перевірені заводські AGC налаштування SmartRC
+    ELECHOUSE_cc1101.SpiWriteReg(CC1101_AGCCTRL2, 0xC7);
+    ELECHOUSE_cc1101.SpiWriteReg(CC1101_AGCCTRL1, 0x00);
+    ELECHOUSE_cc1101.SpiWriteReg(CC1101_AGCCTRL0, 0xB2);
     ELECHOUSE_cc1101.SpiWriteReg(CC1101_FREND1, 0x56);
-    ELECHOUSE_cc1101.SpiWriteReg(CC1101_PKTCTRL0, 0x32);
-    ELECHOUSE_cc1101.SpiWriteReg(CC1101_IOCFG0, 0x0D);
+    ELECHOUSE_cc1101.SpiWriteReg(CC1101_MDMCFG2, 0x30); // ASK/OOK, SYNC_MODE = 0 (No sync word! Asynchronous demodulation)
+    ELECHOUSE_cc1101.SpiWriteReg(CC1101_MCSM1, 0x00);   // Clean IDLE / RX
+    ELECHOUSE_cc1101.SpiWriteReg(CC1101_MCSM0, 0x18);   // Auto-cal
+    ELECHOUSE_cc1101.SpiWriteReg(CC1101_PKTCTRL0, 0x32); // Asynchronous serial mode
+    ELECHOUSE_cc1101.SpiWriteReg(CC1101_IOCFG0, 0x0D);   // GDO0 = Serial Data Output
     Serial.println("[DBG] 9: SpiWriteReg done");
-    ELECHOUSE_cc1101.SetRx();
-    Serial.println("[DBG] 10: SetRx done");
     enableRfReceive();
-    Serial.println("[DBG] 11: enableReceive done");
+    Serial.println("[DBG] 10: enableRfReceive done");
     mySwitch.setReceiveTolerance(80);
     cc1101Available = true;
     setLedColor(0, 160, 255); // Яскравий бірюзовий індикатор: режим очікування / слухання ефіру
@@ -1276,10 +1227,23 @@ void loop() {
   // Обробка вхідних 433 МГц радіосигналів (перехоплення / слухання вимикачів)
   static unsigned long lastEdgeCount = 0;
   static unsigned long lastRssiCheck = 0;
+  static unsigned long lastRxKeepAlive = 0;
   static unsigned long ledResetTime = 0;
   static int currentLedState = 0; // 0 = cyan (idle), 1 = orange (detected carrier), 2 = green (decoded)
 
   if (cc1101Available) {
+    // Автоматичне підтримання режиму RX CC1101 при скиданні в IDLE чи переповненні
+    if (!rfPairingActive && (millis() - lastRxKeepAlive >= 250)) {
+      lastRxKeepAlive = millis();
+      byte marc = ELECHOUSE_cc1101.SpiReadStatus(0x35) & 0x1F;
+      if (marc == 0x01 || marc == 0x11) {
+        if (marc == 0x11) {
+          ELECHOUSE_cc1101.SpiStrobe(CC1101_SFRX);
+        }
+        ELECHOUSE_cc1101.SetRx();
+      }
+    }
+
     // 1. Стандартний декодер RCSwitch
     if (mySwitch.available()) {
       unsigned long val = mySwitch.getReceivedValue();

@@ -689,7 +689,7 @@ void RECEIVE_ATTR RCSwitch::handleInterrupt() {
 
   if (duration > RCSwitch::nSeparationLimit || duration > 3500) {
     // Gap detected between transmissions or sync pulse
-    if (changeCount >= 16 && !g_rf_raw_capture.ready) {
+    if (changeCount >= 8 && !g_rf_raw_capture.ready) {
       g_rf_raw_capture.count = changeCount;
       g_rf_raw_capture.sync = duration;
       for (unsigned int i = 0; i < changeCount && i < RCSWITCH_MAX_CHANGES; i++) {
