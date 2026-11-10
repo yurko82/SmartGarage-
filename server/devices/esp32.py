@@ -938,7 +938,7 @@ class ESP32Controller:
                 )
             return ok
 
-    def rf_learn_start(self, duration_sec: int = 30) -> bool:
+    def rf_learn_start(self, duration_sec: int = 600) -> bool:
         """Запуск окремого діагностичного режиму навчання 433 МГц."""
         with self._lock:
             if hasattr(self, "rf_manager"):

@@ -538,7 +538,7 @@ def esp32_poll():
 @require_auth
 def rf_pair_start():
     data = request.get_json(silent=True) or {}
-    duration = int(data.get("duration", 30))
+    duration = int(data.get("duration", 600))
     if hasattr(garage, "esp32") and garage.esp32:
         ok = garage.esp32.rf_pair(duration_sec=duration)
         return jsonify({"success": ok, "pairing": True, "duration_sec": duration})
@@ -567,7 +567,7 @@ def rf_diag_route():
 @require_auth
 def rf_learn_start_route():
     data = request.get_json(silent=True) or {}
-    duration = int(data.get("duration", 30))
+    duration = int(data.get("duration", 600))
     if hasattr(garage, "esp32") and garage.esp32:
         ok = garage.esp32.rf_learn_start(duration_sec=duration)
         return jsonify({"success": ok, "learning": True, "duration_sec": duration})

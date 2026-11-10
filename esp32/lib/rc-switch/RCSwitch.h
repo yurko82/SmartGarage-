@@ -64,9 +64,9 @@ struct RfRawCapture {
     volatile bool ready;
     volatile unsigned int count;
     volatile unsigned int sync;
-    unsigned int timings[RCSWITCH_MAX_CHANGES];
+    volatile unsigned int timings[RCSWITCH_MAX_CHANGES];
 };
-extern RfRawCapture g_rf_raw_capture;
+extern volatile RfRawCapture g_rf_raw_capture;
 
 class RCSwitch {
 

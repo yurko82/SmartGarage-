@@ -106,11 +106,18 @@ volatile unsigned long g_rf_edge_count = 0;
 
 inline void enableRfReceive() {
   pinMode(g_pin_cc1101_gdo0, INPUT);
-  ELECHOUSE_cc1101.SpiWriteReg(CC1101_IOCFG0, 0x0D);
-  ELECHOUSE_cc1101.SpiWriteReg(CC1101_MDMCFG2, 0x30);
-  ELECHOUSE_cc1101.SpiWriteReg(CC1101_PKTCTRL0, 0x32);
-  ELECHOUSE_cc1101.SpiWriteReg(CC1101_MCSM1, 0x00);
-  ELECHOUSE_cc1101.SetRx();
+  ELECHOUSE_cc1101.SpiWriteReg(CC1101_IOCFG0, 0x0D);   // GDO0 = Serial Data Output
+  ELECHOUSE_cc1101.SpiWriteReg(CC1101_MDMCFG2, 0x30);  // ASK/OOK, no sync word
+  ELECHOUSE_cc1101.SpiWriteReg(CC1101_PKTCTRL0, 0x32); // Asynchronous serial mode
+  ELECHOUSE_cc1101.SpiWriteReg(CC1101_MCSM1, 0x0C);    // RXOFF_MODE=11: постійно залишатися в режимі RX
+  ELECHOUSE_cc1101.SpiWriteReg(CC1101_AGCCTRL2, 0x03); // TI DN022: повний діапазон DVGA, запобігає «глухоті» до пультів
+  ELECHOUSE_cc1101.SpiWriteReg(CC1101_AGCCTRL1, 0x00); // TI DN022: вимкнення блокування за Carrier Sense
+  ELECHOUSE_cc1101.SpiWriteReg(CC1101_AGCCTRL0, 0x92); // TI DN022: 4-filter averaging, 8dB ASK decision boundary
+  ELECHOUSE_cc1101.SpiWriteReg(CC1101_FREND1, 0xB6);   // TI DN022: оптимізація змішувача для BW > 102 кГц
+  ELECHOUSE_cc1101.SpiStrobe(CC1101_SIDLE);
+  ELECHOUSE_cc1101.SpiStrobe(CC1101_SFRX);
+  ELECHOUSE_cc1101.SpiStrobe(CC1101_SRX);
+  delayMicroseconds(1000);
   mySwitch.enableReceive(digitalPinToInterrupt(g_pin_cc1101_gdo0));
 }
 
@@ -514,7 +521,9 @@ void runRfDiagnostics() {
   int rssi = ELECHOUSE_cc1101.getRssi();
   int gdo0 = digitalRead(g_pin_cc1101_gdo0);
   cc1101Available = true;
-  setLedColor(0, 160, 255);
+  if (!rfLearningActive) {
+    setLedColor(0, 160, 255);
+  }
 
   Serial.printf("RESP:{\"diag\":\"spi_active\",\"ver\":\"0x%02X\",\"marc\":%d,\"rssi\":%d,\"gdo0\":%d,\"edges\":%lu,\"csn\":%d,\"mosi\":%d,\"sck\":%d,\"miso\":%d}\n",
                 ver, marc, rssi, gdo0, g_rf_edge_count, g_pin_cc1101_csn, g_pin_cc1101_mosi, g_pin_cc1101_sck, g_pin_cc1101_miso);
@@ -794,10 +803,10 @@ void processSerialCommand(String cmd) {
     Serial.println("RESP:{\"status\":\"ok\",\"zone\":\"main_light\",\"action\":\"off\"}");
   } else if (cmd.startsWith("RF_LEARN:START") || cmd.startsWith("CMD:RF_LEARN:START")) {
     int colIdx = cmd.lastIndexOf(':');
-    int durSec = 30;
+    int durSec = 600;
     if (colIdx != -1 && colIdx < cmd.length() - 1) {
       durSec = cmd.substring(colIdx + 1).toInt();
-      if (durSec <= 0) durSec = 30;
+      if (durSec <= 0) durSec = 600;
     }
     rfLearningActive = true;
     rfLearningEndTime = millis() + (unsigned long)durSec * 1000UL;
@@ -905,7 +914,7 @@ void processSerialCommand(String cmd) {
   } else if (cmd.equalsIgnoreCase("RF_STATUS") || cmd.equalsIgnoreCase("CMD:RF_STATUS")) {
     int rssi = cc1101Available ? ELECHOUSE_cc1101.getRssi() : -128;
     int mode = cc1101Available ? ELECHOUSE_cc1101.getMode() : -1;
-    byte marc = cc1101Available ? ELECHOUSE_cc1101.SpiReadStatus(0x35) : 0;
+    byte marc = cc1101Available ? (ELECHOUSE_cc1101.SpiReadStatus(0x35) & 0x1F) : 0;
     Serial.printf("RESP:{\"cc1101\":%s,\"rssi\":%d,\"mode\":%d,\"marc\":%d,\"edges\":%lu,\"freq\":433.92,\"pin_gdo0\":%d}\n",
                   cc1101Available ? "true" : "false", rssi, mode, marc, g_rf_edge_count, digitalRead(PIN_CC1101_GDO0));
   }
@@ -979,22 +988,11 @@ void setup() {
     Serial.println("[DBG] 6: setMHZ done");
     ELECHOUSE_cc1101.setModulation(2); // ASK/OOK
     Serial.println("[DBG] 7: setModulation done");
-    ELECHOUSE_cc1101.setRxBW(812.50); // Максимальна смуга пропускання для гарантованого прийому будь-яких пультів
+    ELECHOUSE_cc1101.setRxBW(650.0); // 650 кГц: надійна смуга для пультів із розкидом частоти ПАР-резонаторів (+-100 кГц)
     Serial.println("[DBG] 8: setRxBW done");
     ELECHOUSE_cc1101.setPA(12);
-    // Відновлюємо перевірені заводські AGC налаштування SmartRC
-    ELECHOUSE_cc1101.SpiWriteReg(CC1101_AGCCTRL2, 0xC7);
-    ELECHOUSE_cc1101.SpiWriteReg(CC1101_AGCCTRL1, 0x00);
-    ELECHOUSE_cc1101.SpiWriteReg(CC1101_AGCCTRL0, 0xB2);
-    ELECHOUSE_cc1101.SpiWriteReg(CC1101_FREND1, 0x56);
-    ELECHOUSE_cc1101.SpiWriteReg(CC1101_MDMCFG2, 0x30); // ASK/OOK, SYNC_MODE = 0 (No sync word! Asynchronous demodulation)
-    ELECHOUSE_cc1101.SpiWriteReg(CC1101_MCSM1, 0x00);   // Clean IDLE / RX
-    ELECHOUSE_cc1101.SpiWriteReg(CC1101_MCSM0, 0x18);   // Auto-cal
-    ELECHOUSE_cc1101.SpiWriteReg(CC1101_PKTCTRL0, 0x32); // Asynchronous serial mode
-    ELECHOUSE_cc1101.SpiWriteReg(CC1101_IOCFG0, 0x0D);   // GDO0 = Serial Data Output
-    Serial.println("[DBG] 9: SpiWriteReg done");
     enableRfReceive();
-    Serial.println("[DBG] 10: enableRfReceive done");
+    Serial.println("[DBG] 9: enableRfReceive done");
     mySwitch.setReceiveTolerance(80);
     cc1101Available = true;
     setLedColor(0, 160, 255); // Яскравий бірюзовий індикатор: режим очікування / слухання ефіру
@@ -1232,15 +1230,14 @@ void loop() {
   static int currentLedState = 0; // 0 = cyan (idle), 1 = orange (detected carrier), 2 = green (decoded)
 
   if (cc1101Available) {
-    // Автоматичне підтримання режиму RX CC1101 при скиданні в IDLE чи переповненні
-    if (!rfPairingActive && (millis() - lastRxKeepAlive >= 250)) {
+    // Автоматичне підтримання режиму RX CC1101 при випаданні з RX (0x0D) або переповненні FIFO (0x11)
+    if (!rfPairingActive && (millis() - lastRxKeepAlive >= 200)) {
       lastRxKeepAlive = millis();
       byte marc = ELECHOUSE_cc1101.SpiReadStatus(0x35) & 0x1F;
-      if (marc == 0x01 || marc == 0x11) {
-        if (marc == 0x11) {
-          ELECHOUSE_cc1101.SpiStrobe(CC1101_SFRX);
-        }
-        ELECHOUSE_cc1101.SetRx();
+      if (marc != 0x0D) {
+        ELECHOUSE_cc1101.SpiStrobe(CC1101_SIDLE);
+        ELECHOUSE_cc1101.SpiStrobe(CC1101_SFRX);
+        ELECHOUSE_cc1101.SpiStrobe(CC1101_SRX);
       }
     }
 
@@ -1274,21 +1271,24 @@ void loop() {
       bool decodeSuccess = false;
 
       if (count >= 16) {
-        // У кожному біті 2 імпульси (High + Low)
+        bool validPattern = true;
         for (unsigned int i = 1; i + 1 < count; i += 2) {
           unsigned int t1 = g_rf_raw_capture.timings[i];
           unsigned int t2 = g_rf_raw_capture.timings[i+1];
+          unsigned int longer = (t1 > t2) ? t1 : t2;
+          unsigned int shorter = (t1 > t2) ? t2 : t1;
+          if (shorter < 80 || shorter > 950 || longer < 300 || longer > 2800 || (longer / shorter < 2)) {
+            validPattern = false;
+            break;
+          }
           decodedCode <<= 1;
-          if (t1 < t2) {
-            // Короткий High, довгий Low -> '0'
-          } else {
-            // Довгий High, короткий Low -> '1'
+          if (t1 > t2) {
             decodedCode |= 1;
           }
           decodedBits++;
           if (decodedBits >= 32) break;
         }
-        if (decodedBits >= 16) {
+        if (validPattern && (decodedBits == 24 || decodedBits == 28 || decodedBits == 32)) {
           decodeSuccess = true;
         }
       }
@@ -1303,36 +1303,33 @@ void loop() {
         setLedColor(0, 200, 0); // Яскравий зелений: адаптивно розпізнано!
         currentLedState = 2;
         ledResetTime = millis() + 1500;
-      } else {
-        Serial.printf("[RF_RX_RAW] Спіймано невідомий пакет (%u імпульсів, sync=%u us)\n", count, sync);
-        setLedColor(140, 70, 0); // Помаранчевий
-        currentLedState = 1;
-        ledResetTime = millis() + 600;
+      } else if (rfLearningActive && count >= 16) {
+        Serial.printf("[RF_RX_RAW] Спіймано імпульси в режимі навчання (%u імпульсів, sync=%u us)\n", count, sync);
+        Serial.print("[RF_RAW_DATA] ");
+        for (unsigned int i = 0; i < count && i < 40; i++) {
+          Serial.printf("%u ", g_rf_raw_capture.timings[i]);
+        }
+        Serial.println();
       }
-
-      // Виводимо виміри імпульсів у мікросекундах для детального аналізу
-      Serial.print("[RF_RAW_DATA] ");
-      for (unsigned int i = 0; i < count && i < 35; i++) {
-        Serial.printf("%u ", g_rf_raw_capture.timings[i]);
-      }
-      Serial.println();
 
       g_rf_raw_capture.ready = false;
     }
 
-    // 3. Моніторинг активності 433 МГц радіоефіру за рівнем RSSI (детекція передавача)
-    if (millis() - lastRssiCheck >= 60) {
+    // 3. Моніторинг активності 433 МГц радіоефіру за рівнем RSSI (детекція близького передавача)
+    if (millis() - lastRssiCheck >= 200) {
       lastRssiCheck = millis();
       int curRssi = ELECHOUSE_cc1101.getRssi();
-      if (curRssi >= -65) {
+      // Тільки потужний сигнал біля антени дає RSSI > -50 dBm
+      if (curRssi >= -50) {
         unsigned long curEdges = g_rf_edge_count;
         unsigned long dEdges = curEdges - lastEdgeCount;
         lastEdgeCount = curEdges;
         Serial.printf("[RF_DETECT] Сплеск 433 МГц сигналу: %d dBm (GDO0=%d, імпульсів=%lu)\n", curRssi, digitalRead(PIN_CC1101_GDO0), dEdges);
-        if (currentLedState != 2 || millis() > ledResetTime) {
+        // Помаранчевий спалах активуємо тільки якщо НЕ увімкнено фіолетовий режим навчання
+        if (!rfLearningActive && (currentLedState != 2 || millis() > ledResetTime)) {
           setLedColor(160, 80, 0); // Помаранчевий спалах: детекція радіосигналу в ефірі
           currentLedState = 1;
-          ledResetTime = millis() + 500;
+          ledResetTime = millis() + 400;
         }
       } else {
         lastEdgeCount = g_rf_edge_count;
@@ -1340,10 +1337,14 @@ void loop() {
     }
   }
 
-  // Повернення світлодіода до бірюзового (cyan) режиму очікування
+  // Повернення світлодіода до режиму очікування
   if (currentLedState != 0 && millis() > ledResetTime) {
     currentLedState = 0;
-    setLedColor(0, 160, 255); // Яскравий бірюзовий (Cyan)
+    if (rfLearningActive) {
+      setLedColor(140, 0, 200); // Повертаємо фіолетовий, якщо режим навчання триває
+    } else {
+      setLedColor(0, 160, 255); // Яскравий бірюзовий (Cyan)
+    }
   }
 
   // Періодичне зчитування BLE-датчиків вимкнено з фонового циклу (виконується за запитом CMD:POLL_BLE),

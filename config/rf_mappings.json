@@ -1,6 +1,6 @@
 {
   "version": "2.0",
-  "updated_at": 1794258615.8257658,
+  "updated_at": 1794312884.1559484,
   "settings": {
     "dedup_window_sec": 0.8,
     "allow_rf_turn_on": false
@@ -59,7 +59,7 @@
       "delay": 320,
       "enabled": true,
       "created_at": 1794171603.8054986,
-      "last_switched": 1794258615.8204122,
+      "last_switched": 1794312884.1419408,
       "last_action": "on"
     },
     "relay_floor2_kitchen": {

@@ -669,7 +669,7 @@ bool RECEIVE_ATTR RCSwitch::receiveProtocol(const int p, unsigned int changeCoun
 }
 
 extern volatile unsigned long g_rf_edge_count;
-RfRawCapture g_rf_raw_capture = { false, 0, 0, {0} };
+volatile RfRawCapture g_rf_raw_capture = { false, 0, 0, {0} };
 
 void RECEIVE_ATTR RCSwitch::handleInterrupt() {
 
@@ -679,17 +679,18 @@ void RECEIVE_ATTR RCSwitch::handleInterrupt() {
   static unsigned long lastTime = 0;
   static unsigned int repeatCount = 0;
 
-  const long time = micros();
+  const unsigned long time = micros();
   const unsigned int duration = time - lastTime;
 
+  // Ігноруємо надкороткі шумові викиди (< 50 мкс)
   if (duration < 50) {
     return;
   }
   lastTime = time;
 
+  // Синхропауза (> 3500 мкс) між пакетами ASK/OOK
   if (duration > RCSwitch::nSeparationLimit || duration > 3500) {
-    // Gap detected between transmissions or sync pulse
-    if (changeCount >= 8 && !g_rf_raw_capture.ready) {
+    if (changeCount >= 10 && !g_rf_raw_capture.ready) {
       g_rf_raw_capture.count = changeCount;
       g_rf_raw_capture.sync = duration;
       for (unsigned int i = 0; i < changeCount && i < RCSWITCH_MAX_CHANGES; i++) {
@@ -698,12 +699,11 @@ void RECEIVE_ATTR RCSwitch::handleInterrupt() {
       g_rf_raw_capture.ready = true;
     }
 
-    if ((repeatCount==0) || (diff(duration, RCSwitch::timings[0]) < 600)) {
+    if ((repeatCount == 0) || (diff(duration, RCSwitch::timings[0]) < 800)) {
       repeatCount++;
       if (repeatCount >= 1) {
-        for(unsigned int i = 1; i <= numProto; i++) {
+        for (unsigned int i = 1; i <= numProto; i++) {
           if (receiveProtocol(i, changeCount)) {
-            // receive succeeded for protocol i
             break;
           }
         }
