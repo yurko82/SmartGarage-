@@ -1,0 +1,30 @@
+{
+    "00:11:22:33:44:01": {
+        "name": "Speaker Garage",
+        "in_garage": true,
+        "alias": "Колонка (Гараж)",
+        "floor": "garage",
+        "type": "speaker"
+    },
+    "00:11:22:33:44:02": {
+        "name": "Sensor Floor 2",
+        "in_garage": false,
+        "alias": "2-й поверх",
+        "floor": "floor2",
+        "type": "temperature_sensor"
+    },
+    "00:11:22:33:44:03": {
+        "name": "Sensor Basement",
+        "in_garage": true,
+        "alias": "Підвал",
+        "floor": "basement",
+        "type": "temperature_sensor"
+    },
+    "00:11:22:33:44:04": {
+        "name": "Speaker Floor 1",
+        "in_garage": true,
+        "alias": "Музика 1-й поверх",
+        "floor": "floor1",
+        "type": "speaker"
+    }
+}

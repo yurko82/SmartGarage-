@@ -1,24 +1,24 @@
 {
     "owner_phone": {
         "id": "owner_phone",
-        "name": "Юрій (Власник)",
+        "name": "Власник (Телефон)",
         "role": "owner",
         "device_type": "phone",
-        "device_name": "Motorola Edge 50 Pro",
-        "classic_mac": "B8:7E:39:88:22:9B",
+        "device_name": "Смартфон",
+        "classic_mac": "00:11:22:33:44:55",
         "ble_services": [],
         "recent_ble_rpa": [
-            "B8:7E:39:88:22:9B"
+            "00:11:22:33:44:55"
         ],
         "status": "away",
-        "last_seen": 1794242789.222371,
-        "last_rssi": -50,
-        "proximity": "immediate",
+        "last_seen": 0,
+        "last_rssi": -60,
+        "proximity": "far",
         "auto_welcome": true
     },
     "owner_watch": {
         "id": "owner_watch",
-        "name": "Юрій (Смарт-годинник)",
+        "name": "Власник (Годинник)",
         "role": "owner",
         "device_type": "watch",
         "device_name": "Смарт-годинник",
@@ -26,7 +26,7 @@
         "ble_services": [],
         "recent_ble_rpa": [],
         "status": "away",
-        "last_seen": 1794242789.2230725,
+        "last_seen": 0,
         "last_rssi": null,
         "proximity": "near",
         "auto_welcome": false

@@ -4,10 +4,10 @@ After=network.target network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=/home/yurko/AI/SmartGarage
-Environment="PYTHONPATH=/home/yurko/AI/SmartGarage"
+WorkingDirectory=%h/AI/SmartGarage
+Environment="PYTHONPATH=%h/AI/SmartGarage"
 Environment="PYTHONUNBUFFERED=1"
-ExecStart=/usr/bin/sg dialout -c "/home/yurko/AI/OpenInterpreter/venv/bin/python -m server.webapp"
+ExecStart=/usr/bin/sg dialout -c "%h/AI/OpenInterpreter/venv/bin/python -m server.webapp"
 Restart=always
 RestartSec=3
 

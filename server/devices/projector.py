@@ -411,11 +411,12 @@ class ProjectorController:
 
         target_clean = target.replace('"', '').replace("'", "").strip()
         search_target = target if (target.startswith("http://") or target.startswith("https://")) else f"ytsearch1:{target_clean}"
-        ffmpeg_bin = "/home/yurko/AI/OpenInterpreter/venv/lib/python3.12/site-packages/imageio_ffmpeg/binaries/ffmpeg-linux-x86_64-v7.0.2"
+        from server.devices.bluetooth_speaker import _get_ytdlp_bin, _get_ffmpeg_bin
+        ffmpeg_bin = _get_ffmpeg_bin()
 
         # Download & Stream with high speed priority
         cmd_dl = [
-            "/home/yurko/AI/OpenInterpreter/venv/bin/yt-dlp",
+            _get_ytdlp_bin(),
             "--ffmpeg-location", ffmpeg_bin,
             "-f", "18/136+140/bestvideo[ext=mp4][height<=720]+bestaudio[ext=m4a]/best[ext=mp4]/best",
             "--max-filesize", "150M",

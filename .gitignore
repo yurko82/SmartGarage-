@@ -25,3 +25,9 @@ output/
 memory/dialog_sessions.json
 memory/openrouter_usage.json
 memory/tts_settings.json
+devices/presence_devices.json
+devices/bluetooth_devices.json
+memory/user_profile.json
+memory/memory.json
+config/mosquitto/password.txt
+

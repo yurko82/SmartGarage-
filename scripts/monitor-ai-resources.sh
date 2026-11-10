@@ -14,7 +14,7 @@ LOG_FILE="/var/log/antigravity-ai-resources.log"
 FALLBACK_LOG="/tmp/antigravity-ai-resources.log"
 SLICE_NAME="antigravity-ai.slice"
 CGROUP_PATH="/sys/fs/cgroup/${SLICE_NAME}"
-PROJECT_ROOT="/home/yurko/AI/SmartGarage"
+PROJECT_ROOT="${PROJECT_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 
 # Load Telegram credentials from project files
 BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"

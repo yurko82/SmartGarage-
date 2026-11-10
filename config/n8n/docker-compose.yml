@@ -16,4 +16,4 @@ services:
       - GENERIC_TIMEZONE=Europe/Kyiv
       - TZ=Europe/Kyiv
     volumes:
-      - /home/yurko/Docker/n8n/data:/home/node/.n8n
+      - ./data:/home/node/.n8n

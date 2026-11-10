@@ -77,9 +77,8 @@ class YTMusicService:
         if not force_refresh and self._playlists_cache and (now - self._last_playlists_fetch < 3600):
             return self._playlists_cache
 
-        ytdlp_bin = "/home/yurko/AI/OpenInterpreter/venv/bin/yt-dlp"
-        if not Path(ytdlp_bin).exists():
-            ytdlp_bin = "yt-dlp"
+        from server.devices.bluetooth_speaker import _get_ytdlp_bin
+        ytdlp_bin = _get_ytdlp_bin()
 
         # 1. Start with standard Liked Music playlist
         playlists: List[Dict[str, Any]] = [
@@ -152,9 +151,8 @@ class YTMusicService:
                 pass
 
         target_url = f"https://www.youtube.com/playlist?list={p_id}"
-        ytdlp_bin = "/home/yurko/AI/OpenInterpreter/venv/bin/yt-dlp"
-        if not Path(ytdlp_bin).exists():
-            ytdlp_bin = "yt-dlp"
+        from server.devices.bluetooth_speaker import _get_ytdlp_bin
+        ytdlp_bin = _get_ytdlp_bin()
 
         cmd = [
             ytdlp_bin,

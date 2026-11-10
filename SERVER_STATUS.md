@@ -34,7 +34,7 @@
 - **Tailscale:** 1.102.4 (активний, systemd `tailscaled.service` enabled, з підтримкою `--ssh`)
 - **Docker Engine:** 29.8.2 (активний, systemd `docker.service` enabled)
 - **Docker Compose:** v5.6.0 (офіційний docker-compose-plugin)
-- **Python:** 3.12.3 у `/home/yurko/AI/OpenInterpreter/venv`
+- **Python:** 3.12.3 у `~/AI/OpenInterpreter/venv`
 - **Mosquitto MQTT:** 2.0.18 (активний, systemd `mosquitto.service`, порти 1883 та 9001 WebSockets)
 - **WirePlumber & PipeWire:** нативна аудіопідсистема, профіль `51-bluez-a2dp-only.lua`
 
@@ -68,11 +68,11 @@
 
 ## 5. Розташування проєктів та структура файлової системи
 
-- **`/home/yurko/AI/SmartGarage`** — проєкт Smart Garage (Flask/FastAPI, веб-інтерфейс, ESP32, тести).
-- **`/home/yurko/AI/OpenInterpreter`** — віртуальне середовище Python 3.12 (`venv`) та конфігурації.
-- **`/home/yurko/Docker/n8n`** — мігровані робочі процеси та база даних n8n (`docker-compose.yml`, `./data`).
-- **`/home/yurko/Docker/portainer`** — дані та volume Portainer CE (`portainer_data`).
-- **`/home/yurko/server/`** — модульна серверна інфраструктура:
+- **`~/AI/SmartGarage`** — проєкт Smart Garage (Flask/FastAPI, веб-інтерфейс, ESP32, тести).
+- **`~/AI/OpenInterpreter`** — віртуальне середовище Python 3.12 (`venv`) та конфігурації.
+- **`~/Docker/n8n`** — мігровані робочі процеси та база даних n8n (`docker-compose.yml`, `./data`).
+- **`~/Docker/portainer`** — дані та volume Portainer CE (`portainer_data`).
+- **`~/server/`** — модульна серверна інфраструктура:
   - `sites/` — веб-сайти.
   - `services/` — зворотні проксі (Nginx/Traefik).
   - `databases/` — шаблони баз даних.
@@ -107,7 +107,7 @@ journalctl --user -u smartgarage.service -f -n 50
 
 ### Керування n8n (Docker):
 ```bash
-cd /home/yurko/Docker/n8n
+cd ~/Docker/n8n
 docker compose restart
 ```
 

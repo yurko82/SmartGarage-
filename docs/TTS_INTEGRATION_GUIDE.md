@@ -53,7 +53,7 @@
 
 ### Запуск тестів:
 ```bash
-/home/yurko/AI/OpenInterpreter/venv/bin/python -m pytest tests/test_tts.py -v
+python3 -m pytest tests/test_tts.py -v
 ```
 
 ### Що перевіряють тести (`tests/test_tts.py`):
@@ -71,9 +71,9 @@
 Для отримання детального звіту вартості та генерації контрольних аудіофайлів використовуйте скрипт:
 ```bash
 # Перегляд аналітичного звіту та цін:
-/home/yurko/AI/OpenInterpreter/venv/bin/python scripts/evaluate_tts_providers.py
+python3 scripts/evaluate_tts_providers.py
 
 # Генерація тестових MP3-файлів українською мовою:
-/home/yurko/AI/OpenInterpreter/venv/bin/python scripts/evaluate_tts_providers.py --generate
+python3 scripts/evaluate_tts_providers.py --generate
 ```
 Аудіофайли зберігаються у директорії `output/tts_comparison/`.

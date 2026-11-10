@@ -33,7 +33,7 @@
 
 ### 3.1. Встановлення системи
 * Встановити **Ubuntu 24.04 LTS** (Server або Desktop) або **Linux Mint**.
-* **Обов'язково створити користувача:** `yurko` (щоб зберегти ідентичність усіх абсолютних шляхів `/home/yurko/...`).
+* **Рекомендовано створити єдиного користувача** (щоб зберегти однакову структуру домашніх каталогів `~/...`).
 
 ### 3.2. Робота із закритою кришкою та заборона сну
 Створити конфігурацію ігнорування кришки:
@@ -97,14 +97,14 @@ mkdir -p ~/migration_backup
 
 # 4. Створити архіви ключових директорій
 # Основний проект SmartGarage (бази даних, конфіги, .env)
-tar -czvf ~/migration_backup/smartgarage.tar.gz -C /home/yurko/AI SmartGarage
+tar -czvf ~/migration_backup/smartgarage.tar.gz -C ~/AI SmartGarage
 
 # Робочі процеси та база n8n
-tar -czvf ~/migration_backup/n8n_data.tar.gz -C /home/yurko/Docker n8n
+tar -czvf ~/migration_backup/n8n_data.tar.gz -C ~/Docker n8n
 
 # Додаткова серверна структура (сайти, зворотний проксі тощо)
-if [ -d "/home/yurko/server" ]; then
-    tar -czvf ~/migration_backup/server_dir.tar.gz -C /home/yurko server
+if [ -d "$HOME/server" ]; then
+    tar -czvf ~/migration_backup/server_dir.tar.gz -C ~ server
 fi
 
 # Налаштування WirePlumber для аудіо (A2DP)
@@ -120,12 +120,12 @@ cp -r ~/.config/wireplumber ~/migration_backup/configs/ 2>/dev/null || true
 Скопіювати архіви з `~/migration_backup/` на ASUS (через scp, rsync або зовнішній накопичувач):
 ```bash
 # Створити цільові каталоги
-mkdir -p /home/yurko/AI /home/yurko/Docker
+mkdir -p ~/AI ~/Docker
 
 # Розпакувати дані
-tar -xzvf smartgarage.tar.gz -C /home/yurko/AI/
-tar -xzvf n8n_data.tar.gz -C /home/yurko/Docker/
-[ -f server_dir.tar.gz ] && tar -xzvf server_dir.tar.gz -C /home/yurko/
+tar -xzvf smartgarage.tar.gz -C ~/AI/
+tar -xzvf n8n_data.tar.gz -C ~/Docker/
+[ -f server_dir.tar.gz ] && tar -xzvf server_dir.tar.gz -C ~/
 
 # Відновити налаштування WirePlumber
 mkdir -p ~/.config
@@ -134,19 +134,19 @@ cp -r ~/migration_backup/configs/wireplumber ~/.config/ 2>/dev/null || true
 
 ### 5.2. Створення віртуального оточення Python 3.12
 ```bash
-mkdir -p /home/yurko/AI/OpenInterpreter
-python3 -m venv /home/yurko/AI/OpenInterpreter/venv
+mkdir -p ~/AI/OpenInterpreter
+python3 -m venv ~/AI/OpenInterpreter/venv
 
 # Активація та встановлення залежностей з requirements.txt
-source /home/yurko/AI/OpenInterpreter/venv/bin/activate
+source ~/AI/OpenInterpreter/venv/bin/activate
 pip install --upgrade pip
-pip install -r /home/yurko/AI/SmartGarage/requirements.txt
+pip install -r ~/AI/SmartGarage/requirements.txt
 ```
 
 ### 5.3. Налаштування та активація автозапуску SmartGarage
 ```bash
 mkdir -p ~/.config/systemd/user/
-cp /home/yurko/AI/SmartGarage/smartgarage.service ~/.config/systemd/user/
+cp ~/AI/SmartGarage/smartgarage.service ~/.config/systemd/user/
 systemctl --user daemon-reload
 systemctl --user enable smartgarage.service
 ```
@@ -157,7 +157,7 @@ systemctl --user enable smartgarage.service
 docker run -d \
   --name n8n \
   -p 5678:5678 \
-  -v /home/yurko/Docker/n8n/data:/home/node/.n8n \
+  -v $HOME/Docker/n8n/data:/home/node/.n8n \
   --restart unless-stopped \
   docker.n8n.io/n8nio/n8n:latest
 
@@ -221,7 +221,7 @@ docker run -d \
    * **Автоматизація n8n:** Відкрити у браузері `http://<IP_ASUS>:5678`
    * **Кліматичні датчики:** Зачекати 5–10 хвилин і перевірити надходження оновлених значень:
      ```bash
-     cat /home/yurko/AI/SmartGarage/devices/sensor_cache.json
+     cat ~/AI/SmartGarage/devices/sensor_cache.json
      ```
    * **Логи сервісу:**
      ```bash

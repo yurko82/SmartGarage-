@@ -24,13 +24,13 @@
 ### 2.1. Пошук та реєстрація пристрою JX-BT
 * Проведено сканування ефіру через `bluetoothctl`. Знайдено пристрій `41:42:62:69:51:9B` з назвою `JX-BT`.
 * Пристрій додано в системну пам'ять:
-  * [`devices/bluetooth_devices.json`](file:///home/yurko/AI/SmartGarage/devices/bluetooth_devices.json)
-  * [`memory/memory.json`](file:///home/yurko/AI/SmartGarage/memory/memory.json)
+  * [`devices/bluetooth_devices.json.example`](../devices/bluetooth_devices.json.example)
+  * [`memory/memory.json.example`](../memory/memory.json.example)
 
 ### 2.2. Інтеграція Інтернет-Радіо та виправлення маршрутизації
-* Додано сервіс `RadioService` ([server/services/radio_service.py](file:///home/yurko/AI/SmartGarage/server/services/radio_service.py)) з каталогом українських радіостанцій (Kiss FM, Hit FM, Radio ROKS тощо) через Radio Browser API.
-* **Багфікс маршрутизатора:** у [server/commands/processor.py](file:///home/yurko/AI/SmartGarage/server/commands/processor.py) команди виду *«включи радіо kiss fm»* раніше помилково перехоплювалися парсером YouTube-відео (через ключове слово «включи»). Додано виключення для «радіо»/«radio», тепер запити гарантовано запускають стрім онлайн-радіо.
-* **Оновлення дашборду:** у [server/templates/dashboard.html](file:///home/yurko/AI/SmartGarage/server/templates/dashboard.html) та [server/static/js/dashboard.js](file:///home/yurko/AI/SmartGarage/server/static/js/dashboard.js) додано чіпи радіостанцій, підтримку динамічної назви підключеної колонки та повзунок гучності.
+* Додано сервіс `RadioService` ([server/services/radio_service.py](../server/services/radio_service.py)) з каталогом українських радіостанцій (Kiss FM, Hit FM, Radio ROKS тощо) через Radio Browser API.
+* **Багфікс маршрутизатора:** у [server/commands/processor.py](../server/commands/processor.py) команди виду *«включи радіо kiss fm»* раніше помилково перехоплювалися парсером YouTube-відео (через ключове слово «включи»). Додано виключення для «радіо»/«radio», тепер запити гарантовано запускають стрім онлайн-радіо.
+* **Оновлення дашборду:** у [server/templates/dashboard.html](../server/templates/dashboard.html) та [server/static/js/dashboard.js](../server/static/js/dashboard.js) додано чіпи радіостанцій, підтримку динамічної назви підключеної колонки та повзунок гучності.
 
 ---
 
@@ -42,7 +42,7 @@
 2. **Невідповідна буферизація GStreamer:** запуск `playbin` з `buffer-duration=3000000000` на живому онлайн-потоці змушував GStreamer постійно прискорювати або сповільнювати відтворення (ефект «гумового» або «завиваючого» звуку).  
    *Виправлено:* прибрано штучний буфер часу, залишено стандартний потоковий потік.
 3. **Конфлікт проміжних аудіосерверів:** плеєр використовував `pulsesink`, що викликало розсинхронізацію тактового генератора між PipeWire та PulseAudio-емуляцією.  
-   *Виправлено:* у [server/devices/bluetooth_speaker.py](file:///home/yurko/AI/SmartGarage/server/devices/bluetooth_speaker.py) плеєр переведено на нативний `pipewiresink target-object=...`.
+   *Виправлено:* у [server/devices/bluetooth_speaker.py](../server/devices/bluetooth_speaker.py) плеєр переведено на нативний `pipewiresink target-object=...`.
 
 ### Проблема 2: Падіння в телефонний режим 8 кГц (HSP/HFP CVSD)
 * При спробі відтворення WirePlumber автоматично перемикав профіль Bluetooth-карти у `headset-head-unit-cvsd` (монофонічний телефонний дзвінок низької якості).
@@ -62,11 +62,11 @@
 
 ## 4. Скрипти керування, створені в проєкті
 
-1. **[`scripts/install_bt_firmware.sh`](file:///home/yurko/AI/SmartGarage/scripts/install_bt_firmware.sh)** — скрипт завантаження та копіювання мікропрограми Broadcom у `/lib/firmware/brcm/`.  
-   * **⚠️ ВАЖЛИВЕ ЗАСТЕРЕЖЕННЯ:** Скрипт призначений **виключно** для адаптерів ревізії **BCM20702 A1**. На поточному сервері (ThinkPad E530c) встановлено ревізію **BCM20702 A0** (`bcdDevice 1.12`), на якій цей патч спричиняє критичне зависання Bluetooth-лінка (`link tx timeout` та `killing stalled connection`). З цієї причини скрипт містить обов'язкове інтерактивне підтвердження (або прапорець `--force`) і його **НЕ слід** застосовувати на цій апаратній конфігурації.
-2. **[`scripts/remove_bt_firmware.sh`](file:///home/yurko/AI/SmartGarage/scripts/remove_bt_firmware.sh)** — скрипт видалення несумісного файлу прошивки та повернення до стабільного заводського ROM ядра:
+1. **[`scripts/install_bt_firmware.sh`](../scripts/install_bt_firmware.sh)** — скрипт завантаження та копіювання мікропрограми Broadcom у `/lib/firmware/brcm/`.  
+   * **⚠️ ВАЖЛИВЕ ЗАСТЕРЕЖЕННЯ:** Скрипт призначений **виключно** для адаптерів ревізії **BCM20702 A1**. На поточному сервері встановлено ревізію **BCM20702 A0** (`bcdDevice 1.12`), на якій цей патч спричиняє критичне зависання Bluetooth-лінка (`link tx timeout` та `killing stalled connection`). З цієї причини скрипт містить обов'язкове інтерактивне підтвердження (або прапорець `--force`) і його **НЕ слід** застосовувати на цій апаратній конфігурації.
+2. **[`scripts/remove_bt_firmware.sh`](../scripts/remove_bt_firmware.sh)** — скрипт видалення несумісного файлу прошивки та повернення до стабільного заводського ROM ядра:
    ```bash
-   cd /home/yurko/AI/SmartGarage && ./scripts/remove_bt_firmware.sh
+   ./scripts/remove_bt_firmware.sh
    ```
 
 ---

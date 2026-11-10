@@ -67,7 +67,7 @@ custom_instructions: "# ========================================================
   \ (string), container_name (string), tail_lines (integer)\n- `file_operations`:\
   \ Safe, non-destructive file operations strictly within the /home/user/smartgarage/\
   \ directory tree.\n  Parameters: operation (string), path (string), content (string),\
-  \ max_lines (integer)\n\nFull JSON Schemas are stored in: /home/yurko/AI/SmartGarage/prompts/tool_definitions.json"
+  \ max_lines (integer)\n\nFull JSON Schemas are stored in: prompts/tool_definitions.json"
 system_prompt: "# ==============================================================================\n\
   # ANTIGRAVITY CORE - SYSTEM PROMPT\n# ==============================================================================\n\
   \n### 1. IDENTITY\nYou are Antigravity Core, a hyper-efficient, zero-friction AI\
@@ -121,4 +121,4 @@ system_prompt: "# ==============================================================
   \ (string), container_name (string), tail_lines (integer)\n- `file_operations`:\
   \ Safe, non-destructive file operations strictly within the /home/user/smartgarage/\
   \ directory tree.\n  Parameters: operation (string), path (string), content (string),\
-  \ max_lines (integer)\n\nFull JSON Schemas are stored in: /home/yurko/AI/SmartGarage/prompts/tool_definitions.json"
+  \ max_lines (integer)\n\nFull JSON Schemas are stored in: prompts/tool_definitions.json"

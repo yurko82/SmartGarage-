@@ -76,8 +76,8 @@ flowchart TD
   - `browser`: явний резервний синтез Web Speech API у разі недоступності серверних провайдерів.
 
 ### 4. Прошивка мікроконтролера (ESP32-S3)
-- **Єдине джерело істини**: прошивка збирається через PlatformIO з файлу [`esp32/src/main.cpp`](file:///home/yurko/AI/SmartGarage/esp32/src/main.cpp).
-- Застарілі скетчі Arduino IDE архівовано в [`esp32/legacy/`](file:///home/yurko/AI/SmartGarage/esp32/legacy/).
+- **Єдине джерело істини**: прошивка збирається через PlatformIO з файлу [`esp32/src/main.cpp`](esp32/src/main.cpp).
+- Застарілі скетчі Arduino IDE архівовано в [`esp32/legacy/`](esp32/legacy/).
 - Підтримка зчитування BLE-датчиків Xiaomi LYWSD03MMC, MQTT-клієнт, USB Serial зв'язок, локальний HTTP-сервер.
 
 ---
@@ -143,4 +143,4 @@ pio run -d esp32
 ---
 
 ## 📄 Історія змін та версії
-Детальний журнал усіх внесених оновлень, виправлень та версій зафіксовано у файлі [`CHANGELOG.md`](file:///home/yurko/AI/SmartGarage/CHANGELOG.md).
+Детальний журнал усіх внесених оновлень, виправлень та версій зафіксовано у файлі [`CHANGELOG.md`](CHANGELOG.md).

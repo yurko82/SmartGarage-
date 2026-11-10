@@ -1,5 +1,7 @@
 import os
+import shutil
 import subprocess
+import sys
 import threading
 import time
 from pathlib import Path
@@ -10,6 +12,33 @@ try:
 except ImportError:
     import logging
     Logger = logging.getLogger
+
+
+def _get_ytdlp_bin() -> str:
+    """Dynamically locate yt-dlp binary without hardcoded paths."""
+    venv_bin = Path(sys.executable).parent / "yt-dlp"
+    if venv_bin.exists():
+        return str(venv_bin)
+    sys_bin = shutil.which("yt-dlp")
+    if sys_bin:
+        return sys_bin
+    return "yt-dlp"
+
+
+def _get_ffmpeg_bin() -> str:
+    """Dynamically locate ffmpeg binary without hardcoded paths."""
+    try:
+        import imageio_ffmpeg
+        exe = imageio_ffmpeg.get_ffmpeg_exe()
+        if exe and Path(exe).exists():
+            return exe
+    except Exception:
+        pass
+    sys_bin = shutil.which("ffmpeg")
+    if sys_bin:
+        return sys_bin
+    return "ffmpeg"
+
 
 
 class BluetoothSpeakerController:
@@ -748,7 +777,7 @@ class BluetoothSpeakerController:
         if force_stream:
             try:
                 cmd_g = [
-                    "/home/yurko/AI/OpenInterpreter/venv/bin/yt-dlp",
+                    _get_ytdlp_bin(),
                     "--extractor-args", "youtube:player_client=android,web",
                     "-f", "18/bestaudio/best",
                     "-g",
@@ -817,10 +846,10 @@ class BluetoothSpeakerController:
             return self.play_file(str(cached_file), track_title=display_title, duration=duration)
 
         search_target = target if (target.startswith("http://") or target.startswith("https://")) else f"ytsearch1:{target}"
-        ffmpeg_bin = "/home/yurko/AI/OpenInterpreter/venv/lib/python3.12/site-packages/imageio_ffmpeg/binaries/ffmpeg-linux-x86_64-v7.0.2"
+        ffmpeg_bin = _get_ffmpeg_bin()
 
         cmd_dl = [
-            "/home/yurko/AI/OpenInterpreter/venv/bin/yt-dlp",
+            _get_ytdlp_bin(),
             "--ffmpeg-location", ffmpeg_bin,
             "--extractor-args", "youtube:player_client=android,web",
             "-f", "18/best[ext=mp4][height<=720]/136+140/best/bestaudio",
@@ -856,7 +885,7 @@ class BluetoothSpeakerController:
         # Fallback: instant direct streaming via yt-dlp -g for long mixes or failed downloads
         try:
             cmd_g = [
-                "/home/yurko/AI/OpenInterpreter/venv/bin/yt-dlp",
+                _get_ytdlp_bin(),
                 "--extractor-args", "youtube:player_client=android,web",
                 "-f", "18/bestaudio/best",
                 "-g",

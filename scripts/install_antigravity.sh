@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-SOURCE_DIR="/home/yurko/Завантажене/Antigravity IDE"
+SOURCE_DIR="${SOURCE_DIR:-$HOME/Завантажене/Antigravity IDE}"
 TARGET_DIR="/opt/antigravity-ide"
 
 echo "=== Встановлення Antigravity IDE в $TARGET_DIR ==="

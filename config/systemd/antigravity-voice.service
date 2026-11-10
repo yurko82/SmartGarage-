@@ -6,15 +6,15 @@ Wants=pipewire.service
 
 [Service]
 Type=simple
-User=yurko
-Group=yurko
-WorkingDirectory=/home/yurko/AI/SmartGarage
-Environment="PYTHONPATH=/home/yurko/AI/SmartGarage"
+User=%u
+Group=%u
+WorkingDirectory=%h/AI/SmartGarage
+Environment="PYTHONPATH=%h/AI/SmartGarage"
 Environment="PYTHONUNBUFFERED=1"
-Environment="XDG_RUNTIME_DIR=/run/user/1000"
-Environment="PULSE_SERVER=/run/user/1000/pulse/native"
+Environment="XDG_RUNTIME_DIR=/run/user/%U"
+Environment="PULSE_SERVER=/run/user/%U/pulse/native"
 Slice=antigravity-voice.slice
-ExecStart=/home/yurko/AI/OpenInterpreter/venv/bin/python -m server.services.voice_listener
+ExecStart=%h/AI/OpenInterpreter/venv/bin/python -m server.services.voice_listener
 Restart=always
 RestartSec=5
 

@@ -26,8 +26,8 @@ class UserProfileManager:
     def _init_default_profile(self):
         default_data = {
             "owner": {
-                "name": "Юрій",
-                "callsign": "Yurko",
+                "name": "Власник",
+                "callsign": "Майстер",
                 "role": "Власник майстерні Smart Garage та майстер з обслуговування велосипедів"
             },
             "workshop": {
