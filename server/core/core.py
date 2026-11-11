@@ -37,6 +37,16 @@ class SmartGarage:
         self.bt_sensors = BluetoothSensorManager(telemetry_db=self.telemetry_db)
         self.telegram = TelegramBot(self)
 
+        from server.services.device_service import DeviceService
+        self.device_service = DeviceService(
+            esp32=self.esp32,
+            bt_sensors=self.bt_sensors,
+            speaker=self.speaker,
+            projector=self.projector,
+            presence=self.presence,
+            telemetry_db=self.telemetry_db,
+        )
+
         # Wire proactive presence arrival/departure notifications to Telegram & TTS
         _last_owner_greeting_ts = 0.0
         _last_owner_departure_ts = 0.0
