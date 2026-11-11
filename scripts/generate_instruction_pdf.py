@@ -5,10 +5,11 @@
 """
 
 import os
-import sys
 import subprocess
-import requests
+import sys
 from pathlib import Path
+
+import requests
 from dotenv import load_dotenv
 
 # Завантаження змінних середовища
@@ -885,15 +886,15 @@ def generate_html_content() -> str:
 """
 
 def compile_pdf() -> bool:
-    print(f"[1/4] Створення директорій...")
+    print("[1/4] Створення директорій...")
     HTML_PATH.parent.mkdir(parents=True, exist_ok=True)
-    
+
     print(f"[2/4] Генерація структурованого HTML-документа: {HTML_PATH}")
     html_content = generate_html_content()
     with open(HTML_PATH, "w", encoding="utf-8") as f:
         f.write(html_content)
-    
-    print(f"[3/4] Компіляція HTML у PDF через LibreOffice...")
+
+    print("[3/4] Компіляція HTML у PDF через LibreOffice...")
     cmd = [
         "libreoffice",
         "--headless",
@@ -905,7 +906,7 @@ def compile_pdf() -> bool:
     if res.returncode != 0:
         print(f"Помилка компіляції PDF: {res.stderr}")
         return False
-    
+
     # Також копіюємо в корінь як instruction.pdf
     if PDF_PATH.exists():
         import shutil
@@ -918,14 +919,14 @@ def compile_pdf() -> bool:
         return False
 
 def send_to_telegram() -> bool:
-    print(f"[4/4] Відправка PDF інструкції в Telegram...")
+    print("[4/4] Відправка PDF інструкції в Telegram...")
     token = os.getenv("TELEGRAM_BOT_TOKEN")
     admin_chat_id = os.getenv("TELEGRAM_ADMIN_CHAT_ID", "")
-    
+
     if not token or not admin_chat_id:
         print("Повідомлення: TELEGRAM_BOT_TOKEN або TELEGRAM_ADMIN_CHAT_ID не задано. Відправка пропущена.")
         return False
-        
+
     url = f"https://api.telegram.org/bot{token}/sendDocument"
     caption = (
         "📘 *Повна технічна інструкція SmartGarage*\n\n"
@@ -937,7 +938,7 @@ def send_to_telegram() -> bool:
         "• Політика безпеки, аудит та файлова структура.\n\n"
         "Файл скомпільовано у високій якості (PDF)."
     )
-    
+
     with open(ROOT_PDF_PATH, "rb") as f:
         files = {
             "document": ("SmartGarage_System_Instruction.pdf", f, "application/pdf")
@@ -948,7 +949,7 @@ def send_to_telegram() -> bool:
             "parse_mode": "Markdown"
         }
         r = requests.post(url, data=data, files=files, timeout=40)
-        
+
     if r.status_code == 200 and r.json().get("ok"):
         print(f"✅ Документ успішно доставлено в Telegram користувачу (Chat ID: {admin_chat_id})!")
         return True

@@ -4,16 +4,16 @@ Smart Garage - MQTT Bridge & Home Assistant Auto-Discovery Service
 Connects ESP32, Antigravity AI Core, and Home Assistant via MQTT.
 Provides two-way synchronization and publishes retained discovery payloads.
 """
-import os
-import sys
-import json
-import time
-import signal
-import asyncio
-import logging
 import argparse
+import asyncio
+import json
+import logging
+import os
+import signal
+import sys
+import time
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Any, Dict, Optional
 
 # Compatible import with both aiomqtt and asyncio_mqtt
 try:
@@ -31,13 +31,13 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 CONFIG_PATH = PROJECT_ROOT / "config" / "config.yaml"
 
 
-def load_config() -> Dict[str, Any]:
+def load_config() -> dict[str, Any]:
     """Load configuration from config/config.yaml."""
     cfg = {}
     if CONFIG_PATH.exists():
         try:
             import yaml
-            with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+            with open(CONFIG_PATH, encoding="utf-8") as f:
                 cfg = yaml.safe_load(f) or {}
         except Exception as e:
             logger.warning(f"Error loading config.yaml: {e}")
@@ -53,8 +53,8 @@ class SmartGarageMQTTBridge:
         self,
         broker_host: str = "127.0.0.1",
         broker_port: int = 1883,
-        username: Optional[str] = "smartgarage",
-        password: Optional[str] = None,
+        username: str | None = "smartgarage",
+        password: str | None = None,
         discovery_prefix: str = "homeassistant",
         topic_prefix: str = "smartgarage",
         garage_instance = None
@@ -68,7 +68,7 @@ class SmartGarageMQTTBridge:
         self.garage = garage_instance
 
         self.running = False
-        self.client: Optional[Client] = None
+        self.client: Client | None = None
 
         # Device info unified block for Home Assistant
         self.device_info = {
@@ -84,7 +84,7 @@ class SmartGarageMQTTBridge:
         self.state_light = "OFF"
         self.state_fan = "OFF"
         self.state_ai_status = "idle"
-        self.latest_telemetry: Dict[str, Any] = {}
+        self.latest_telemetry: dict[str, Any] = {}
 
     async def publish_discovery(self, client: Client):
         """Publish retained Home Assistant MQTT Discovery configuration topics."""

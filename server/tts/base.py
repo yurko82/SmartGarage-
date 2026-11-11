@@ -6,8 +6,8 @@ Smart Garage - Base TTS Provider Interfaces and Data Structures
 """
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, asdict
-from typing import Dict, List, Optional, Any
+from dataclasses import asdict, dataclass
+from typing import Any, Dict, List, Optional
 
 
 class TTSError(Exception):
@@ -52,11 +52,11 @@ class TTSVoiceInfo:
     name: str
     language: str
     gender: str = "unknown"
-    preview_url: Optional[str] = None
-    description: Optional[str] = None
+    preview_url: str | None = None
+    description: str | None = None
     is_default: bool = False
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 
@@ -69,8 +69,8 @@ class TTSResult:
     voice_id: str                   # Використаний ідентифікатор голосу
     cached: bool = False            # Чи повернуто з кешу
     fallback_used: bool = False     # Чи використовувався резервний провайдер
-    fallback_reason: Optional[str] = None  # Причина спрацьовування fallback
-    duration_seconds: Optional[float] = None
+    fallback_reason: str | None = None  # Причина спрацьовування fallback
+    duration_seconds: float | None = None
 
 
 class TTSProvider(ABC):
@@ -82,7 +82,7 @@ class TTSProvider(ABC):
         self.max_retries = max_retries
 
     @abstractmethod
-    def synthesize(self, text: str, voice_id: Optional[str] = None, **kwargs) -> TTSResult:
+    def synthesize(self, text: str, voice_id: str | None = None, **kwargs) -> TTSResult:
         """
         Синтезує переданий очищений текст у аудіодані.
 
@@ -93,7 +93,7 @@ class TTSProvider(ABC):
         pass
 
     @abstractmethod
-    def get_available_voices(self) -> List[TTSVoiceInfo]:
+    def get_available_voices(self) -> list[TTSVoiceInfo]:
         """
         Повертає список валідованих українських голосів, доступних у провайдера.
         """

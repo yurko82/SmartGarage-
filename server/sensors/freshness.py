@@ -3,9 +3,9 @@ Smart Garage - Sensor Freshness & Telemetry Truth Engine
 Provides unified rules for determining sensor freshness, status categorization,
 ISO-8601 formatting with timezones, and transparent source attribution.
 """
-from datetime import datetime, timezone
 import time
-from typing import Dict, Any, Optional, Tuple
+from datetime import UTC, datetime, timezone
+from typing import Any, Dict, Optional, Tuple
 
 # Configuration Constants
 # Default polling cycle is 30 minutes (1800 seconds)
@@ -38,19 +38,19 @@ SOURCE_DESCRIPTIONS = {
 }
 
 
-def format_iso_timestamp(timestamp: Optional[float]) -> Optional[str]:
+def format_iso_timestamp(timestamp: float | None) -> str | None:
     """Format Unix epoch timestamp into ISO-8601 string with local timezone offset."""
     if timestamp is None:
         return None
     try:
         # Use local system timezone
-        local_dt = datetime.fromtimestamp(timestamp, tz=timezone.utc).astimezone()
+        local_dt = datetime.fromtimestamp(timestamp, tz=UTC).astimezone()
         return local_dt.isoformat()
     except Exception:
         return None
 
 
-def format_relative_time_ua(timestamp: Optional[float], now: Optional[float] = None) -> str:
+def format_relative_time_ua(timestamp: float | None, now: float | None = None) -> str:
     """Format Unix timestamp into human-readable relative Ukrainian string."""
     if timestamp is None:
         return "Ніколи"
@@ -71,13 +71,13 @@ def format_relative_time_ua(timestamp: Optional[float], now: Optional[float] = N
 
 
 def get_sensor_status(
-    last_updated: Optional[float],
+    last_updated: float | None,
     is_online_reported: bool = True,
     has_mac: bool = True,
     has_reading: bool = True,
-    threshold_seconds: Optional[int] = None,
-    now: Optional[float] = None
-) -> Tuple[str, str]:
+    threshold_seconds: int | None = None,
+    now: float | None = None
+) -> tuple[str, str]:
     """
     Determine single authoritative sensor status and Ukrainian explanation text.
     Returns (status_code, status_text_ua)
@@ -113,17 +113,17 @@ def get_sensor_status(
 def build_sensor_payload(
     floor: str,
     name: str,
-    mac: Optional[str] = None,
-    temperature: Optional[float] = None,
-    humidity: Optional[float] = None,
-    battery: Optional[int] = None,
-    last_updated: Optional[float] = None,
+    mac: str | None = None,
+    temperature: float | None = None,
+    humidity: float | None = None,
+    battery: int | None = None,
+    last_updated: float | None = None,
     is_online_reported: bool = False,
     source: str = SOURCE_NONE,
     installed: bool = True,
-    threshold_seconds: Optional[int] = None,
-    now: Optional[float] = None
-) -> Dict[str, Any]:
+    threshold_seconds: int | None = None,
+    now: float | None = None
+) -> dict[str, Any]:
     """
     Construct a validated, transparent sensor telemetry dictionary conforming to owner constraints:
     - Never presents old data as current when stale or offline
@@ -194,7 +194,7 @@ def build_sensor_payload(
     }
 
 
-def merge_sensor_readings(primary_reading: Dict[str, Any], secondary_reading: Dict[str, Any]) -> Dict[str, Any]:
+def merge_sensor_readings(primary_reading: dict[str, Any], secondary_reading: dict[str, Any]) -> dict[str, Any]:
     """
     Merge readings from two different transport channels (e.g. host BLE direct vs ESP32 BLE bridge).
     Guarantees:

@@ -6,11 +6,11 @@ Optimizes `devices/telemetry.db`:
 - Executes VACUUM to defragment and reclaim unused disk pages
 - Prints comprehensive DB statistics (file size, table counts, indices)
 """
+import argparse
 import os
+import sqlite3
 import sys
 import time
-import sqlite3
-import argparse
 from pathlib import Path
 
 

@@ -1,10 +1,10 @@
 import json
-import time
-import threading
 import subprocess
+import threading
+import time
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Any, Optional
+from typing import Any, Dict, List, Optional
 
 try:
     from server.logger.logger import Logger
@@ -61,14 +61,14 @@ class PresenceManager:
     def log_path(self, val):
         self._custom_log_path = Path(val) if val else None
 
-    def __init__(self, data_dir: Optional[Path] = None, logger=None, presence_config: Optional[Dict[str, Any]] = None):
+    def __init__(self, data_dir: Path | None = None, logger=None, presence_config: dict[str, Any] | None = None):
         self.logger = logger or Logger()
         self._custom_devices_path = (Path(data_dir) / "presence_devices.json") if data_dir else None
         self._custom_log_path = (Path(data_dir) / "presence_log.json") if data_dir else None
         self._lock = threading.RLock()
 
-        self.devices: Dict[str, Dict[str, Any]] = {}
-        self.log: List[Dict[str, Any]] = []
+        self.devices: dict[str, dict[str, Any]] = {}
+        self.log: list[dict[str, Any]] = []
 
         # Away timeout in seconds (15 minutes of inactivity before marking as away)
         self.away_timeout = 900
@@ -80,7 +80,7 @@ class PresenceManager:
         self.rpa_continuity_rssi_tolerance = float(cfg.get("rpa_continuity_rssi_tolerance", 10))
 
         self._running = False
-        self._worker_thread: Optional[threading.Thread] = None
+        self._worker_thread: threading.Thread | None = None
         self.event_callback = None
 
         self._load_data()
@@ -93,14 +93,14 @@ class PresenceManager:
         """Load registered devices and presence logs from disk."""
         if self.devices_path.exists():
             try:
-                with open(self.devices_path, "r", encoding="utf-8") as f:
+                with open(self.devices_path, encoding="utf-8") as f:
                     self.devices = json.load(f)
             except Exception as e:
                 self.logger.error(f"Error loading presence_devices.json: {e}")
 
         if self.log_path.exists():
             try:
-                with open(self.log_path, "r", encoding="utf-8") as f:
+                with open(self.log_path, encoding="utf-8") as f:
                     self.log = json.load(f)
             except Exception as e:
                 self.logger.error(f"Error loading presence_log.json: {e}")
@@ -187,7 +187,7 @@ class PresenceManager:
                         note="Початкова фіксація присутності біля гаража"
                     )
 
-    def _proximity_from_rssi(self, rssi: Optional[int]) -> str:
+    def _proximity_from_rssi(self, rssi: int | None) -> str:
         if rssi is None:
             return "unknown"
         if rssi >= -60:
@@ -198,7 +198,7 @@ class PresenceManager:
             return "approaching" # > 6 meters (approaching garage)
 
     def _add_log_entry(self, event: str, device_id: str, person_name: str,
-                       device_name: str, rssi: Optional[int], source: str = "esp32_ble",
+                       device_name: str, rssi: int | None, source: str = "esp32_ble",
                        note: str = ""):
         now = time.time()
         dt = datetime.fromtimestamp(now)
@@ -229,8 +229,8 @@ class PresenceManager:
             except Exception as e:
                 self.logger.error(f"Error dispatching presence event callback: {e}")
 
-    def record_sighting(self, mac: str, name: str = "", rssi: Optional[int] = None,
-                        service_uuids: Optional[List[str]] = None, source: str = "esp32_ble") -> Optional[Dict[str, Any]]:
+    def record_sighting(self, mac: str, name: str = "", rssi: int | None = None,
+                        service_uuids: list[str] | None = None, source: str = "esp32_ble") -> dict[str, Any] | None:
         """Process a sighted Bluetooth device from ESP32 or server scan and match against registry."""
         mac_upper = mac.upper().strip()
         matched_device_id = None
@@ -377,12 +377,12 @@ class PresenceManager:
     def register_device(self, device_id: str, name: str, role: str = "guest",
                         device_type: str = "phone", device_name: str = "",
                         classic_mac: str = "", ble_mac: str = "",
-                        ble_services: Optional[List[str]] = None,
+                        ble_services: list[str] | None = None,
                         auto_welcome: bool = False,
-                        telegram_chat_id: Optional[str] = None,
+                        telegram_chat_id: str | None = None,
                         absence_voice_message: str = "",
                         notify_owner: bool = False,
-                        opt_in: bool = False) -> Dict[str, Any]:
+                        opt_in: bool = False) -> dict[str, Any]:
         """Register a new device / guest entity with optional absence automation rules."""
         with self._lock:
             clean_id = device_id.lower().replace(" ", "_").strip()
@@ -421,7 +421,7 @@ class PresenceManager:
 
             return item
 
-    def update_device(self, device_id: str, **kwargs) -> Optional[Dict[str, Any]]:
+    def update_device(self, device_id: str, **kwargs) -> dict[str, Any] | None:
         """Update existing guest or device profile and absence automation rules."""
         with self._lock:
             clean_id = device_id.lower().replace(" ", "_").strip()
@@ -470,7 +470,7 @@ class PresenceManager:
                 found = True
             return found
 
-    def _check_classic_mac(self, mac: str) -> Optional[str]:
+    def _check_classic_mac(self, mac: str) -> str | None:
         """Check if device is responding to Classic Bluetooth inquiry/name request."""
         if not mac:
             return None
@@ -562,7 +562,7 @@ class PresenceManager:
                     break
                 time.sleep(1)
 
-    def get_status(self) -> Dict[str, Any]:
+    def get_status(self) -> dict[str, Any]:
         """Get summary of presence status: who is present right now and list of all known entities."""
         with self._lock:
             owner_away = self.devices.get("owner_phone", {}).get("status") != "present"
@@ -584,12 +584,12 @@ class PresenceManager:
                 "recent_log": self.log[-20:]
             }
 
-    def get_log(self, limit: int = 50) -> List[Dict[str, Any]]:
+    def get_log(self, limit: int = 50) -> list[dict[str, Any]]:
         """Retrieve recent visitor and presence log entries."""
         with self._lock:
             return list(reversed(self.log[-limit:]))
 
-    def get_visitor_report(self, limit: int = 100, days: Optional[int] = None) -> Dict[str, Any]:
+    def get_visitor_report(self, limit: int = 100, days: int | None = None) -> dict[str, Any]:
         """Generate structured visitor presence report and statistics."""
         with self._lock:
             now = time.time()
@@ -605,7 +605,7 @@ class PresenceManager:
             ]
 
             # Visitor stats (group by device_id)
-            visitor_stats: Dict[str, Dict[str, Any]] = {}
+            visitor_stats: dict[str, dict[str, Any]] = {}
             for dev_id, dev in self.devices.items():
                 if dev.get("role") == "owner":
                     continue

@@ -1,0 +1,7 @@
+# SmartGarage — Voice Assistant (Wake Word + Local Speech-To-Text)
+# Used by server/services/voice_listener.py
+openwakeword>=0.6.0
+faster-whisper>=1.0.0
+sounddevice>=0.5.0
+numpy>=1.26.0
+onnxruntime>=1.17.0

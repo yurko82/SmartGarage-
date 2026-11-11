@@ -14,37 +14,37 @@ Smart Garage - Unit and Integration Tests for Ukrainian Voice TTS Subsystem
 
 import io
 import os
-import time
 import shutil
+import time
 import unittest
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from server.tts.base import (
-    TTSResult,
-    TTSVoiceInfo,
-    TTSError,
     TTSAuthError,
+    TTSError,
+    TTSMalformedResponseError,
     TTSRateLimitError,
+    TTSResult,
     TTSServerError,
     TTSTimeoutError,
+    TTSVoiceInfo,
     TTSVoiceNotFoundError,
-    TTSMalformedResponseError,
-)
-from server.tts.normalizer import (
-    normalize_ukrainian_text,
-    clean_markdown_and_markup,
-    number_to_ukrainian_words,
-    format_temperature_ukrainian,
-    format_percentage_ukrainian,
 )
 from server.tts.cache import TTSAudioCache
 from server.tts.edge_provider import EdgeTTSProvider
-from server.tts.heygen_provider import HeyGenTTSProvider
 from server.tts.elevenlabs_provider import ElevenLabsTTSProvider
+from server.tts.heygen_provider import HeyGenTTSProvider
 from server.tts.manager import TTSManager
+from server.tts.normalizer import (
+    clean_markdown_and_markup,
+    format_percentage_ukrainian,
+    format_temperature_ukrainian,
+    normalize_ukrainian_text,
+    number_to_ukrainian_words,
+)
 from server.webapp import app
 
 
@@ -147,7 +147,7 @@ class TestTTSAudioCache(unittest.TestCase):
     def test_max_capacity_enforcement(self):
         # Записуємо 5 файлів при ліміті 3
         for i in range(5):
-            self.cache.put("edge", "voice", f"text_{i}", f"DATA_{i}".encode("utf-8"), "audio/mpeg")
+            self.cache.put("edge", "voice", f"text_{i}", f"DATA_{i}".encode(), "audio/mpeg")
             time.sleep(0.05)
 
         files = list(self.test_cache_dir.glob("*.mp3"))

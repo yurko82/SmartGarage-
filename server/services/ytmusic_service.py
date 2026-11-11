@@ -10,7 +10,7 @@ import subprocess
 import threading
 import time
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -46,19 +46,19 @@ class YTMusicService:
         p.mkdir(parents=True, exist_ok=True)
         return p
 
-    def __init__(self, devices_dir: Optional[Path] = None):
+    def __init__(self, devices_dir: Path | None = None):
         self.root_dir = Path(__file__).resolve().parent.parent.parent
         self._custom_devices_dir = devices_dir
 
         self._lock = threading.Lock()
-        self._playlists_cache: List[Dict[str, Any]] = []
+        self._playlists_cache: list[dict[str, Any]] = []
         self._last_playlists_fetch: float = 0.0
 
-        self.current_playlist_id: Optional[str] = None
-        self.current_playlist_title: Optional[str] = None
+        self.current_playlist_id: str | None = None
+        self.current_playlist_title: str | None = None
         self.current_track_index: int = -1
         self.current_shuffle_mode: bool = False
-        self._last_played_tracks: List[str] = []
+        self._last_played_tracks: list[str] = []
 
         self._load_cached_playlists()
 
@@ -66,7 +66,7 @@ class YTMusicService:
         """Load cached playlists from disk if available."""
         if self.cache_file.exists():
             try:
-                with open(self.cache_file, "r", encoding="utf-8") as f:
+                with open(self.cache_file, encoding="utf-8") as f:
                     data = json.load(f)
                     self._playlists_cache = data.get("playlists", [])
                     self._last_playlists_fetch = data.get("timestamp", 0.0)
@@ -84,7 +84,7 @@ class YTMusicService:
         except Exception as e:
             logger.warning(f"Failed to save playlists cache: {e}")
 
-    def get_user_playlists(self, force_refresh: bool = False) -> List[Dict[str, Any]]:
+    def get_user_playlists(self, force_refresh: bool = False) -> list[dict[str, Any]]:
         """Fetch all user playlists including Liked Music."""
         now = time.time()
         # Cache for 1 hour unless forced
@@ -95,7 +95,7 @@ class YTMusicService:
         ytdlp_bin = _get_ytdlp_bin()
 
         # 1. Start with standard Liked Music playlist
-        playlists: List[Dict[str, Any]] = [
+        playlists: list[dict[str, Any]] = [
             {
                 "id": "LM",
                 "title": "Улюблені пісні (Liked Music)",
@@ -146,7 +146,7 @@ class YTMusicService:
 
         return self._playlists_cache
 
-    def get_playlist_tracks(self, playlist_id_or_url: str, force_refresh: bool = False) -> List[Dict[str, Any]]:
+    def get_playlist_tracks(self, playlist_id_or_url: str, force_refresh: bool = False) -> list[dict[str, Any]]:
         """Get all safe tracks from a specific playlist with disk caching."""
         p_id = playlist_id_or_url
         if "list=" in p_id:
@@ -157,7 +157,7 @@ class YTMusicService:
             try:
                 # 2 hour cache for tracks
                 if time.time() - cache_track_file.stat().st_mtime < 7200:
-                    with open(cache_track_file, "r", encoding="utf-8") as f:
+                    with open(cache_track_file, encoding="utf-8") as f:
                         cached_tracks = json.load(f)
                         if cached_tracks:
                             return cached_tracks
@@ -176,7 +176,7 @@ class YTMusicService:
             target_url
         ]
 
-        tracks: List[Dict[str, Any]] = []
+        tracks: list[dict[str, Any]] = []
         try:
             res = subprocess.run(cmd, capture_output=True, text=True, timeout=25)
             if res.returncode == 0 and res.stdout.strip():
@@ -217,7 +217,7 @@ class YTMusicService:
 
         return tracks
 
-    def find_playlist(self, query: str) -> Optional[Dict[str, Any]]:
+    def find_playlist(self, query: str) -> dict[str, Any] | None:
         """Find a playlist matching user's voice or text query."""
         q = (query or "").lower().strip()
         if not q:
@@ -267,9 +267,9 @@ class YTMusicService:
         self,
         playlist_id_or_name: str,
         shuffle: bool = False,
-        track_id: Optional[str] = None,
-        track_title: Optional[str] = None
-    ) -> Optional[Dict[str, Any]]:
+        track_id: str | None = None,
+        track_title: str | None = None
+    ) -> dict[str, Any] | None:
         """Get a track to play from specified playlist (sequential by default or shuffle)."""
         pl = self.find_playlist(playlist_id_or_name)
         if pl:
@@ -353,9 +353,9 @@ class YTMusicService:
 
     def get_next_track_to_play(
         self,
-        playlist_id_or_name: Optional[str] = None,
-        shuffle: Optional[bool] = None
-    ) -> Optional[Dict[str, Any]]:
+        playlist_id_or_name: str | None = None,
+        shuffle: bool | None = None
+    ) -> dict[str, Any] | None:
         """Get the next track in order or shuffle for auto-advancing."""
         p_id = playlist_id_or_name or self.current_playlist_id or "LM"
         pl = self.find_playlist(p_id)
@@ -395,9 +395,9 @@ class YTMusicService:
 
     def get_prev_track_to_play(
         self,
-        playlist_id_or_name: Optional[str] = None,
-        shuffle: Optional[bool] = None
-    ) -> Optional[Dict[str, Any]]:
+        playlist_id_or_name: str | None = None,
+        shuffle: bool | None = None
+    ) -> dict[str, Any] | None:
         """Get the previous track in playlist for stepping back."""
         p_id = playlist_id_or_name or self.current_playlist_id or "LM"
         pl = self.find_playlist(p_id)
@@ -432,7 +432,7 @@ class YTMusicService:
         chosen_copy["track_index"] = self.current_track_index
         return chosen_copy
 
-    def get_upcoming_track(self, playlist_id_or_name: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    def get_upcoming_track(self, playlist_id_or_name: str | None = None) -> dict[str, Any] | None:
         """Peek at what track will play next without modifying the playhead position."""
         p_id = playlist_id_or_name or self.current_playlist_id or "LM"
         tracks = self.get_playlist_tracks(p_id)

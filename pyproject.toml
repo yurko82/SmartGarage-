@@ -1,0 +1,87 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "smartgarage"
+version = "2.0.0"
+description = "Розумний гараж: автоматизація, моніторинг клімату, радіореле 433 МГц, Bluetooth аудіо та телеграм-бот"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "Flask>=3.0.0",
+    "Werkzeug>=3.0.0",
+    "requests>=2.31.0",
+    "aiohttp>=3.9.0",
+    "aiomqtt>=2.0.0",
+    "paho-mqtt>=1.6.1",
+    "bleak>=0.21.0",
+    "dbus-fast>=2.20.0",
+    "pyserial>=3.5",
+    "PyYAML>=6.0.0",
+    "python-dotenv>=1.0.0",
+    "psutil>=5.9.0",
+    "packaging>=23.0",
+    "edge-tts>=7.3.1",
+    "yt-dlp>=2024.0.0",
+    "matplotlib>=3.8.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+markers = [
+    "mock: Isolated unit test with mocked physical hardware, BLE, relays, and cloud APIs",
+    "unit: Standard unit test",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+exclude = [
+    ".git",
+    "__pycache__",
+    ".pytest_cache",
+    ".pio",
+    "esp32",
+    "training",
+    "venv",
+    "sg-venv",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+ignore = [
+    "E501",  # line length handled by formatter
+    "B008",  # do not perform function calls in argument defaults
+    "B904",  # raise ... from err
+    "E402",  # module level import not at top of file
+    "F401",  # imported but unused
+    "UP007", # Use X | Y for type annotations
+    "UP035", # typing.Dict/List deprecation
+    "B007",  # loop control variable not used
+    "E741",  # ambiguous variable name
+    "F841",  # local variable assigned but never used
+    "E701",  # multiple statements on one line
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["server", "tests", "scripts"]
+
+[tool.mypy]
+python_version = "3.12"
+mypy_path = "."
+explicit_package_bases = true
+warn_return_any = false
+warn_unused_configs = true
+ignore_missing_imports = true
+check_untyped_defs = true
+exclude = [
+    "esp32/",
+    "training/",
+    "venv/",
+    "sg-venv/",
+]

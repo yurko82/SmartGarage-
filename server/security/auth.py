@@ -10,8 +10,9 @@ import secrets
 import time
 import uuid
 from functools import wraps
-from typing import Dict, List, Tuple, Optional
-from flask import request, session, jsonify, current_app
+from typing import Dict, List, Optional, Tuple
+
+from flask import current_app, jsonify, request, session
 
 from server.config import config
 from server.security.audit import audit_log
@@ -19,59 +20,7 @@ from server.security.audit import audit_log
 logger = logging.getLogger("SecurityAuth")
 
 
-class LoginRateLimiter:
-    """Sliding-window rate limiter to prevent brute-force attacks on PIN endpoints."""
-
-    def __init__(self, max_attempts: int = 5, window_seconds: int = 300):
-        self.max_attempts = max_attempts
-        self.window_seconds = window_seconds
-        self._attempts: Dict[str, List[float]] = {}
-
-    def is_rate_limited(self, ip: str) -> Tuple[bool, int]:
-        """Check if an IP has exceeded the allowed attempts in the time window."""
-        now = time.time()
-        cutoff = now - self.window_seconds
-        
-        # Clean up old records
-        if ip in self._attempts:
-            self._attempts[ip] = [t for t in self._attempts[ip] if t > cutoff]
-            if len(self._attempts[ip]) >= self.max_attempts:
-                oldest = self._attempts[ip][0]
-                wait_sec = int(self.window_seconds - (now - oldest)) + 1
-                return True, max(1, wait_sec)
-        return False, 0
-
-    def record_failure(self, ip: str):
-        now = time.time()
-        if ip not in self._attempts:
-            self._attempts[ip] = []
-        self._attempts[ip].append(now)
-
-    def reset(self, ip: str):
-        if ip in self._attempts:
-            del self._attempts[ip]
-
-
-"""
-Smart Garage - Unified Server Authentication, CSRF & Rate Limiting Module
-Provides rate-limited PIN verification, secure session-cookies, CSRF validation,
-trusted proxy validation, and unified authorization decorators for mutating Flask endpoints.
-"""
-import hmac
-import logging
-import os
-import secrets
-import time
-import uuid
 import threading
-from functools import wraps
-from typing import Dict, List, Tuple, Optional, Set
-from flask import request, session, jsonify, current_app
-
-from server.config import config
-from server.security.audit import audit_log
-
-logger = logging.getLogger("SecurityAuth")
 
 FORBIDDEN_DEFAULT_PINS = {"7777", "0000", "1234", "1111", "admin", "password", "default"}
 
@@ -82,14 +31,14 @@ class LoginRateLimiter:
     def __init__(self, max_attempts: int = 5, window_seconds: int = 300):
         self.max_attempts = max_attempts
         self.window_seconds = window_seconds
-        self._attempts: Dict[str, List[float]] = {}
+        self._attempts: dict[str, list[float]] = {}
         self._lock = threading.Lock()
 
-    def is_rate_limited(self, ip: str) -> Tuple[bool, int]:
+    def is_rate_limited(self, ip: str) -> tuple[bool, int]:
         """Check if an IP has exceeded the allowed attempts in the time window."""
         now = time.time()
         cutoff = now - self.window_seconds
-        
+
         with self._lock:
             if ip in self._attempts:
                 self._attempts[ip] = [t for t in self._attempts[ip] if t > cutoff]
@@ -118,10 +67,10 @@ class EndpointRateLimiter:
     def __init__(self, max_requests: int = 30, window_seconds: int = 60):
         self.max_requests = max_requests
         self.window_seconds = window_seconds
-        self._requests: Dict[str, List[float]] = {}
+        self._requests: dict[str, list[float]] = {}
         self._lock = threading.Lock()
 
-    def is_rate_limited(self, key: str) -> Tuple[bool, int]:
+    def is_rate_limited(self, key: str) -> tuple[bool, int]:
         now = time.time()
         cutoff = now - self.window_seconds
         with self._lock:
@@ -136,7 +85,7 @@ class EndpointRateLimiter:
             self._requests[key].append(now)
             return False, 0
 
-    def reset(self, key: Optional[str] = None):
+    def reset(self, key: str | None = None):
         with self._lock:
             if key:
                 self._requests.pop(key, None)
@@ -150,9 +99,9 @@ command_rate_limiter = EndpointRateLimiter(max_requests=40, window_seconds=60)
 telemetry_rate_limiter = EndpointRateLimiter(max_requests=60, window_seconds=60)
 
 
-def get_trusted_proxies() -> Set[str]:
+def get_trusted_proxies() -> set[str]:
     """Return explicit allowlist of trusted reverse proxies."""
-    proxies: Set[str] = set()
+    proxies: set[str] = set()
     env_proxies = os.getenv("TRUSTED_PROXIES", "")
     if env_proxies:
         for p in env_proxies.split(","):
@@ -188,7 +137,7 @@ def get_client_ip() -> str:
     return immediate_remote
 
 
-def get_expected_pin() -> Optional[str]:
+def get_expected_pin() -> str | None:
     """
     Retrieve expected admin PIN from environment or configuration.
     Fails closed (returns None) if missing, weak, or matches forbidden default placeholder.
@@ -224,7 +173,7 @@ def verify_pin_secure(input_pin: str) -> bool:
     return hmac.compare_digest(str(input_pin).strip(), expected)
 
 
-def get_expected_esp32_key() -> Optional[str]:
+def get_expected_esp32_key() -> str | None:
     """
     Retrieve expected ESP32 API Key from environment or configuration.
     Fails closed if missing, weak, or placeholder.
@@ -287,7 +236,7 @@ def init_session_security(app):
         # Generate cryptographically secure ephemeral token if not provided in environment
         secret = secrets.token_hex(32)
     app.secret_key = secret
-    
+
     app.config["SESSION_COOKIE_HTTPONLY"] = True
     app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
     app.config["PERMANENT_SESSION_LIFETIME"] = 43200  # 12 hours
@@ -316,15 +265,15 @@ def require_auth(f):
     def decorated_function(*args, **kwargs):
         cid = request.headers.get("X-Correlation-ID") or str(uuid.uuid4())[:8]
         ip = get_client_ip()
-        
+
         # 1. Direct API Token authorization (CLI, curl, internal scripts)
         auth_header = request.headers.get("Authorization", "")
         custom_pin_header = request.headers.get("X-Admin-PIN", "")
-        
+
         bearer_pin = None
         if auth_header.startswith("Bearer "):
             bearer_pin = auth_header[7:].strip()
-            
+
         token_to_check = custom_pin_header or bearer_pin
         if token_to_check and verify_pin_secure(token_to_check):
             audit_log("web", f"auth_direct_{request.endpoint}", "SUCCESS", {"ip": ip}, cid, "api_token")
@@ -342,7 +291,7 @@ def require_auth(f):
         is_authenticated = session.get("authenticated") is True
         login_time = session.get("login_time", 0)
         now = time.time()
-        
+
         # Check session expiry (12 hours)
         if is_authenticated and (now - login_time > 43200):
             session.clear()
@@ -364,7 +313,7 @@ def require_auth(f):
         if request.method in ("POST", "PUT", "DELETE", "PATCH"):
             expected_csrf = session.get("csrf_token")
             client_csrf = request.headers.get("X-CSRF-Token")
-            
+
             if not client_csrf:
                 # Also check JSON body if not in header
                 data = request.get_json(silent=True) or {}

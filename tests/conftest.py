@@ -3,11 +3,12 @@ tests/conftest.py — Фікстури для герметичності та і
 Переспрямовує memory/, devices/, config/rf_mappings.json у tmp_path через SMARTGARAGE_DATA_DIR.
 Будь-який тест, що модифікує робочі файли проєкту, падає.
 """
-import os
-import shutil
 import hashlib
 import json
+import os
+import shutil
 from pathlib import Path
+
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent

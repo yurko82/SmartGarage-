@@ -2,7 +2,8 @@
 import json
 import logging
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Any, Dict, List, Optional
+
 from server.config import config
 
 logger = logging.getLogger(__name__)
@@ -11,14 +12,14 @@ logger = logging.getLogger(__name__)
 class BikeKnowledgeBase:
     """Забезпечує швидкий пошук технічних регламентів, моментів затяжки, допусків рідин та налаштувань підвіски."""
 
-    def __init__(self, kb_dir: Optional[Path] = None):
+    def __init__(self, kb_dir: Path | None = None):
         if kb_dir is not None:
             self.kb_dir = Path(kb_dir)
         else:
             mem_path = config.get("memory", {}).get("path", "./memory")
             self.kb_dir = Path(mem_path) / "knowledge_base"
 
-        self._cache: Dict[str, Any] = {}
+        self._cache: dict[str, Any] = {}
         self._load_all()
 
     def _load_all(self):
@@ -36,19 +37,19 @@ class BikeKnowledgeBase:
             except Exception as e:
                 logger.warning(f"Не вдалося прочитати файл бази знань {p.name}: {e}")
 
-    def list_categories(self) -> List[str]:
+    def list_categories(self) -> list[str]:
         """Повертає перелік доступних категорій бази знань."""
         if not self._cache:
             self._load_all()
         return list(self._cache.keys())
 
-    def get_category(self, category: str) -> Optional[Dict[str, Any]]:
+    def get_category(self, category: str) -> dict[str, Any] | None:
         """Отримує повний розділ бази знань."""
         if not self._cache:
             self._load_all()
         return self._cache.get(category.lower())
 
-    def search(self, query: str, category: Optional[str] = None) -> List[Dict[str, Any]]:
+    def search(self, query: str, category: str | None = None) -> list[dict[str, Any]]:
         """Пошук у базі знань за ключовими словами."""
         if not self._cache:
             self._load_all()

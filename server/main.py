@@ -1,7 +1,6 @@
 from server.config import config
 from server.core.core import SmartGarage
 
-
 print("=" * 40)
 print("Smart Garage")
 print("=" * 40)

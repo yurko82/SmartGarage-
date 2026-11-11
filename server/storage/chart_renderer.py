@@ -1,13 +1,13 @@
 """Renders beautiful dark-themed climate history charts as PNG images for Telegram & Web."""
 import io
 import logging
-from typing import Optional, Dict, Any, List
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
 
-def generate_climate_chart(points: List[Dict[str, Any]], stats: Dict[str, Any],
-                           floor_title: str = "Підвал", hours: float = 24.0) -> Optional[bytes]:
+def generate_climate_chart(points: list[dict[str, Any]], stats: dict[str, Any],
+                           floor_title: str = "Підвал", hours: float = 24.0) -> bytes | None:
     """Render a dual-axis line chart (Temperature & Humidity) using matplotlib."""
     if not points:
         return None
@@ -15,9 +15,10 @@ def generate_climate_chart(points: List[Dict[str, Any]], stats: Dict[str, Any],
     try:
         import matplotlib
         matplotlib.use("Agg")
-        import matplotlib.pyplot as plt
-        import matplotlib.dates as mdates
         from datetime import datetime, timedelta
+
+        import matplotlib.dates as mdates
+        import matplotlib.pyplot as plt
 
         # Extract timestamps and values
         dts = []
@@ -51,9 +52,9 @@ def generate_climate_chart(points: List[Dict[str, Any]], stats: Dict[str, Any],
         fig, ax_temp = plt.subplots(figsize=(8.5, 4.8), dpi=140)
 
         # Plot Temperature
-        valid_temps = [(dt, t) for dt, t in zip(dts, temps) if t is not None]
+        valid_temps = [(dt, t) for dt, t in zip(dts, temps, strict=False) if t is not None]
         if valid_temps:
-            x_t, y_t = zip(*valid_temps)
+            x_t, y_t = zip(*valid_temps, strict=False)
             ax_temp.plot(x_t, y_t, color=temp_color, linewidth=2.4, label="Температура (°C)",
                          marker="o" if len(x_t) <= 25 else None, markersize=4, zorder=4)
             ax_temp.fill_between(x_t, y_t, min(y_t) - 1.0, color=temp_color, alpha=0.12, zorder=2)
@@ -65,9 +66,9 @@ def generate_climate_chart(points: List[Dict[str, Any]], stats: Dict[str, Any],
 
         # Plot Humidity on secondary Y-axis
         ax_hum = ax_temp.twinx()
-        valid_hums = [(dt, h) for dt, h in zip(dts, hums) if h is not None]
+        valid_hums = [(dt, h) for dt, h in zip(dts, hums, strict=False) if h is not None]
         if valid_hums:
-            x_h, y_h = zip(*valid_hums)
+            x_h, y_h = zip(*valid_hums, strict=False)
             ax_hum.plot(x_h, y_h, color=hum_color, linewidth=2.0, linestyle="--", label="Вологість (%)",
                         marker="s" if len(x_h) <= 25 else None, markersize=4, zorder=3)
 

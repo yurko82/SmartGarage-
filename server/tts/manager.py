@@ -9,32 +9,32 @@ Smart Garage - Centralized TTS Manager & Fallback Orchestrator
 - Відтворення на хостовому PipeWire / Bluetooth аудіовиході.
 """
 
-import os
 import json
-import time
 import logging
-import threading
+import os
 import subprocess
-from typing import Dict, List, Optional, Any
+import threading
+import time
 from pathlib import Path
+from typing import Any, Dict, List, Optional
 
+from server.config import config
 from server.tts.base import (
-    TTSProvider,
-    TTSResult,
-    TTSVoiceInfo,
-    TTSError,
     TTSAuthError,
+    TTSError,
+    TTSProvider,
     TTSRateLimitError,
+    TTSResult,
     TTSServerError,
     TTSTimeoutError,
+    TTSVoiceInfo,
     TTSVoiceNotFoundError,
 )
-from server.tts.normalizer import normalize_ukrainian_text
-from server.tts.cache import TTSAudioCache, DEFAULT_CACHE_DIR
+from server.tts.cache import DEFAULT_CACHE_DIR, TTSAudioCache
 from server.tts.edge_provider import EdgeTTSProvider
-from server.tts.heygen_provider import HeyGenTTSProvider
 from server.tts.elevenlabs_provider import ElevenLabsTTSProvider
-from server.config import config
+from server.tts.heygen_provider import HeyGenTTSProvider
+from server.tts.normalizer import normalize_ukrainian_text
 
 logger = logging.getLogger("TTSManager")
 
@@ -55,16 +55,16 @@ class TTSManager:
 
     def __init__(
         self,
-        active_provider: Optional[str] = None,
-        fallback_provider: Optional[str] = None,
-        active_voice_id: Optional[str] = None,
-        max_text_length: Optional[int] = None,
-        cache_ttl_seconds: Optional[int] = None,
-        max_cache_items: Optional[int] = None,
+        active_provider: str | None = None,
+        fallback_provider: str | None = None,
+        active_voice_id: str | None = None,
+        max_text_length: int | None = None,
+        cache_ttl_seconds: int | None = None,
+        max_cache_items: int | None = None,
         cache_dir: Path = DEFAULT_CACHE_DIR,
-        timeout: Optional[float] = None,
-        max_retries: Optional[int] = None,
-        enabled: Optional[bool] = None,
+        timeout: float | None = None,
+        max_retries: int | None = None,
+        enabled: bool | None = None,
     ):
         tts_cfg = config.get("tts", {})
         self.enabled = tts_cfg.get("enabled", True) if enabled is None else enabled
@@ -85,11 +85,11 @@ class TTSManager:
         )
 
         self._custom_settings_file = None
-        self._providers: Dict[str, TTSProvider] = {}
+        self._providers: dict[str, TTSProvider] = {}
         self._init_providers()
         self._load_settings(explicit_provider=active_provider, explicit_voice=active_voice_id)
 
-    def _load_settings(self, explicit_provider: Optional[str] = None, explicit_voice: Optional[str] = None):
+    def _load_settings(self, explicit_provider: str | None = None, explicit_voice: str | None = None):
         """Loads persisted active provider and voice settings from disk."""
         try:
             if self.settings_file.exists():
@@ -156,7 +156,7 @@ class TTSManager:
         """Реєструє або підміняє провайдер (корисно для тестів/моків)."""
         self._providers[name.lower()] = provider
 
-    def get_provider(self, name: str) -> Optional[TTSProvider]:
+    def get_provider(self, name: str) -> TTSProvider | None:
         return self._providers.get(name.lower())
 
     def set_active_provider(self, name: str) -> bool:
@@ -168,7 +168,7 @@ class TTSManager:
             return True
         return False
 
-    def set_active_voice(self, voice_id: str, provider_name: Optional[str] = None) -> bool:
+    def set_active_voice(self, voice_id: str, provider_name: str | None = None) -> bool:
         """Встановлює активний ідентифікатор голосу з валідацією та персистенцією."""
         if not voice_id or not isinstance(voice_id, str):
             return False
@@ -186,7 +186,7 @@ class TTSManager:
         self._save_settings()
         return True
 
-    def get_providers_status(self) -> Dict[str, Any]:
+    def get_providers_status(self) -> dict[str, Any]:
         """Повертає статус конфігурації провайдерів без розкриття секретних ключів."""
         status = {
             "active_provider": self.active_provider_name,
@@ -208,8 +208,8 @@ class TTSManager:
     def synthesize(
         self,
         text: str,
-        provider_name: Optional[str] = None,
-        voice_id: Optional[str] = None,
+        provider_name: str | None = None,
+        voice_id: str | None = None,
         use_cache: bool = True,
         **kwargs,
     ) -> TTSResult:
@@ -265,7 +265,7 @@ class TTSManager:
                 )
 
         # Спроба синтезу через основний провайдер
-        primary_error: Optional[Exception] = None
+        primary_error: Exception | None = None
         if primary_provider and primary_provider.is_configured():
             try:
                 res = primary_provider.synthesize(clean_text, voice_id=chosen_voice, **kwargs)
@@ -303,7 +303,7 @@ class TTSManager:
         # Якщо fallback не вдалося виконати
         raise TTSError(f"Помилка синтезу мовлення: {primary_error}")
 
-    def speak_locally(self, text: str, voice_id: Optional[str] = None):
+    def speak_locally(self, text: str, voice_id: str | None = None):
         """Асинхронно синтезує та відтворює звук на хостовому PipeWire / Bluetooth аудіовиході."""
         def _worker():
             try:

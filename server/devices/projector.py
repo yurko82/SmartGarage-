@@ -1,12 +1,14 @@
-import os
 import io
-import time
-import threading
-import urllib.request
-import urllib.parse
-import socket
+import os
 import re
+import socket
+import threading
+import time
+import urllib.parse
+import urllib.request
+
 from PIL import Image, ImageDraw, ImageGrab
+
 from server.config import config
 
 
@@ -128,7 +130,7 @@ class ProjectorController:
             while time.time() < t_end:
                 try:
                     data, addr = s.recvfrom(2048)
-                except (socket.timeout, TimeoutError):
+                except TimeoutError:
                     break
                 text = data.decode('utf-8', errors='ignore')
                 match = re.search(r'LOCATION:\s*(http://[^\r\n]+)', text, re.IGNORECASE)
@@ -411,7 +413,7 @@ class ProjectorController:
 
         target_clean = target.replace('"', '').replace("'", "").strip()
         search_target = target if (target.startswith("http://") or target.startswith("https://")) else f"ytsearch1:{target_clean}"
-        from server.devices.bluetooth_speaker import _get_ytdlp_bin, _get_ffmpeg_bin
+        from server.devices.bluetooth_speaker import _get_ffmpeg_bin, _get_ytdlp_bin
         ffmpeg_bin = _get_ffmpeg_bin()
 
         # Download & Stream with high speed priority
@@ -485,7 +487,7 @@ class ProjectorController:
                 return True
 
         # 2. Fallback to AirScreen AirPlay Video (port 57000)
-        body = f"Content-Location: {url}\nStart-Position: {start_position}\n".encode("utf-8")
+        body = f"Content-Location: {url}\nStart-Position: {start_position}\n".encode()
         ports_to_try = [57000]
         if self.port and self.port not in (32017, 57000, 8899):
             ports_to_try.append(self.port)

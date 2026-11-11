@@ -3,12 +3,12 @@
 Smart Garage - Open Interpreter Prompt & Tools Loader
 Loads `prompts/system_prompt.txt` and `prompts/tool_definitions.json` into Open Interpreter.
 """
-import os
-import sys
 import json
 import logging
+import os
+import sys
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional
 
 logging.basicConfig(level=logging.INFO, format="[%(asctime)s] [%(levelname)s] %(message)s")
 logger = logging.getLogger("PromptLoader")
@@ -25,15 +25,15 @@ def load_system_prompt() -> str:
     """Read system_prompt.txt."""
     if not SYSTEM_PROMPT_PATH.is_file():
         raise FileNotFoundError(f"System prompt file not found: {SYSTEM_PROMPT_PATH}")
-    with open(SYSTEM_PROMPT_PATH, "r", encoding="utf-8") as f:
+    with open(SYSTEM_PROMPT_PATH, encoding="utf-8") as f:
         return f.read().strip()
 
 
-def load_tool_definitions() -> Dict[str, Any]:
+def load_tool_definitions() -> dict[str, Any]:
     """Read and validate tool_definitions.json."""
     if not TOOL_DEFS_PATH.is_file():
         raise FileNotFoundError(f"Tool definitions file not found: {TOOL_DEFS_PATH}")
-    with open(TOOL_DEFS_PATH, "r", encoding="utf-8") as f:
+    with open(TOOL_DEFS_PATH, encoding="utf-8") as f:
         data = json.load(f)
     if "tools" not in data or not isinstance(data["tools"], list):
         raise ValueError("Invalid tool definitions format: 'tools' array is required")
@@ -72,7 +72,7 @@ Full JSON Schemas are stored in: {TOOL_DEFS_PATH}
     return composite.strip()
 
 
-def configure_interpreter(custom_model: Optional[str] = None):
+def configure_interpreter(custom_model: str | None = None):
     """
     Configures and returns the Open Interpreter instance with Antigravity Core prompts.
     """
@@ -110,7 +110,7 @@ def sync_to_yaml_config():
     import yaml
 
     if CONFIG_YAML_PATH.is_file():
-        with open(CONFIG_YAML_PATH, "r", encoding="utf-8") as f:
+        with open(CONFIG_YAML_PATH, encoding="utf-8") as f:
             cfg = yaml.safe_load(f) or {}
     else:
         cfg = {}

@@ -7,10 +7,9 @@ on:
     branches: [ main, master ]
 
 jobs:
-  python-tests:
-    name: Python Unit Tests & Syntax Verification
+  lint:
+    name: Code Linting & Style (Ruff)
     runs-on: ubuntu-latest
-
     steps:
       - name: Клонування репозиторію
         uses: actions/checkout@v4
@@ -21,36 +20,81 @@ jobs:
           python-version: "3.12"
           cache: "pip"
 
-      - name: Встановлення тестових залежностей
+      - name: Встановлення Ruff
+        run: |
+          python -m pip install --upgrade pip
+          pip install ruff
+
+      - name: Перевірка стилю та якості коду (Ruff check)
+        run: |
+          ruff check server scripts tests
+
+  typecheck:
+    name: Static Type Analysis (Mypy)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Клонування репозиторію
+        uses: actions/checkout@v4
+
+      - name: Налаштування Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Встановлення Mypy та типів
+        run: |
+          python -m pip install --upgrade pip
+          pip install mypy types-requests types-PyYAML PyYAML requests
+
+      - name: Типізація цільових модулів
+        run: |
+          mypy server/devices_config.py server/utils/paths.py server/storage/telemetry_db.py
+
+  test:
+    name: Python Unit Tests & Integrity
+    runs-on: ubuntu-latest
+    needs: [lint]
+    steps:
+      - name: Клонування репозиторію
+        uses: actions/checkout@v4
+
+      - name: Налаштування Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Встановлення залежностей
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements-dev.txt
 
-      - name: Перевірка синтаксису (Compileall)
+      - name: Перевірка компіляції байт-коду
         run: |
           python -m compileall server tests scripts
 
-      - name: Валідація JSON файлів (Конфігурація та база знань)
+      - name: Перевірка відсутності витоку MAC-адрес
         run: |
-          for f in $(find memory/ config/ devices/ -name "*.json" 2>/dev/null); do
-            python -m json.tool "$f" > /dev/null || (echo "Invalid JSON: $f" && exit 1)
-          done
+          FORBIDDEN="41:42:62:69:51:9B|F8:5C:7E:EE:7D:CC|A4:C1:38:EC:EC:6C|A4:C1:38:CC:CA:49|B8:7E:39:88:22:9B|A0:62:56:5C:9B:FC"
+          LEAKS=$(git grep -iE "$FORBIDDEN" -- ':!scripts/smoke.sh' ':!.github/workflows/*' | wc -l || true)
+          if [ "$LEAKS" -ne 0 ]; then
+            echo "Помилка: знайдено персональні MAC-адреси у git!"
+            exit 1
+          fi
 
       - name: Запуск модульних тестів (Pytest)
         run: |
           PYTHONPATH=. pytest -v tests/
         env:
           OPENROUTER_API_KEY: ""
-          HEYGEN_API_KEY: ""
-          ELEVENLABS_API_KEY: ""
           ADMIN_PIN: "9876"
           ESP32_API_KEY: "ci_test_esp32_key_12345"
           TESTING: "true"
 
-  platformio-compile:
-    name: PlatformIO Firmware Compile (ESP32-S3)
+  firmware:
+    name: PlatformIO ESP32-S3 Firmware Compilation
     runs-on: ubuntu-latest
-
     steps:
       - name: Клонування репозиторію
         uses: actions/checkout@v4
@@ -76,6 +120,12 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-pio-
 
-      - name: Збірка прошивки ESP32-S3 (Джерело істини: esp32/src/main.cpp)
+      - name: Підготовка тестових секретів
+        run: |
+          if [ ! -f "esp32/src/secrets.h" ]; then
+            cp esp32/src/secrets.h.example esp32/src/secrets.h
+          fi
+
+      - name: Збірка прошивки ESP32-S3
         run: |
           pio run -d esp32

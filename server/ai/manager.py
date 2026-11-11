@@ -1,32 +1,34 @@
-import os
 import json
 import logging
-import time
+import os
 import threading
+import time
 import uuid
 from pathlib import Path
-from typing import Optional, Dict, List, Any
+from typing import Any, Dict, List, Optional
+
 import requests
-from server.config import config
-from server.ai.session_manager import (
-    session_manager,
-    SessionManager,
-    is_retry_intent,
-    PendingAction,
-    validate_openrouter_messages
-)
+
 from server.ai.openrouter_client import (
-    openrouter_client,
+    OpenRouterAuthError,
+    OpenRouterBudgetExceededError,
     OpenRouterClient,
-    sanitize_context_snapshot,
     OpenRouterError,
+    OpenRouterPrivacyError,
     OpenRouterRateLimitError,
     OpenRouterServerError,
     OpenRouterTimeoutError,
-    OpenRouterPrivacyError,
-    OpenRouterBudgetExceededError,
-    OpenRouterAuthError
+    openrouter_client,
+    sanitize_context_snapshot,
 )
+from server.ai.session_manager import (
+    PendingAction,
+    SessionManager,
+    is_retry_intent,
+    session_manager,
+    validate_openrouter_messages,
+)
+from server.config import config
 
 logger = logging.getLogger(__name__)
 
@@ -37,13 +39,13 @@ ENABLE_OPEN_INTERPRETER = os.getenv("ENABLE_OPEN_INTERPRETER", "").lower() in ("
 class ConversationBuffer:
     """Maintains short-term rolling conversation turns for multi-turn AI dialogues with session isolation & persistence."""
 
-    def __init__(self, max_turns: int = 5, ttl_seconds: int = 1800, session_mgr: Optional[SessionManager] = None):
+    def __init__(self, max_turns: int = 5, ttl_seconds: int = 1800, session_mgr: SessionManager | None = None):
         self.max_turns = max_turns
         self.ttl = ttl_seconds
         self.session_manager = session_mgr or session_manager
         self._lock = threading.Lock()
 
-    def get_messages(self, session_id: str) -> List[Dict[str, Any]]:
+    def get_messages(self, session_id: str) -> list[dict[str, Any]]:
         sc = self.session_manager.get_or_create_session(session_id)
         return sc.get_messages(max_turns=self.max_turns)
 
@@ -72,8 +74,8 @@ class ConversationBuffer:
         self,
         session_id: str,
         user_content: str,
-        assistant_tool_call_msg: Dict[str, Any],
-        tool_responses: List[Dict[str, Any]],
+        assistant_tool_call_msg: dict[str, Any],
+        tool_responses: list[dict[str, Any]],
         final_assistant_content: str
     ):
         sc = self.session_manager.get_or_create_session(session_id)
@@ -91,7 +93,7 @@ class ConversationBuffer:
 
 class AIManager:
 
-    def __init__(self, session_mgr: Optional[SessionManager] = None, openrouter_cli: Optional[OpenRouterClient] = None):
+    def __init__(self, session_mgr: SessionManager | None = None, openrouter_cli: OpenRouterClient | None = None):
         self.config = config
         self.llm = self.config.get("llm", {})
         self.session_manager = session_mgr or session_manager
@@ -100,7 +102,7 @@ class AIManager:
 
         raw_model = self.llm.get("model", "google/gemini-2.5-flash")
         interp_model = raw_model if raw_model.startswith("openrouter/") else f"openrouter/{raw_model}"
-        
+
         prompt_file = Path(__file__).parent.parent.parent / "prompts" / "system.md"
         self.system_prompt = ""
         if prompt_file.exists():
@@ -122,7 +124,7 @@ class AIManager:
 
         from server.ai.tools import GARAGE_TOOLS, ToolDispatcher
         self.tools = GARAGE_TOOLS
-        self.tool_dispatcher: Optional[ToolDispatcher] = None
+        self.tool_dispatcher: ToolDispatcher | None = None
 
     def set_tool_dispatcher(self, dispatcher):
         self.tool_dispatcher = dispatcher
@@ -157,7 +159,7 @@ class AIManager:
         print("Model    :", llm.get("model"))
         print("========================")
 
-    def _chat_local_ollama(self, prompt: str, context_info: str = "", session_id: str = "default") -> Optional[str]:
+    def _chat_local_ollama(self, prompt: str, context_info: str = "", session_id: str = "default") -> str | None:
         """Local offline LLM completion via Ollama with Function Calling and structured Ukrainian prompt."""
         local_cfg = self.config.get("local_llm", {})
         if not local_cfg.get("enabled", True):
@@ -522,7 +524,7 @@ class AIManager:
         # Fallback to OpenInterpreter in isolated dev mode only
         try:
             from interpreter import interpreter
-            interpreter.llm.api_key = api_key
+            interpreter.llm.api_key = getattr(self.openrouter_client, "api_key", None) or os.getenv("OPENROUTER_API_KEY", "")
             result_container = []
 
             def _run_interpreter():

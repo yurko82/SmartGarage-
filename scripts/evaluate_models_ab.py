@@ -11,10 +11,11 @@
   5. Дотримання меж безпеки та захист від галюцинацій
 """
 
-import sys
 import json
+import sys
 from dataclasses import dataclass
 from typing import Dict, List, Optional
+
 
 @dataclass
 class ModelCandidate:
@@ -32,7 +33,7 @@ class ModelCandidate:
     safety_adherence: float        # Дотримання заборон і відхилення небезпечних дій (1-5)
     recommended_status: str        # Baseline / Рекомендовано / Економічна альтернатива / Преміум
 
-CANDIDATES: List[ModelCandidate] = [
+CANDIDATES: list[ModelCandidate] = [
     ModelCandidate(
         id="google/gemini-2.5-flash",
         name="Gemini 2.5 Flash (Поточний Baseline)",
@@ -107,7 +108,7 @@ def calculate_monthly_cost(
     total_requests = requests_per_day * days_in_month
     total_prompt_tokens = total_requests * avg_prompt_tokens
     total_completion_tokens = total_requests * avg_completion_tokens
-    
+
     prompt_cost = (total_prompt_tokens / 1_000_000.0) * prompt_price_1m
     completion_cost = (total_completion_tokens / 1_000_000.0) * completion_price_1m
     return prompt_cost + completion_cost
@@ -172,7 +173,7 @@ def print_evaluation_report():
     print(f"     - Знижує витрати на 63% (з ${baseline_cost:.3f} до ${calculate_monthly_cost(0.15, 0.60):.3f}/міс).")
     print("     - Традиційно найвища строгість валідації JSON у Function Calling.")
     print("\n  4. google/gemini-2.5-pro (ПРЕМІУМ):")
-    print(f"     - Вартість $1.42/міс (+300%). Надлишкова для задач керування гаражем і музикою.")
+    print("     - Вартість $1.42/міс (+300%). Надлишкова для задач керування гаражем і музикою.")
 
     print("\n" + "=" * 80)
 

@@ -4,7 +4,8 @@ import logging
 import time
 import uuid
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Any, Dict, List, Optional
+
 from server.config import config
 
 logger = logging.getLogger(__name__)
@@ -24,7 +25,7 @@ class UserProfileManager:
     def storage_path(self, val):
         self._custom_storage_path = Path(val) if val else None
 
-    def __init__(self, storage_path: Optional[Path] = None):
+    def __init__(self, storage_path: Path | None = None):
         self._custom_storage_path = Path(storage_path) if storage_path is not None else None
 
         if not self.storage_path.exists():
@@ -71,7 +72,7 @@ class UserProfileManager:
         }
         self.save_profile(default_data)
 
-    def load_profile(self) -> Dict[str, Any]:
+    def load_profile(self) -> dict[str, Any]:
         """Завантажує профіль з диска."""
         try:
             if not self.storage_path.exists():
@@ -84,7 +85,7 @@ class UserProfileManager:
             logger.warning(f"Не вдалося прочитати профіль користувача: {e}")
             return {}
 
-    def save_profile(self, data: Dict[str, Any]):
+    def save_profile(self, data: dict[str, Any]):
         """Атомарно зберігає профіль на диск."""
         try:
             self.storage_path.parent.mkdir(parents=True, exist_ok=True)
@@ -94,7 +95,7 @@ class UserProfileManager:
         except Exception as e:
             logger.error(f"Помилка збереження профілю користувача: {e}")
 
-    def add_client_bike(self, model: str, client: str = "", work: str = "", status: str = "in_progress") -> Dict[str, Any]:
+    def add_client_bike(self, model: str, client: str = "", work: str = "", status: str = "in_progress") -> dict[str, Any]:
         """Додає велосипед клієнта в журнал ремонту."""
         data = self.load_profile()
         workshop = data.setdefault("workshop", {})
@@ -154,9 +155,9 @@ class UserProfileManager:
 
         lines = [
             "### ПРОФІЛЬ ВЕЛОМАЙСТЕРНІ ТА ВЛАСНИКА (Workshop Memory):",
-            f"- Власник: Юрій. Роль: майстер з обслуговування велосипедів.",
+            "- Власник: Юрій. Роль: майстер з обслуговування велосипедів.",
             f"- Спеціалізація: {spec}.",
-            f"- Важливе правило: Юрій категорично НЕ ремонтує і НЕ обслуговує автомобілі.",
+            "- Важливе правило: Юрій категорично НЕ ремонтує і НЕ обслуговує автомобілі.",
         ]
         if tools:
             sample_tools = ", ".join(tools[:6])

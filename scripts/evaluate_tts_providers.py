@@ -14,17 +14,17 @@
 import os
 import sys
 import time
-from pathlib import Path
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Dict, List, Optional
 
 # Додаємо корінь проекту до sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from server.tts.normalizer import normalize_ukrainian_text
 from server.tts.edge_provider import EdgeTTSProvider
-from server.tts.heygen_provider import HeyGenTTSProvider
 from server.tts.elevenlabs_provider import ElevenLabsTTSProvider
+from server.tts.heygen_provider import HeyGenTTSProvider
+from server.tts.normalizer import normalize_ukrainian_text
 
 # Стандартизований тестовий набір коротких українських фраз
 TEST_PHRASES = [
@@ -55,11 +55,11 @@ class TTSCandidateProfile:
     format_type: str             # MP3 або WAV
     latency_profile: str         # Орієнтовна затримка
     naturalness_score: float     # Оцінка природності (1-5)
-    key_env_var: Optional[str]   # Змінна середовища для ключа
+    key_env_var: str | None   # Змінна середовища для ключа
     status: str                  # Baseline / Хмарний кандидат / Економічний
 
 
-PROFILES: List[TTSCandidateProfile] = [
+PROFILES: list[TTSCandidateProfile] = [
     TTSCandidateProfile(
         provider_id="edge",
         name="Microsoft Edge Neural TTS (Поліна / Остап)",
@@ -99,7 +99,7 @@ PROFILES: List[TTSCandidateProfile] = [
 ]
 
 
-def calculate_monthly_cost(chars_per_day: int = 1500, days: int = 30) -> Dict[str, float]:
+def calculate_monthly_cost(chars_per_day: int = 1500, days: int = 30) -> dict[str, float]:
     """Розрахунок місячних витрат при середньому гаражному навантаженні (~30 озвучень/день по 50 симв)."""
     total_chars = chars_per_day * days  # ~45 000 символів на місяць
     res = {}

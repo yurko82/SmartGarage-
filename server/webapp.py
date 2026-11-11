@@ -1,52 +1,55 @@
-from pathlib import Path
-import time
 import json
 import subprocess
-from typing import Dict, Any, Optional, List, Tuple
-from collections import deque
 import threading
+import time
 import traceback
 import urllib.parse
+from collections import deque
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
+
 import psutil
-from flask import Flask, request, jsonify, render_template, send_from_directory, send_file, session, Response
-from .core.core import SmartGarage
-from .devices.projector import get_local_ip
+from flask import Flask, Response, jsonify, render_template, request, send_file, send_from_directory, session
+
 from server.config import config
-from server.services.radio_service import radio_service
-from server.services.neural_tts import neural_tts, clean_text_for_tts
-from server.tts.manager import tts_manager
-from server.services.ytmusic_service import ytmusic_service
 from server.security import (
-    require_auth,
-    init_session_security,
-    verify_pin_secure,
-    rate_limiter,
-    tts_rate_limiter,
+    audit_log,
     command_rate_limiter,
-    telemetry_rate_limiter,
     generate_csrf_token,
     get_client_ip,
+    init_session_security,
+    rate_limiter,
+    require_auth,
+    telemetry_rate_limiter,
+    tts_rate_limiter,
     verify_esp32_auth,
-    audit_log
+    verify_pin_secure,
 )
 from server.sensors.freshness import (
     SENSOR_FRESHNESS_THRESHOLD_SECONDS,
-    STATUS_ONLINE,
-    STATUS_STALE,
-    STATUS_OFFLINE,
-    STATUS_NOT_INSTALLED,
-    STATUS_NEVER_SEEN,
     SOURCE_BLE_DIRECT,
+    SOURCE_CACHE,
     SOURCE_ESP32_BRIDGE,
     SOURCE_ESP32_SENSOR,
-    SOURCE_SQLITE_HISTORY,
-    SOURCE_CACHE,
     SOURCE_NONE,
+    SOURCE_SQLITE_HISTORY,
+    STATUS_NEVER_SEEN,
+    STATUS_NOT_INSTALLED,
+    STATUS_OFFLINE,
+    STATUS_ONLINE,
+    STATUS_STALE,
     build_sensor_payload,
-    merge_sensor_readings,
     format_iso_timestamp,
-    format_relative_time_ua
+    format_relative_time_ua,
+    merge_sensor_readings,
 )
+from server.services.neural_tts import clean_text_for_tts, neural_tts
+from server.services.radio_service import radio_service
+from server.services.ytmusic_service import ytmusic_service
+from server.tts.manager import tts_manager
+
+from .core.core import SmartGarage
+from .devices.projector import get_local_ip
 
 
 class TelemetryHistory:
@@ -102,7 +105,7 @@ def create_app(test_config=None, garage_instance=None):
     return app
 
 
-def get_tailscale_ip() -> Optional[str]:
+def get_tailscale_ip() -> str | None:
     """Detect Tailscale IPv4 address dynamically from tailscale0 interface without hardcoded IPs."""
     try:
         addrs = psutil.net_if_addrs()
@@ -121,7 +124,7 @@ def get_system_stats():
     cpu_percent = psutil.cpu_percent(interval=None)
     mem = psutil.virtual_memory()
     disk = psutil.disk_usage("/")
-    
+
     cpu_temp = None
     try:
         temps = psutil.sensors_temperatures()
@@ -293,7 +296,7 @@ def health():
     return jsonify({"status": "ok"})
 
 
-def get_consolidated_floors_telemetry() -> Dict[str, Dict[str, Any]]:
+def get_consolidated_floors_telemetry() -> dict[str, dict[str, Any]]:
     """
     Consolidates floor climate readings across all available channels:
     1. Host direct BLE (Bleak)
@@ -334,7 +337,7 @@ def get_consolidated_floors_telemetry() -> Dict[str, Dict[str, Any]]:
             ef = esp_floors[fk]
             last_read = ef.get("last_read_ts") or ef.get("last_updated") or (esp_last_seen if ef.get("online") else None)
             esp_reported_online = bool(esp_is_online and ef.get("online", False))
-            
+
             esp_payload = build_sensor_payload(
                 floor=fk,
                 name=ef.get("name") or base_payload.get("name") or default_names[fk],
@@ -478,7 +481,7 @@ def sensors_floors():
 def sensors_refresh():
     data = request.get_json(silent=True) or {}
     mac = data.get("mac")
-    
+
     # 1. Trigger ESP32 BLE climate polling
     esp_res = {}
     if hasattr(garage, "esp32") and garage.esp32:
@@ -614,7 +617,7 @@ def rf_mappings_set():
         code_int = int(code)
     except ValueError:
         return jsonify({"success": False, "error": "Невірний числовий формат коду"}), 400
-        
+
     if hasattr(garage, "esp32") and garage.esp32:
         try:
             ok = garage.esp32.set_rf_mapping(
@@ -796,7 +799,7 @@ def get_automation_rules():
     rules_file = Path(__file__).resolve().parent.parent / "config" / "automation_rules.json"
     if rules_file.exists():
         try:
-            with open(rules_file, "r", encoding="utf-8") as f:
+            with open(rules_file, encoding="utf-8") as f:
                 rules_data = json.load(f)
             return jsonify({"success": True, "rules": rules_data.get("rules", [])})
         except Exception as e:
@@ -1026,7 +1029,7 @@ def get_bound_macs() -> set:
         from server.utils.paths import get_devices_dir
         bt_file = get_devices_dir() / "bluetooth_devices.json"
         if bt_file.exists():
-            with open(bt_file, "r", encoding="utf-8") as f:
+            with open(bt_file, encoding="utf-8") as f:
                 data = json.load(f)
                 for mac in data.keys():
                     if mac:
@@ -1051,7 +1054,7 @@ def get_bound_macs() -> set:
 
 def _scan_all_ble(duration: int = 15, only_new: bool = True) -> list:
     """Hybrid scanner combining ESP32 BLE scan and Host Bluetooth (Bleak) scan.
-    
+
     When only_new=True, filters out already bound garage infrastructure
     (temperature sensors, speakers, owner devices, registered guests) so that
     only new / unknown devices are discovered and presented for binding.
@@ -1061,6 +1064,7 @@ def _scan_all_ble(duration: int = 15, only_new: bool = True) -> list:
     def _host_scan():
         try:
             import asyncio
+
             from bleak import BleakScanner
 
             async def _run():
@@ -1553,8 +1557,9 @@ def command():
             "response": "Missing command"
         }), 400
 
-    from server.ai.session_manager import is_safe_session_id
     import secrets
+
+    from server.ai.session_manager import is_safe_session_id
 
     client_sid = data.get("session_id")
     is_browser_session = bool(session.get("authenticated"))
@@ -2145,6 +2150,6 @@ if __name__ == "__main__":
     logger = logging.getLogger(__name__)
     try:
         app.run(host="0.0.0.0", port=5000, debug=False, use_reloader=False)
-    except Exception as e:
+    except Exception:
         logger.error("Exception when running server:")
         logger.error(traceback.format_exc())

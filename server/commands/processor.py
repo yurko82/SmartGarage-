@@ -1,9 +1,10 @@
 import time
-from server.memory.memory import Memory
-from server.devices.projector import ProjectorController
-from server.devices.esp32 import ESP32Controller
-from server.devices.bluetooth_speaker import BluetoothSpeakerController
+
 from server.automation.engine import AutomationEngine
+from server.devices.bluetooth_speaker import BluetoothSpeakerController
+from server.devices.esp32 import ESP32Controller
+from server.devices.projector import ProjectorController
+from server.memory.memory import Memory
 from server.services.radio_service import radio_service
 
 
@@ -411,7 +412,7 @@ class CommandProcessor:
                 track = st.get("current_track") or "радіостанція"
                 return True, f"⏸️ Радіо на паузі: {track} {spk_loc} (гучність {vol}%)."
             else:
-                return True, f"Радіо наразі не грає (вимкнено). Доступні станції: Хіт FM, Kiss FM, Radio ROKS, Lounge FM."
+                return True, "Радіо наразі не грає (вимкнено). Доступні станції: Хіт FM, Kiss FM, Radio ROKS, Lounge FM."
 
         # Interrogative or troubleshooting query detection (should not be treated as playback commands)
         is_inquiry_or_question = (
@@ -950,7 +951,7 @@ class CommandProcessor:
             self.projector.start_mirroring(fps=2)
             if success:
                 return True, f"Трансляцію екрану ноутбука розпочато на проектор HY350MAX ({self.projector.ip})."
-            return True, f"Не вдалося запустити трансляцію на HY350MAX."
+            return True, "Не вдалося запустити трансляцію на HY350MAX."
 
         # Direct Projector App Launchers & Native Controls
         if cmd in ("відкрий transcreen", "запусти transcreen", "включи transcreen", "увімкни transcreen", "transcreen", "транскрін"):

@@ -1,5 +1,6 @@
 from interpreter import interpreter
 
+
 class Chat:
 
     def ask(self, prompt):

@@ -12,21 +12,21 @@ from unittest.mock import MagicMock, patch
 
 import requests
 
+from server.ai.manager import AIManager, ConversationBuffer
 from server.ai.openrouter_client import (
-    OpenRouterClient,
-    CostTracker,
-    sanitize_context_snapshot,
     MODEL_PRICING,
+    CostTracker,
+    OpenRouterAuthError,
+    OpenRouterBudgetExceededError,
+    OpenRouterClient,
     OpenRouterError,
+    OpenRouterPrivacyError,
     OpenRouterRateLimitError,
     OpenRouterServerError,
     OpenRouterTimeoutError,
-    OpenRouterPrivacyError,
-    OpenRouterBudgetExceededError,
-    OpenRouterAuthError
+    sanitize_context_snapshot,
 )
-from server.ai.manager import AIManager, ConversationBuffer
-from server.ai.session_manager import SessionManager, PendingAction
+from server.ai.session_manager import PendingAction, SessionManager
 from server.ai.tools import ToolDispatcher
 
 

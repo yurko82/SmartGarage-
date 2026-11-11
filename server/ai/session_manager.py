@@ -1,14 +1,14 @@
 """Менеджер сесій, збереження контексту діалогів та механізм повторних дій (Pending Actions) для SmartGarage."""
-from dataclasses import dataclass, field, asdict
 import json
 import logging
 import os
-from pathlib import Path
 import re
 import secrets
 import threading
 import time
-from typing import Dict, Any, List, Optional, Tuple
+from dataclasses import asdict, dataclass, field
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +67,7 @@ def is_retry_intent(prompt: str) -> bool:
     return bool(RETRY_INTENT_REGEX.match(clean))
 
 
-def validate_openrouter_messages(messages: List[Dict[str, Any]]) -> Tuple[bool, Optional[str]]:
+def validate_openrouter_messages(messages: list[dict[str, Any]]) -> tuple[bool, str | None]:
     """Перевіряє відповідність послідовності повідомлень стандарту Function Calling OpenRouter / OpenAI.
     Вимоги:
     1. Повідомлення assistant з tool_calls має одразу супроводжуватися повідомленнями з role='tool'
@@ -100,7 +100,7 @@ def validate_openrouter_messages(messages: List[Dict[str, Any]]) -> Tuple[bool, 
                 tc_id = tc.get("id")
                 fn = tc.get("function", {})
                 if not tc_id or not fn.get("name"):
-                    return False, f"Виклик інструменту не містить валідного id або імені функції."
+                    return False, "Виклик інструменту не містить валідного id або імені функції."
                 expected_ids.append(tc_id)
 
             # Наступні повідомлення повинні бути відповідями цих інструментів
@@ -132,12 +132,12 @@ class PendingAction:
     """Зберігає останню виконану чи незавершену дію для конкретної сесії."""
     session_id: str
     tool_name: str
-    arguments: Dict[str, Any]
+    arguments: dict[str, Any]
     initial_query: str
     success: bool
     status: str
-    error: Optional[str] = None
-    message: Optional[str] = None
+    error: str | None = None
+    message: str | None = None
     is_blocked: bool = False
     timestamp: float = field(default_factory=time.time)
     retry_count: int = 0
@@ -146,11 +146,11 @@ class PendingAction:
         """Перевіряє, чи не застаріла незавершена дія (за замовчуванням 5 хвилин)."""
         return (time.time() - self.timestamp) > ttl_seconds
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "PendingAction":
+    def from_dict(cls, data: dict[str, Any]) -> "PendingAction":
         return cls(
             session_id=data.get("session_id", "default"),
             tool_name=data.get("tool_name", "unknown"),
@@ -169,12 +169,12 @@ class PendingAction:
 @dataclass
 class Turn:
     """Атомарний цикл одного раунду діалогу користувача та помічника."""
-    user_message: Dict[str, Any]
-    assistant_tool_call: Optional[Dict[str, Any]] = None
-    tool_responses: List[Dict[str, Any]] = field(default_factory=list)
-    assistant_message: Dict[str, Any] = field(default_factory=dict)
+    user_message: dict[str, Any]
+    assistant_tool_call: dict[str, Any] | None = None
+    tool_responses: list[dict[str, Any]] = field(default_factory=list)
+    assistant_message: dict[str, Any] = field(default_factory=dict)
 
-    def to_messages(self) -> List[Dict[str, Any]]:
+    def to_messages(self) -> list[dict[str, Any]]:
         """Повертає валідну послідовність повідомлень для передачі в LLM."""
         res = [self.user_message]
         if self.assistant_tool_call:
@@ -184,7 +184,7 @@ class Turn:
             res.append(self.assistant_message)
         return res
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "user_message": self.user_message,
             "assistant_tool_call": self.assistant_tool_call,
@@ -193,7 +193,7 @@ class Turn:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "Turn":
+    def from_dict(cls, data: dict[str, Any]) -> "Turn":
         return cls(
             user_message=data.get("user_message", {}),
             assistant_tool_call=data.get("assistant_tool_call"),
@@ -207,8 +207,8 @@ class SessionContext:
 
     def __init__(self, session_id: str):
         self.session_id = session_id
-        self.turns: List[Turn] = []
-        self.pending_action: Optional[PendingAction] = None
+        self.turns: list[Turn] = []
+        self.pending_action: PendingAction | None = None
         self.created_at: float = time.time()
         self.last_active: float = time.time()
 
@@ -223,8 +223,8 @@ class SessionContext:
     def add_tool_turn(
         self,
         user_content: str,
-        assistant_tool_call_msg: Dict[str, Any],
-        tool_responses: List[Dict[str, Any]],
+        assistant_tool_call_msg: dict[str, Any],
+        tool_responses: list[dict[str, Any]],
         final_assistant_content: str
     ):
         turn = Turn(
@@ -236,7 +236,7 @@ class SessionContext:
         self.turns.append(turn)
         self.last_active = time.time()
 
-    def get_messages(self, max_turns: int = 5) -> List[Dict[str, Any]]:
+    def get_messages(self, max_turns: int = 5) -> list[dict[str, Any]]:
         recent_turns = self.turns[-max_turns:] if len(self.turns) > max_turns else self.turns
         messages = []
         for t in recent_turns:
@@ -248,7 +248,7 @@ class SessionContext:
         self.pending_action = None
         self.last_active = time.time()
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "session_id": self.session_id,
             "created_at": self.created_at,
@@ -258,7 +258,7 @@ class SessionContext:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "SessionContext":
+    def from_dict(cls, data: dict[str, Any]) -> "SessionContext":
         sc = cls(data.get("session_id", "default"))
         sc.created_at = float(data.get("created_at", time.time()))
         sc.last_active = float(data.get("last_active", time.time()))
@@ -286,11 +286,11 @@ class SessionManager:
     def storage_path(self, val):
         self._custom_storage_path = Path(val) if val else None
 
-    def __init__(self, storage_path: Optional[Path] = None, session_ttl: int = 1800, action_ttl: int = 300):
+    def __init__(self, storage_path: Path | None = None, session_ttl: int = 1800, action_ttl: int = 300):
         self._custom_storage_path = Path(storage_path) if storage_path else None
         self.session_ttl = session_ttl
         self.action_ttl = action_ttl
-        self._sessions: Dict[str, SessionContext] = {}
+        self._sessions: dict[str, SessionContext] = {}
         self._lock = threading.Lock()
         self.load_from_disk()
 
@@ -307,7 +307,7 @@ class SessionManager:
             self._sessions[session_id] = s
             return s
 
-    def get_pending_action(self, session_id: str) -> Optional[PendingAction]:
+    def get_pending_action(self, session_id: str) -> PendingAction | None:
         with self._lock:
             s = self._sessions.get(session_id)
             if not s or not s.pending_action:
@@ -331,8 +331,8 @@ class SessionManager:
         self,
         session_id: str,
         tool_name: str,
-        arguments: Dict[str, Any],
-        result: Dict[str, Any],
+        arguments: dict[str, Any],
+        result: dict[str, Any],
         initial_query: str = ""
     ) -> PendingAction:
         """Реєструє результат виконання виклику інструменту в pending_action сесії."""
@@ -412,7 +412,7 @@ class SessionManager:
                 return
             data = json.loads(content)
             now = time.time()
-            loaded: Dict[str, SessionContext] = {}
+            loaded: dict[str, SessionContext] = {}
             for sid, sdata in data.items():
                 if not is_safe_session_id(sid):
                     continue

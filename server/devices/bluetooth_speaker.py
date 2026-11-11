@@ -5,7 +5,7 @@ import sys
 import threading
 import time
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional
 
 try:
     from server.logger.logger import Logger
@@ -46,9 +46,9 @@ class BluetoothSpeakerController:
     Handles pairing/connection, volume adjustments, and audio playback via PipeWire/PulseAudio.
     """
 
-    def __init__(self, mac: Optional[str] = None, name: Optional[str] = None, logger=None):
+    def __init__(self, mac: str | None = None, name: str | None = None, logger=None):
+        from server.devices_config import get_configured_speakers_list, get_speaker_config
         from server.utils.paths import get_devices_dir
-        from server.devices_config import get_speaker_config, get_configured_speakers_list
 
         if not mac:
             def_spk = get_speaker_config("floor1") or (get_configured_speakers_list() or [{}])[0]
@@ -65,25 +65,25 @@ class BluetoothSpeakerController:
         self.media_dir = Path(__file__).resolve().parent.parent.parent / "media"
         self.media_dir.mkdir(parents=True, exist_ok=True)
 
-        self._player_proc: Optional[subprocess.Popen] = None
-        self._current_track: Optional[str] = None
+        self._player_proc: subprocess.Popen | None = None
+        self._current_track: str | None = None
         self._current_track_duration: int = 0
-        self._playback_start_time: Optional[float] = None
+        self._playback_start_time: float | None = None
         self._playback_offset: int = 0
-        self._pause_time: Optional[float] = None
-        self._last_played_file: Optional[str] = None
-        self._last_played_title: Optional[str] = None
+        self._pause_time: float | None = None
+        self._last_played_file: str | None = None
+        self._last_played_title: str | None = None
         self._is_paused = False
         self._active_stream = False
         self._cached_volume = 33
-        self._last_stream_url: Optional[str] = None
-        self._last_stream_title: Optional[str] = None
+        self._last_stream_url: str | None = None
+        self._last_stream_title: str | None = None
 
         self._playlist_autoplay = False
-        self._playlist_id: Optional[str] = None
+        self._playlist_id: str | None = None
         self._playlist_shuffle = False
         self._is_loading_next_track = False
-        self._current_track_id: Optional[str] = None
+        self._current_track_id: str | None = None
 
         self._auto_detect_active_speaker()
 
@@ -255,7 +255,7 @@ class BluetoothSpeakerController:
         if self.config_path.exists():
             try:
                 import json
-                with open(self.config_path, "r", encoding="utf-8") as f:
+                with open(self.config_path, encoding="utf-8") as f:
                     data = json.load(f)
                 for mac, info in data.items():
                     if info.get("type") == "speaker":
@@ -276,7 +276,7 @@ class BluetoothSpeakerController:
             ]
         return speakers
 
-    def set_active_speaker(self, mac: str, name: Optional[str] = None):
+    def set_active_speaker(self, mac: str, name: str | None = None):
         """Switch active speaker target."""
         self.mac = mac.upper().strip()
         if name:
@@ -288,7 +288,7 @@ class BluetoothSpeakerController:
                     break
         self.sink_name = f"bluez_output.{self.mac.replace(':', '_')}.1"
 
-    def is_connected(self, mac: Optional[str] = None) -> bool:
+    def is_connected(self, mac: str | None = None) -> bool:
         """Check if the Bluetooth speaker is currently connected via PipeWire, HCI, or BlueZ."""
         target_mac = (mac or self.mac).upper().strip()
         sink_mac_str = target_mac.replace(":", "_")
@@ -331,7 +331,7 @@ class BluetoothSpeakerController:
         except Exception:
             return False
 
-    def connect(self, mac: Optional[str] = None) -> bool:
+    def connect(self, mac: str | None = None) -> bool:
         """Connect to the Bluetooth speaker and set as default audio sink."""
         if mac:
             self.set_active_speaker(mac)
@@ -611,7 +611,7 @@ class BluetoothSpeakerController:
             self.pause()
         return ok
 
-    def play_file(self, filepath: str, track_title: Optional[str] = None, start_pos: int = 0, duration: int = 0) -> bool:
+    def play_file(self, filepath: str, track_title: str | None = None, start_pos: int = 0, duration: int = 0) -> bool:
         """Play a local media file or direct stream URL strictly on the active Bluetooth speaker."""
         if filepath.startswith("http://") or filepath.startswith("https://"):
             file_uri = filepath
@@ -682,7 +682,7 @@ class BluetoothSpeakerController:
             self.logger.error(f"Error starting playback: {e}")
             return False
 
-    def play_stream(self, stream_url: str, track_title: Optional[str] = None, is_recovery: bool = False) -> bool:
+    def play_stream(self, stream_url: str, track_title: str | None = None, is_recovery: bool = False) -> bool:
         """Stream an internet radio station URL reliably with live buffers and auto-reconnect."""
         target_url = stream_url.strip()
         if not target_url:
@@ -755,7 +755,7 @@ class BluetoothSpeakerController:
             self.logger.error(f"Error starting radio stream '{title}': {e}")
             return False
 
-    def play_youtube(self, query: str, track_title: Optional[str] = None, force_stream: bool = False, keep_autoplay: bool = False, duration: int = 0) -> bool:
+    def play_youtube(self, query: str, track_title: str | None = None, force_stream: bool = False, keep_autoplay: bool = False, duration: int = 0) -> bool:
         """Search and play a track from YouTube or local media cache."""
         if not keep_autoplay:
             self._playlist_autoplay = False
@@ -917,7 +917,7 @@ class BluetoothSpeakerController:
 
         return False
 
-    def play_playlist(self, playlist_name_or_id: str = "LM", shuffle: bool = False, track_id: Optional[str] = None):
+    def play_playlist(self, playlist_name_or_id: str = "LM", shuffle: bool = False, track_id: str | None = None):
         """Play a track from user's YouTube Music playlist or Liked Songs with continuous auto-advance."""
         try:
             from server.services.ytmusic_service import ytmusic_service
@@ -955,7 +955,7 @@ class BluetoothSpeakerController:
         """Play a track from user's Liked Music (Улюблені)."""
         return self.play_playlist("LM", shuffle=shuffle)
 
-    def play_next(self, shuffle: Optional[bool] = None):
+    def play_next(self, shuffle: bool | None = None):
         """Play next track from current YouTube Music playlist."""
         try:
             from server.services.ytmusic_service import ytmusic_service
@@ -988,7 +988,7 @@ class BluetoothSpeakerController:
             self.logger.error(f"Error playing next track: {e}")
             return False, None, None
 
-    def play_prev(self, shuffle: Optional[bool] = None):
+    def play_prev(self, shuffle: bool | None = None):
         """Play previous track from current YouTube Music playlist."""
         try:
             from server.services.ytmusic_service import ytmusic_service
@@ -1021,7 +1021,7 @@ class BluetoothSpeakerController:
             self.logger.error(f"Error playing previous track: {e}")
             return False, None, None
 
-    def get_status(self) -> Dict[str, Any]:
+    def get_status(self) -> dict[str, Any]:
         """Get comprehensive speaker status."""
         connected = self.is_connected()
         playing = self.is_playing()

@@ -7,17 +7,17 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from server.webapp import app, garage
-from server.ai.session_manager import (
-    SessionManager,
-    SessionContext,
-    PendingAction,
-    is_safe_session_id,
-    is_retry_intent,
-    validate_openrouter_messages
-)
 from server.ai.manager import AIManager, ConversationBuffer
+from server.ai.session_manager import (
+    PendingAction,
+    SessionContext,
+    SessionManager,
+    is_retry_intent,
+    is_safe_session_id,
+    validate_openrouter_messages,
+)
 from server.ai.tools import ToolDispatcher
+from server.webapp import app, garage
 
 
 class TestWebDialogSessionSecurity(unittest.TestCase):

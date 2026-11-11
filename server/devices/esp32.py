@@ -1,19 +1,20 @@
-import time
-import socket
-import urllib.request
 import json
-import threading
-import os
-import uuid
 import logging
+import os
+import socket
+import threading
+import time
+import urllib.request
+import uuid
 from collections import deque
-from typing import Optional, Dict, Any, List
+from typing import Any, Dict, List, Optional
+
 from server.config import config
 from server.sensors.freshness import (
     SENSOR_FRESHNESS_THRESHOLD_SECONDS,
     SOURCE_ESP32_BRIDGE,
     format_iso_timestamp,
-    format_relative_time_ua
+    format_relative_time_ua,
 )
 
 logger = logging.getLogger(__name__)
@@ -31,7 +32,7 @@ except ImportError:
     MQTT_AVAILABLE = False
 
 
-def format_relative_time(ts: Optional[float]) -> str:
+def format_relative_time(ts: float | None) -> str:
     """Форматування відносного часу українською мовою."""
     if not ts:
         return "Ніколи"
@@ -51,12 +52,12 @@ def format_relative_time(ts: Optional[float]) -> str:
     return f"{d} д тому"
 
 
-def is_interface_up(ifname: Optional[str]) -> bool:
+def is_interface_up(ifname: str | None) -> bool:
     """Перевірка чи мережевий інтерфейс активний та має статус UP."""
     if not ifname:
         return False
     try:
-        with open(f"/sys/class/net/{ifname}/operstate", "r") as f:
+        with open(f"/sys/class/net/{ifname}/operstate") as f:
             return f.read().strip() == "up"
     except Exception:
         return False
@@ -73,7 +74,7 @@ class ESP32Controller:
         cfg = config.get("esp32", {}) if isinstance(config, dict) else {}
         self.host = host or cfg.get("host", "192.168.100.114")
         self.port = port or cfg.get("port", 80)
-        
+
         raw_iface = cfg.get("interface")
         self.interface = raw_iface if is_interface_up(raw_iface) else None
 
@@ -89,7 +90,7 @@ class ESP32Controller:
         self._mqtt_client = None
         self._mqtt_thread = None
         self.last_ble_scan_results = None
-        self.last_ping_ms: Optional[float] = None
+        self.last_ping_ms: float | None = None
 
         # Журнал активності та статистика
         self.activity_logs = deque(maxlen=200)
@@ -102,7 +103,7 @@ class ESP32Controller:
         }
 
         # Стан пристрою
-        self.state: Dict[str, Any] = {
+        self.state: dict[str, Any] = {
             "online": False,
             "light": False,
             "fan": False,
@@ -142,7 +143,7 @@ class ESP32Controller:
         if MQTT_AVAILABLE and not os.environ.get("TESTING"):
             self._start_mqtt_worker()
 
-    def log_event(self, event_type: str, status: str, title: str, message: str, details: Optional[dict] = None):
+    def log_event(self, event_type: str, status: str, title: str, message: str, details: dict | None = None):
         """Додати подію до кільцевого буфера журналу ESP32."""
         with self._lock:
             now = time.time()
@@ -267,7 +268,7 @@ class ESP32Controller:
                 self.stats["last_successful_poll"] = time.time()
             self.update_from_webhook(remote, transport="http")
 
-    def _find_available_serial_port(self) -> Optional[str]:
+    def _find_available_serial_port(self) -> str | None:
         """Auto-discover available USB CDC / Serial ports for ESP32."""
         if self.serial_port_name and os.path.exists(self.serial_port_name):
             return self.serial_port_name
@@ -346,7 +347,7 @@ class ESP32Controller:
         with self._lock:
             if self._serial and self._serial.is_open:
                 try:
-                    self._serial.write(f"{cmd}\n".encode("utf-8"))
+                    self._serial.write(f"{cmd}\n".encode())
                     self._serial.flush()
                     return True
                 except Exception:
@@ -536,7 +537,7 @@ class ESP32Controller:
                 # Arbitrary serial line does NOT verify port or make online
                 self.log_event("connection", "info", "ESP32 RAW", line)
 
-    def scan_ble(self, duration: int = 15, timeout: Optional[float] = None) -> list:
+    def scan_ble(self, duration: int = 15, timeout: float | None = None) -> list:
         """Запустити активне сканування BLE на ESP32 та повернути знайдені пристрої."""
         actual_timeout = timeout if timeout is not None else float(duration + 4)
         with self._lock:
@@ -591,7 +592,7 @@ class ESP32Controller:
                 self._mqtt_client.publish(f"{topic_prefix}/esp32/command", json.dumps({"action": "poll_ble"}))
                 self.log_event("command", "success", "Команду надіслано через MQTT", "Очікування оновленої телеметрії від брокера")
                 return {"success": True, "transport": "mqtt", "message": "Команду надіслано через MQTT"}
-            except Exception as e:
+            except Exception:
                 pass
 
         self.log_event("command", "error", "Не вдалося опитати датчики", f"ESP32 недоступний за адресою {self.host}:{self.port}")
@@ -605,7 +606,7 @@ class ESP32Controller:
                 return False
             if self._serial and self._serial.is_open:
                 try:
-                    self._serial.write(f"{cmd}\n".encode("utf-8"))
+                    self._serial.write(f"{cmd}\n".encode())
                     self._serial.flush()
                     return True
                 except Exception:
@@ -882,7 +883,7 @@ class ESP32Controller:
     def rf_transmit(
         self,
         code: int,
-        zone: Optional[str] = None,
+        zone: str | None = None,
         action: str = "transmit",
         name: str = "",
         repeats: int = 10,

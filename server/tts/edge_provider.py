@@ -12,10 +12,10 @@ import logging
 from typing import List, Optional
 
 from server.tts.base import (
+    TTSError,
     TTSProvider,
     TTSResult,
     TTSVoiceInfo,
-    TTSError,
     TTSVoiceNotFoundError,
 )
 
@@ -59,10 +59,10 @@ class EdgeTTSProvider(TTSProvider):
         """Edge TTS не потребує API-ключа і завжди доступний."""
         return True
 
-    def get_available_voices(self) -> List[TTSVoiceInfo]:
+    def get_available_voices(self) -> list[TTSVoiceInfo]:
         return list(EDGE_UKRAINIAN_VOICES)
 
-    def synthesize(self, text: str, voice_id: Optional[str] = None, **kwargs) -> TTSResult:
+    def synthesize(self, text: str, voice_id: str | None = None, **kwargs) -> TTSResult:
         if not text:
             raise TTSError("Порожній текст для синтезу")
 
@@ -93,7 +93,7 @@ class EdgeTTSProvider(TTSProvider):
             audio_bytes = loop.run_until_complete(
                 asyncio.wait_for(_synthesize(), timeout=self.timeout)
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             raise TTSError(f"Вичерпано таймаут Edge TTS ({self.timeout}с)")
         except Exception as e:
             raise TTSError(f"Помилка синтезу Edge TTS: {e}")

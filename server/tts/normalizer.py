@@ -99,7 +99,7 @@ def number_to_ukrainian_words(n: int, feminine: bool = False) -> str:
     return " ".join(parts)
 
 
-def format_temperature_ukrainian(sign_str: str, int_val: int, frac_val: Optional[int] = None) -> str:
+def format_temperature_ukrainian(sign_str: str, int_val: int, frac_val: int | None = None) -> str:
     """Формує природну українську фразу для температури (°C)."""
     sign_prefix = ""
     if sign_str == "-" or int_val < 0:

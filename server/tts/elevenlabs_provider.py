@@ -9,22 +9,23 @@ Smart Garage - ElevenLabs Flash/Turbo TTS Provider Adapter
 - ELEVENLABS_API_KEY зберігається виключно на сервері.
 """
 
-import time
 import logging
-from typing import List, Optional, Dict, Any
+import time
+from typing import Any, Dict, List, Optional
+
 import requests
 
 from server.tts.base import (
-    TTSProvider,
-    TTSResult,
-    TTSVoiceInfo,
-    TTSError,
     TTSAuthError,
+    TTSError,
+    TTSMalformedResponseError,
+    TTSProvider,
     TTSRateLimitError,
+    TTSResult,
     TTSServerError,
     TTSTimeoutError,
+    TTSVoiceInfo,
     TTSVoiceNotFoundError,
-    TTSMalformedResponseError,
 )
 
 logger = logging.getLogger("ElevenLabsTTSProvider")
@@ -37,9 +38,9 @@ class ElevenLabsTTSProvider(TTSProvider):
 
     def __init__(
         self,
-        api_key: Optional[str] = None,
+        api_key: str | None = None,
         model: str = "eleven_flash_v2_5",
-        default_voice_id: Optional[str] = None,
+        default_voice_id: str | None = None,
         timeout: float = 10.0,
         max_retries: int = 2,
         base_url: str = ELEVENLABS_API_BASE,
@@ -49,13 +50,13 @@ class ElevenLabsTTSProvider(TTSProvider):
         self.model = model or "eleven_flash_v2_5"
         self.default_voice_id = (default_voice_id or "").strip()
         self.base_url = base_url.rstrip("/")
-        self._cached_voices: Optional[List[TTSVoiceInfo]] = None
+        self._cached_voices: list[TTSVoiceInfo] | None = None
 
     def is_configured(self) -> bool:
         """Перевіряє, чи налаштовано API-ключ на сервері."""
         return bool(self.api_key)
 
-    def _get_headers(self) -> Dict[str, str]:
+    def _get_headers(self) -> dict[str, str]:
         if not self.api_key:
             raise TTSAuthError("Відсутній ELEVENLABS_API_KEY на сервері. Синтез через ElevenLabs неможливий.")
         return {
@@ -64,7 +65,7 @@ class ElevenLabsTTSProvider(TTSProvider):
             "Accept": "audio/mpeg",
         }
 
-    def get_available_voices(self) -> List[TTSVoiceInfo]:
+    def get_available_voices(self) -> list[TTSVoiceInfo]:
         """
         Отримує перелік доступних голосів ElevenLabs з акаунта або публічної бібліотеки.
         """
@@ -86,7 +87,7 @@ class ElevenLabsTTSProvider(TTSProvider):
                 return []
 
             data = resp.json().get("voices", [])
-            voices: List[TTSVoiceInfo] = []
+            voices: list[TTSVoiceInfo] = []
             for item in data:
                 v_id = item.get("voice_id")
                 name = item.get("name", "ElevenLabs Voice")
@@ -114,7 +115,7 @@ class ElevenLabsTTSProvider(TTSProvider):
             logger.warning(f"Не вдалося отримати голоси ElevenLabs: {e}")
             return []
 
-    def synthesize(self, text: str, voice_id: Optional[str] = None, **kwargs) -> TTSResult:
+    def synthesize(self, text: str, voice_id: str | None = None, **kwargs) -> TTSResult:
         """
         Синтезує аудіо через POST /v1/text-to-speech/{voice_id}.
         Повертає безпосередньо бінарні MP3-дані (audio/mpeg).

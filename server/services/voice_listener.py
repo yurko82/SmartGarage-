@@ -5,17 +5,18 @@ Detects wake word via `openwakeword` and transcribes speech using `faster-whispe
 Captures audio through PipeWire virtual source (`pipewire-virtual-source`) and enqueues
 commands into the AI pipeline with priority: source="voice".
 """
+import argparse
+import asyncio
+import collections
+import logging
 import os
+import signal
+import subprocess
 import sys
 import time
-import signal
-import asyncio
-import logging
-import argparse
-import subprocess
-import collections
 from pathlib import Path
-from typing import Optional, List, Dict, Any, Tuple
+from typing import Any, Dict, List, Optional, Tuple
+
 import numpy as np
 
 # Configure logging
@@ -69,7 +70,7 @@ class PipeWireAudioCapture:
             cmd = [
                 "pactl", "load-module", "module-remap-source",
                 f"source_name={self.virtual_source_name}",
-                f"source_properties=device.description=PipeWire-Virtual-Source"
+                "source_properties=device.description=PipeWire-Virtual-Source"
             ]
             if master_source:
                 cmd.append(f"master={master_source}")
@@ -115,7 +116,7 @@ class PipeWireAudioCapture:
     def read_chunk(self) -> np.ndarray:
         """Read a single audio chunk from the stream."""
         if not self.stream or not self.stream.active:
-            raise IOError("Audio stream is not active.")
+            raise OSError("Audio stream is not active.")
         data, overflowed = self.stream.read(self.chunk_size)
         if overflowed:
             logger.debug("Audio buffer overflow occurred (ignoring to prevent latency).")
@@ -198,7 +199,7 @@ class LowCpuWakeWordDetector:
 
         logger.info(f"Active wake word target key: '{self.target_model_key}' (Threshold: {self.threshold})")
 
-    def process_chunk(self, chunk: np.ndarray) -> Tuple[bool, float, str]:
+    def process_chunk(self, chunk: np.ndarray) -> tuple[bool, float, str]:
         """
         Process an 80ms int16 chunk.
         Returns: (detected: bool, score: float, model_name: str)
@@ -435,7 +436,7 @@ class VoiceListenerService:
                 # Yield control briefly to event loop
                 await asyncio.sleep(0.005)
 
-            except (IOError, Exception) as e:
+            except (OSError, Exception) as e:
                 logger.error(f"PipeWire audio stream error: {e}. Reconnecting in {backoff_sec:.1f}s...")
                 self.audio.close()
                 await asyncio.sleep(backoff_sec)
@@ -449,13 +450,13 @@ class VoiceListenerService:
         self.running = False
 
 
-def load_config() -> Dict[str, Any]:
+def load_config() -> dict[str, Any]:
     """Load configuration from config/config.yaml."""
     cfg = {}
     if DEFAULT_CONFIG_PATH.exists():
         try:
             import yaml
-            with open(DEFAULT_CONFIG_PATH, "r", encoding="utf-8") as f:
+            with open(DEFAULT_CONFIG_PATH, encoding="utf-8") as f:
                 cfg = yaml.safe_load(f) or {}
         except Exception as e:
             logger.warning(f"Failed to load config: {e}")

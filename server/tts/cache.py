@@ -6,13 +6,13 @@ Smart Garage - Short-Lived TTL Cache for TTS Audio
 розмови необмежено й автоматично видаляє застарілі файли.
 """
 
-import os
-import time
 import hashlib
 import logging
+import os
 import threading
+import time
 from pathlib import Path
-from typing import Optional, Dict
+from typing import Dict, Optional
 
 logger = logging.getLogger("TTSCache")
 
@@ -42,7 +42,7 @@ class TTSAudioCache:
         data = f"{provider}:{voice_id}:{content_type}:{text}"
         return hashlib.sha256(data.encode("utf-8")).hexdigest()
 
-    def get(self, provider: str, voice_id: str, text: str, content_type: str = "audio/mpeg") -> Optional[bytes]:
+    def get(self, provider: str, voice_id: str, text: str, content_type: str = "audio/mpeg") -> bytes | None:
         """Отримує аудіобайти з кешу, якщо файл існує і не застарів."""
         ext = "wav" if "wav" in content_type else "mp3"
         key = self._get_key(provider, voice_id, text, content_type)

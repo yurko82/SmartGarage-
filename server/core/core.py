@@ -1,24 +1,25 @@
 import os
-import time
 import threading
+import time
 from datetime import datetime
-from server.config import config
+
 from server.ai.manager import AIManager
-from server.memory.memory import Memory
-from server.logger.logger import Logger
+from server.ai.tools import ToolDispatcher
+from server.automation.engine import AutomationEngine
 from server.commands.processor import CommandProcessor
-from server.devices.projector import ProjectorController
-from server.devices.esp32 import ESP32Controller
+from server.config import config
 from server.devices.bluetooth_sensor import BluetoothSensorManager
 from server.devices.bluetooth_speaker import BluetoothSpeakerController
+from server.devices.esp32 import ESP32Controller
 from server.devices.presence import PresenceManager
-from server.automation.engine import AutomationEngine
-from server.utils.files import FileManager
-from server.services.telegram_bot import TelegramBot
+from server.devices.projector import ProjectorController
+from server.logger.logger import Logger
+from server.memory.memory import Memory
 from server.router.router import CommandRouter
+from server.services.telegram_bot import TelegramBot
+from server.services.voice_queue import VoiceCommandQueue, voice_command_queue
 from server.storage.telemetry_db import TelemetryDB
-from server.ai.tools import ToolDispatcher
-from server.services.voice_queue import voice_command_queue, VoiceCommandQueue
+from server.utils.files import FileManager
 
 
 class SmartGarage:

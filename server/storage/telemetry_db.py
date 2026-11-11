@@ -1,9 +1,9 @@
 import os
-import time
 import sqlite3
 import threading
+import time
 from pathlib import Path
-from typing import Dict, List, Any, Optional
+from typing import Any, Dict, List, Optional
 
 
 class TelemetryDB:
@@ -11,8 +11,9 @@ class TelemetryDB:
 
     @property
     def db_path(self) -> Path:
-        if getattr(self, "_custom_db_path", None):
-            return self._custom_db_path
+        custom = getattr(self, "_custom_db_path", None)
+        if custom is not None:
+            return Path(custom)
         from server.utils.paths import get_devices_dir
         return get_devices_dir() / "telemetry.db"
 
@@ -20,11 +21,11 @@ class TelemetryDB:
     def db_path(self, val):
         self._custom_db_path = Path(val) if val else None
 
-    def __init__(self, db_path: Optional[str] = None):
+    def __init__(self, db_path: str | None = None):
         self._custom_db_path = Path(db_path) if db_path is not None else None
         self._lock = threading.RLock()
-        self._initialized_paths = set()
-        self._last_record_per_floor: Dict[str, Dict[str, Any]] = {}
+        self._initialized_paths: set[str] = set()
+        self._last_record_per_floor: dict[str, dict[str, Any]] = {}
         with self._lock:
             conn = self._get_connection()
             conn.close()
@@ -56,7 +57,7 @@ class TelemetryDB:
         conn = sqlite3.connect(str(p), timeout=10.0)
         conn.row_factory = sqlite3.Row
         if not hasattr(self, "_initialized_paths"):
-            self._initialized_paths = set()
+            self._initialized_paths = set()  # type: ignore[has-type]
         resolved = str(p.resolve())
         if resolved not in self._initialized_paths:
             self._ensure_schema(conn)
@@ -68,12 +69,12 @@ class TelemetryDB:
             conn = self._get_connection()
             conn.close()
 
-    def record(self, floor: str, temperature: Optional[float], humidity: Optional[float] = None,
-               battery: Optional[float] = None, mac: Optional[str] = None,
-               sensor_name: Optional[str] = None, timestamp: Optional[float] = None,
+    def record(self, floor: str, temperature: float | None, humidity: float | None = None,
+               battery: float | None = None, mac: str | None = None,
+               sensor_name: str | None = None, timestamp: float | None = None,
                force: bool = False) -> bool:
         """Record a climate measurement into SQLite.
-        
+
         Rate-limited to avoid database bloat if values don't change and less than 60s elapsed.
         """
         if temperature is None and humidity is None:
@@ -81,7 +82,7 @@ class TelemetryDB:
 
         now = timestamp if timestamp is not None else time.time()
         floor_key = str(floor or "garage").lower().strip()
-        
+
         # Friendly floor name mapping if not provided
         if not sensor_name:
             if floor_key == "basement":
@@ -124,12 +125,12 @@ class TelemetryDB:
                     "battery": battery
                 }
                 return True
-            except Exception as e:
+            except Exception:
                 return False
             finally:
                 conn.close()
 
-    def get_history(self, floor: Optional[str] = None, hours: float = 24.0, limit: int = 500) -> Dict[str, Any]:
+    def get_history(self, floor: str | None = None, hours: float = 24.0, limit: int = 500) -> dict[str, Any]:
         """Fetch historical points and stats for a specific floor or primary sensor."""
         now = time.time()
         start_ts = now - (hours * 3600.0)
@@ -138,7 +139,7 @@ class TelemetryDB:
             conn = self._get_connection()
             try:
                 cur = conn.cursor()
-                params = [start_ts]
+                params: List[Any] = [start_ts]
 
                 query = """
                     SELECT id, timestamp, datetime_str, floor, mac, sensor_name, temperature, humidity, battery
@@ -229,7 +230,7 @@ class TelemetryDB:
             finally:
                 conn.close()
 
-    def get_latest_by_floor(self) -> Dict[str, Dict[str, Any]]:
+    def get_latest_by_floor(self) -> dict[str, dict[str, Any]]:
         """Get the latest reading for each known floor."""
         with self._lock:
             conn = self._get_connection()

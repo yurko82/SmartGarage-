@@ -2,8 +2,9 @@ import asyncio
 import logging
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Optional, List, Dict, Any, Callable
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +17,7 @@ class VoiceCommand:
     text: str = field(compare=False, default="")
     source: str = field(compare=False, default="voice")
     session_id: str = field(compare=False, default="voice_session")
-    metadata: Dict[str, Any] = field(compare=False, default_factory=dict)
+    metadata: dict[str, Any] = field(compare=False, default_factory=dict)
 
 
 class VoiceCommandQueue:
@@ -28,9 +29,9 @@ class VoiceCommandQueue:
 
     def __init__(self, maxsize: int = 100):
         self.maxsize = maxsize
-        self._async_queue: Optional[asyncio.PriorityQueue] = None
-        self._loop: Optional[asyncio.AbstractEventLoop] = None
-        self._history: List[Dict[str, Any]] = []
+        self._async_queue: asyncio.PriorityQueue | None = None
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._history: list[dict[str, Any]] = []
         self._lock = threading.Lock()
         self._total_received = 0
         self._total_processed = 0
@@ -45,7 +46,7 @@ class VoiceCommandQueue:
             self._async_queue = asyncio.PriorityQueue(maxsize=self.maxsize)
         return self._async_queue
 
-    async def put(self, text: str, source: str = "voice", priority: int = 1, metadata: Optional[Dict[str, Any]] = None):
+    async def put(self, text: str, source: str = "voice", priority: int = 1, metadata: dict[str, Any] | None = None):
         """Asynchronously enqueue a recognized voice command."""
         q = self._ensure_queue()
         cmd = VoiceCommand(
@@ -71,7 +72,7 @@ class VoiceCommandQueue:
         logger.info(f"[VoiceQueue] Enqueued command (priority={priority}, source={source}): «{cmd.text}»")
         await q.put(cmd)
 
-    def put_sync(self, text: str, source: str = "voice", priority: int = 1, metadata: Optional[Dict[str, Any]] = None):
+    def put_sync(self, text: str, source: str = "voice", priority: int = 1, metadata: dict[str, Any] | None = None):
         """Thread-safe synchronous enqueue method for background threads."""
         q = self._ensure_queue()
         cmd = VoiceCommand(
@@ -125,7 +126,7 @@ class VoiceCommandQueue:
             return 0
         return self._async_queue.qsize()
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         with self._lock:
             return {
                 "queue_size": self.qsize(),

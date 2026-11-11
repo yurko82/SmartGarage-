@@ -12,7 +12,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from server.devices.rf_manager import RfManager, VALID_ZONES, ZONE_DESCRIPTIONS
+from server.devices.rf_manager import VALID_ZONES, ZONE_DESCRIPTIONS, RfManager
 
 
 class TestRfManager(unittest.TestCase):
@@ -297,8 +297,8 @@ class TestRfWebEndpoints(unittest.TestCase):
 
 class TestZonedCommandsAndTools(unittest.TestCase):
     def setUp(self):
-        from server.commands.processor import CommandProcessor
         from server.ai.tools import ToolDispatcher
+        from server.commands.processor import CommandProcessor
         self.mock_garage = MagicMock()
         self.mock_esp32 = MagicMock()
         self.mock_garage.esp32 = self.mock_esp32

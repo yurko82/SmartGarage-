@@ -10,7 +10,7 @@ import re
 import time
 import uuid
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Any, Dict, Optional
 
 AUDIT_LOG_DIR = Path("logs")
 AUDIT_LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -55,13 +55,13 @@ def audit_log(
     source: str,
     action: str,
     result: str,
-    details: Optional[Dict[str, Any]] = None,
-    correlation_id: Optional[str] = None,
-    actor: Optional[str] = None
+    details: dict[str, Any] | None = None,
+    correlation_id: str | None = None,
+    actor: str | None = None
 ) -> str:
     """
     Record an immutable structured audit log entry.
-    
+
     :param source: "web" | "voice" | "telegram" | "ai" | "mqtt" | "system"
     :param action: Action performed (e.g. "light_toggle", "scenario_arrival")
     :param result: "SUCCESS" | "DENIED" | "FAILED" | "BLOCKED"
@@ -72,9 +72,9 @@ def audit_log(
     """
     cid = correlation_id or str(uuid.uuid4())[:8]
     now = time.time()
-    
+
     sanitized_details = sanitize_data(details or {})
-    
+
     entry = {
         "timestamp": now,
         "datetime": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now)),
@@ -85,14 +85,14 @@ def audit_log(
         "actor": actor or "anonymous",
         "details": sanitized_details
     }
-    
+
     log_line = json.dumps(entry, ensure_ascii=False)
-    
+
     try:
         with open(AUDIT_LOG_FILE, "a", encoding="utf-8") as f:
             f.write(log_line + "\n")
     except Exception as e:
         logger.error(f"Failed to write audit log: {e}")
-        
+
     logger.info(f"[AUDIT] [{entry['source']}] [{entry['result']}] cid={cid} act={action} actor={entry['actor']}")
     return cid

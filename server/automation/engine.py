@@ -1,5 +1,6 @@
-import time
 import threading
+import time
+
 from server.logger.logger import Logger
 
 

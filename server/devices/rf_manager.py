@@ -26,8 +26,9 @@ import os
 import time
 import uuid
 from collections import deque
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger("smartgarage.rf_manager")
 
@@ -52,6 +53,7 @@ ZONE_DESCRIPTIONS = {
 }
 
 from server.utils.paths import get_rf_mappings_file
+
 DEFAULT_MAPPINGS_FILE = get_rf_mappings_file()
 
 
@@ -67,15 +69,15 @@ class RfManager:
     def config_path(self, val):
         self._custom_config_path = Path(val) if val else None
 
-    def __init__(self, config_path: Optional[Path] = None, dedup_window_sec: float = 0.8):
+    def __init__(self, config_path: Path | None = None, dedup_window_sec: float = 0.8):
         self._custom_config_path = Path(config_path) if config_path else None
         self.dedup_window_sec = dedup_window_sec
-        self.mappings: Dict[str, Dict[str, Any]] = {}
-        self.relays: Dict[str, Dict[str, Any]] = {}
+        self.mappings: dict[str, dict[str, Any]] = {}
+        self.relays: dict[str, dict[str, Any]] = {}
 
         # In-memory tracking for deduplication & diagnostics
-        self._last_event_time: Dict[str, float] = {}
-        self._repeat_counts: Dict[str, int] = {}
+        self._last_event_time: dict[str, float] = {}
+        self._repeat_counts: dict[str, int] = {}
 
         # Activity log & telemetry metrics
         self.activity_log = deque(maxlen=100)
@@ -92,7 +94,7 @@ class RfManager:
         # Learning / Diagnostics mode
         self.learning_active = False
         self.learning_expires_at = 0.0
-        self.learning_buffer: List[Dict[str, Any]] = []
+        self.learning_buffer: list[dict[str, Any]] = []
 
         self.load_mappings()
 
@@ -103,7 +105,7 @@ class RfManager:
             return
 
         try:
-            with open(self.config_path, "r", encoding="utf-8") as f:
+            with open(self.config_path, encoding="utf-8") as f:
                 data = json.load(f)
                 self.mappings = data.get("mappings", {})
                 self.relays = data.get("relays", {})
@@ -239,7 +241,7 @@ class RfManager:
             return False
 
     # --- BUTTON MAPPINGS (RX) ---
-    def get_mappings(self) -> Dict[str, Dict[str, Any]]:
+    def get_mappings(self) -> dict[str, dict[str, Any]]:
         return dict(self.mappings)
 
     def set_mapping(
@@ -286,13 +288,13 @@ class RfManager:
         return False
 
     # --- RADIO RELAYS (TX) ---
-    def get_relays(self) -> Dict[str, Dict[str, Any]]:
+    def get_relays(self) -> dict[str, dict[str, Any]]:
         return dict(self.relays)
 
-    def get_relay(self, relay_id: str) -> Optional[Dict[str, Any]]:
+    def get_relay(self, relay_id: str) -> dict[str, Any] | None:
         return self.relays.get(str(relay_id))
 
-    def get_relay_by_zone(self, zone: str) -> Optional[Dict[str, Any]]:
+    def get_relay_by_zone(self, zone: str) -> dict[str, Any] | None:
         zone_norm = (zone or "").strip().lower()
         for r in self.relays.values():
             if r.get("enabled", True) and r.get("zone", "").lower() == zone_norm:
@@ -352,15 +354,15 @@ class RfManager:
         direction: str,  # "TX" or "RX"
         code: int,
         action: str = "info",
-        zone: Optional[str] = None,
-        zone_title: Optional[str] = None,
+        zone: str | None = None,
+        zone_title: str | None = None,
         status: str = "success",
         details: str = "",
         protocol: int = 1,
         bits: int = 24,
         delay: int = 320,
         is_repeat: bool = False
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Record an incoming or outgoing RF event in the circular log buffer."""
         now = time.time()
         c_int = int(code) if code is not None else 0
@@ -397,12 +399,12 @@ class RfManager:
         self.activity_log.append(entry)
         return entry
 
-    def get_activity_log(self, limit: int = 50) -> List[Dict[str, Any]]:
+    def get_activity_log(self, limit: int = 50) -> list[dict[str, Any]]:
         """Return newest activity entries first."""
         items = list(self.activity_log)
         return items[-limit:][::-1]
 
-    def get_metrics(self) -> Dict[str, Any]:
+    def get_metrics(self) -> dict[str, Any]:
         return {
             "tx_count": self.stats["tx_count"],
             "rx_count": self.stats["rx_count"],
@@ -432,7 +434,7 @@ class RfManager:
             self.learning_active = False
         return self.learning_active
 
-    def get_learning_status(self) -> Dict[str, Any]:
+    def get_learning_status(self) -> dict[str, Any]:
         active = self.is_learning()
         remain = max(0.0, self.learning_expires_at - time.time()) if active else 0.0
         return {
@@ -448,9 +450,9 @@ class RfManager:
     # --- INCOMING RX EVENT PROCESSING ---
     def process_rf_event(
         self,
-        event_data: Dict[str, Any],
-        callback_zone_off: Optional[Callable[[str], bool]] = None
-    ) -> Dict[str, Any]:
+        event_data: dict[str, Any],
+        callback_zone_off: Callable[[str], bool] | None = None
+    ) -> dict[str, Any]:
         """
         Process an incoming RF event.
         1. Checks deduplication window.

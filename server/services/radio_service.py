@@ -1,7 +1,8 @@
 import time
-import requests
-from typing import List, Dict, Any, Optional
 import urllib.parse
+from typing import Any, Dict, List, Optional
+
+import requests
 
 # Fallback stations if external API is unreachable
 DEFAULT_UKRAINIAN_STATIONS = [
@@ -147,11 +148,11 @@ class RadioService:
     """Service for interacting with Radio Browser open API (https://www.radio-browser.info/)."""
 
     def __init__(self):
-        self._cache_top_stations: List[Dict[str, Any]] = []
+        self._cache_top_stations: list[dict[str, Any]] = []
         self._cache_timestamp: float = 0.0
         self._cache_ttl: float = 1800.0  # 30 minutes
 
-    def _fetch_from_mirrors(self, endpoint_path: str, params: Optional[Dict[str, Any]] = None) -> Optional[Any]:
+    def _fetch_from_mirrors(self, endpoint_path: str, params: dict[str, Any] | None = None) -> Any | None:
         """Try fetching data across redundant Radio Browser mirrors with timeout."""
         headers = {"User-Agent": "SmartGarage-Radio/1.0"}
         for base_url in API_MIRRORS:
@@ -164,7 +165,7 @@ class RadioService:
                 continue
         return None
 
-    def get_top_stations(self, limit: int = 24, country_code: str = "UA") -> List[Dict[str, Any]]:
+    def get_top_stations(self, limit: int = 24, country_code: str = "UA") -> list[dict[str, Any]]:
         """Get popular radio stations for a specific country (default Ukraine)."""
         now = time.time()
         if self._cache_top_stations and (now - self._cache_timestamp < self._cache_ttl):
@@ -175,7 +176,7 @@ class RadioService:
             params={"order": "clickcount", "reverse": "true", "limit": limit}
         )
 
-        stations: List[Dict[str, Any]] = []
+        stations: list[dict[str, Any]] = []
         if data and isinstance(data, list):
             for s in data:
                 if (s.get("countrycode") or "").upper() == "RU":
@@ -201,7 +202,7 @@ class RadioService:
         self._cache_timestamp = now
         return stations[:limit]
 
-    def search_stations(self, query: str, limit: int = 20) -> List[Dict[str, Any]]:
+    def search_stations(self, query: str, limit: int = 20) -> list[dict[str, Any]]:
         """Search stations by name or genre/tag, prioritizing Ukrainian stations."""
         raw_q = query.strip()
         if not raw_q:
@@ -230,8 +231,8 @@ class RadioService:
 
         data = self._fetch_from_mirrors(endpoint, params=params)
 
-        ua_results: List[Dict[str, Any]] = []
-        other_results: List[Dict[str, Any]] = []
+        ua_results: list[dict[str, Any]] = []
+        other_results: list[dict[str, Any]] = []
 
         if data and isinstance(data, list):
             for s in data:

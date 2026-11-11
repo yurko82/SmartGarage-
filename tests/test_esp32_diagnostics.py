@@ -1,5 +1,6 @@
 import time
 import unittest
+
 from server.devices.esp32 import ESP32Controller, format_relative_time
 from server.webapp import app
 

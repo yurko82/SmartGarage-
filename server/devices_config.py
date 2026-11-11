@@ -3,24 +3,25 @@ server/devices_config.py — Завантаження конфігурації �
 Читає config/devices.yaml, за відсутності бере config/devices.yaml.example.
 """
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Any, Dict, List, Optional
+
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEVICES_CONFIG_FILE = REPO_ROOT / "config" / "devices.yaml"
 DEVICES_EXAMPLE_FILE = REPO_ROOT / "config" / "devices.yaml.example"
 
-_cached_config: Optional[Dict[str, Any]] = None
+_cached_config: dict[str, Any] | None = None
 
-def get_devices_config() -> Dict[str, Any]:
+def get_devices_config() -> dict[str, Any]:
     global _cached_config
     if _cached_config is not None:
         return _cached_config
-    
+
     cfg_file = DEVICES_CONFIG_FILE if DEVICES_CONFIG_FILE.exists() else DEVICES_EXAMPLE_FILE
     if cfg_file.exists():
         try:
-            with open(cfg_file, "r", encoding="utf-8") as f:
+            with open(cfg_file, encoding="utf-8") as f:
                 _cached_config = yaml.safe_load(f) or {}
                 return _cached_config
         except Exception:
@@ -31,11 +32,11 @@ def reload_devices_config():
     global _cached_config
     _cached_config = None
 
-def get_speaker_config(speaker_key: str) -> Dict[str, Any]:
+def get_speaker_config(speaker_key: str) -> dict[str, Any]:
     cfg = get_devices_config().get("speakers", {})
     return cfg.get(speaker_key, {})
 
-def get_configured_speakers_list() -> List[Dict[str, Any]]:
+def get_configured_speakers_list() -> list[dict[str, Any]]:
     speakers_cfg = get_devices_config().get("speakers", {})
     res = []
     for key, info in speakers_cfg.items():
@@ -49,7 +50,7 @@ def get_configured_speakers_list() -> List[Dict[str, Any]]:
             })
     return res
 
-def get_sensor_config(sensor_key: str) -> Dict[str, Any]:
+def get_sensor_config(sensor_key: str) -> dict[str, Any]:
     cfg = get_devices_config().get("sensors", {})
     return cfg.get(sensor_key, {})
 

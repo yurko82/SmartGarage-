@@ -4,12 +4,13 @@
 import json
 import logging
 import os
-from pathlib import Path
 import re
 import threading
 import time
 import uuid
-from typing import Dict, Any, List, Optional, Tuple
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
+
 import requests
 
 from server.config import config
@@ -17,7 +18,7 @@ from server.config import config
 logger = logging.getLogger(__name__)
 
 # Таблиця цін OpenRouter на моделі (USD за 1M токенів)
-MODEL_PRICING: Dict[str, Dict[str, float]] = {
+MODEL_PRICING: dict[str, dict[str, float]] = {
     # Baseline
     "google/gemini-2.5-flash": {"prompt": 0.30, "completion": 2.50},
     # Швидший та дешевший кандидат
@@ -105,7 +106,7 @@ class CostTracker:
     def storage_path(self, val):
         self._custom_storage_path = Path(val) if val else None
 
-    def __init__(self, storage_path: Optional[Path] = None):
+    def __init__(self, storage_path: Path | None = None):
         self._custom_storage_path = Path(storage_path) if storage_path is not None else None
         self._lock = threading.Lock()
         self._load()
@@ -114,7 +115,7 @@ class CostTracker:
         return time.strftime("%Y-%m-%d")
 
     def _load(self):
-        self._data: Dict[str, Any] = {}
+        self._data: dict[str, Any] = {}
         if self.storage_path.exists():
             try:
                 content = self.storage_path.read_text(encoding="utf-8").strip()
@@ -132,7 +133,7 @@ class CostTracker:
         except Exception as e:
             logger.debug(f"Помилка збереження історії витрат: {e}")
 
-    def reserve_budget(self, daily_budget_usd: float, estimated_cost_usd: float = 0.005) -> Tuple[bool, float]:
+    def reserve_budget(self, daily_budget_usd: float, estimated_cost_usd: float = 0.005) -> tuple[bool, float]:
         """
         Atomically checks budget and reserves estimated cost before sending request.
         Returns (success, reserved_amount).
@@ -227,7 +228,7 @@ class CostTracker:
         with self._lock:
             return float(self._data.get(today, {}).get("total_cost_usd", 0.0))
 
-    def get_today_stats(self) -> Dict[str, Any]:
+    def get_today_stats(self) -> dict[str, Any]:
         today = self._today_key()
         with self._lock:
             return dict(self._data.get(today, {
@@ -245,17 +246,17 @@ class OpenRouterClient:
 
     def __init__(
         self,
-        api_key: Optional[str] = None,
-        model: Optional[str] = None,
-        api_base: Optional[str] = None,
-        timeout: Optional[float] = None,
-        max_retries: Optional[int] = None,
-        retry_backoff: Optional[float] = None,
-        max_tokens: Optional[int] = None,
-        temperature: Optional[float] = None,
-        daily_budget_usd: Optional[float] = None,
-        provider_preferences: Optional[Dict[str, Any]] = None,
-        cost_tracker: Optional[CostTracker] = None
+        api_key: str | None = None,
+        model: str | None = None,
+        api_base: str | None = None,
+        timeout: float | None = None,
+        max_retries: int | None = None,
+        retry_backoff: float | None = None,
+        max_tokens: int | None = None,
+        temperature: float | None = None,
+        daily_budget_usd: float | None = None,
+        provider_preferences: dict[str, Any] | None = None,
+        cost_tracker: CostTracker | None = None
     ):
         llm_cfg = config.get("llm", {}) if isinstance(config, dict) else {}
 
@@ -324,16 +325,16 @@ class OpenRouterClient:
     def _send_single_model_completion(
         self,
         target_model: str,
-        messages: List[Dict[str, Any]],
-        tools: Optional[List[Dict[str, Any]]] = None,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None = None,
         tool_choice: str = "auto",
-        timeout: Optional[float] = None,
+        timeout: float | None = None,
         reserved_amount: float = 0.0
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         req_id = f"gen_{uuid.uuid4().hex[:10]}"
         req_timeout = timeout or self.timeout
 
-        payload: Dict[str, Any] = {
+        payload: dict[str, Any] = {
             "model": target_model,
             "messages": messages,
             "temperature": self.temperature,
@@ -353,7 +354,7 @@ class OpenRouterClient:
             "X-Request-ID": req_id
         }
 
-        last_error: Optional[Exception] = None
+        last_error: Exception | None = None
 
         for attempt in range(self.max_retries + 1):
             t0 = time.time()
@@ -445,7 +446,7 @@ class OpenRouterClient:
                 logger.error(f"[OpenRouter] req_id={req_id} status={resp.status_code} error={err_msg}")
                 raise OpenRouterError(f"⚠️ Помилка OpenRouter API ({resp.status_code}): {err_msg}")
 
-            except requests.exceptions.Timeout as e:
+            except requests.exceptions.Timeout:
                 latency_ms = int((time.time() - t0) * 1000)
                 logger.warning(
                     f"[OpenRouter] req_id={req_id} model={target_model} Timeout "
@@ -475,12 +476,12 @@ class OpenRouterClient:
 
     def send_chat_completion(
         self,
-        messages: List[Dict[str, Any]],
-        tools: Optional[List[Dict[str, Any]]] = None,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None = None,
         tool_choice: str = "auto",
-        timeout: Optional[float] = None,
-        model: Optional[str] = None
-    ) -> Dict[str, Any]:
+        timeout: float | None = None,
+        model: str | None = None
+    ) -> dict[str, Any]:
         """Надсилає запит chat/completions з автоматичним retry/backoff для 429/5xx,
         резервною моделлю (fallback), контролем конфіденційності та безпечним structured logging.
         """

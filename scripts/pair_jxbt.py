@@ -1,18 +1,22 @@
 #!/usr/bin/env python3
 """Script to automatically discover, trust, pair, and connect JX-BT speaker."""
+import os
+import subprocess
 import sys
 import time
-import subprocess
-import dbus
-from gi.repository import GLib
-from dbus.mainloop.glib import DBusGMainLoop
-
-import sys, os, yaml
 from pathlib import Path
+
+import dbus
+import yaml
+from dbus.mainloop.glib import DBusGMainLoop
+from gi.repository import GLib
+
 try:
     _cfg_f = Path(__file__).resolve().parent.parent / "config" / "devices.yaml"
-    if not _cfg_f.exists(): _cfg_f = Path(__file__).resolve().parent.parent / "config" / "devices.yaml.example"
-    _cfg = yaml.safe_load(open(_cfg_f, "r", encoding="utf-8")) or {}
+    if not _cfg_f.exists():
+        _cfg_f = Path(__file__).resolve().parent.parent / "config" / "devices.yaml.example"
+    with open(_cfg_f, encoding="utf-8") as _f:
+        _cfg = yaml.safe_load(_f) or {}
     _def_mac = _cfg.get("speakers", {}).get("floor1", {}).get("mac", "00:11:22:33:44:01")
 except Exception:
     _def_mac = "00:11:22:33:44:01"
@@ -39,7 +43,7 @@ def do_connect(path):
     print(f"\n🎯 Target detected on DBus: {path}")
     dev_obj = bus.get_object("org.bluez", path)
     props = dbus.Interface(dev_obj, "org.freedesktop.DBus.Properties")
-    
+
     # 1. Trust
     try:
         props.Set("org.bluez.Device1", "Trusted", dbus.Boolean(True))

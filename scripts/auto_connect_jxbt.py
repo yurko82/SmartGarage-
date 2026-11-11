@@ -4,16 +4,21 @@ Continuous auto-connection script for JX-BT speaker.
 Keeps trying to pair & connect in background.
 As soon as connection succeeds, automatically configures PipeWire and launches Hit FM!
 """
+import os
+import subprocess
 import sys
 import time
-import subprocess
-import dbus
+from pathlib import Path
 
-import os, yaml
+import dbus
+import yaml
+
 try:
     _cfg_f = Path(__file__).resolve().parent.parent / "config" / "devices.yaml"
-    if not _cfg_f.exists(): _cfg_f = Path(__file__).resolve().parent.parent / "config" / "devices.yaml.example"
-    _cfg = yaml.safe_load(open(_cfg_f, "r", encoding="utf-8")) or {}
+    if not _cfg_f.exists():
+        _cfg_f = Path(__file__).resolve().parent.parent / "config" / "devices.yaml.example"
+    with open(_cfg_f, encoding="utf-8") as _f:
+        _cfg = yaml.safe_load(_f) or {}
     _def_mac = _cfg.get("speakers", {}).get("floor1", {}).get("mac", "00:11:22:33:44:01")
 except Exception:
     _def_mac = "00:11:22:33:44:01"

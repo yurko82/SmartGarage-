@@ -4,7 +4,8 @@ import logging
 import threading
 import time
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Any, Dict, Optional
+
 import requests
 
 logger = logging.getLogger(__name__)
@@ -13,11 +14,11 @@ logger = logging.getLogger(__name__)
 class TelegramBot:
     """Telegram Bot for remote SmartGarage monitoring, notifications, and control."""
 
-    def __init__(self, garage, config_path: Optional[str] = None):
+    def __init__(self, garage, config_path: str | None = None):
         self.garage = garage
         self.config_path = Path(config_path) if config_path else Path(__file__).resolve().parent.parent.parent / "config" / "config.yaml"
         self._running = False
-        self._thread: Optional[threading.Thread] = None
+        self._thread: threading.Thread | None = None
         self._last_update_id = 0
         self._load_config()
 
@@ -37,7 +38,7 @@ class TelegramBot:
         try:
             import yaml
             if self.config_path.exists():
-                with open(self.config_path, "r", encoding="utf-8") as f:
+                with open(self.config_path, encoding="utf-8") as f:
                     data = yaml.safe_load(f) or {}
                 if "telegram" not in data:
                     data["telegram"] = {}
@@ -103,7 +104,7 @@ class TelegramBot:
             pass
         return []
 
-    def send_message(self, chat_id: int, text: str, reply_markup: Optional[dict] = None) -> bool:
+    def send_message(self, chat_id: int, text: str, reply_markup: dict | None = None) -> bool:
         if not self.token:
             return False
         try:
@@ -121,7 +122,7 @@ class TelegramBot:
             logger.error(f"Error sending Telegram message: {e}")
             return False
 
-    def edit_message(self, chat_id: int, message_id: int, text: str, reply_markup: Optional[dict] = None) -> bool:
+    def edit_message(self, chat_id: int, message_id: int, text: str, reply_markup: dict | None = None) -> bool:
         if not self.token:
             return False
         try:
@@ -142,7 +143,7 @@ class TelegramBot:
             logger.debug(f"Error editing Telegram message: {e}")
             return self.send_message(chat_id, text, reply_markup=reply_markup)
 
-    def edit_photo_message(self, chat_id: int, message_id: int, photo_bytes: bytes, caption: Optional[str] = None, reply_markup: Optional[dict] = None) -> bool:
+    def edit_photo_message(self, chat_id: int, message_id: int, photo_bytes: bytes, caption: str | None = None, reply_markup: dict | None = None) -> bool:
         """Edit an existing photo message in-place using editMessageMedia."""
         if not self.token:
             return False
@@ -174,7 +175,7 @@ class TelegramBot:
             logger.error(f"Error editing photo message: {e}")
             return self.send_photo(chat_id, photo_bytes, caption=caption, reply_markup=reply_markup)
 
-    def send_photo(self, chat_id: int, photo_bytes: bytes, caption: Optional[str] = None, reply_markup: Optional[dict] = None) -> bool:
+    def send_photo(self, chat_id: int, photo_bytes: bytes, caption: str | None = None, reply_markup: dict | None = None) -> bool:
         if not self.token:
             return False
         try:
@@ -194,7 +195,7 @@ class TelegramBot:
             logger.error(f"Error sending Telegram photo: {e}")
             return False
 
-    def send_climate_chart(self, chat_id: int, floor: str = "basement", hours: float = 24.0, message_id: Optional[int] = None) -> bool:
+    def send_climate_chart(self, chat_id: int, floor: str = "basement", hours: float = 24.0, message_id: int | None = None) -> bool:
         """Render and send a dual-axis climate history chart with interactive range buttons."""
         try:
             from server.storage.chart_renderer import generate_climate_chart
@@ -529,7 +530,7 @@ class TelegramBot:
         except Exception as e:
             self.send_message(chat_id, f"Помилка отримання статусу: {e}", reply_markup=self._get_main_keyboard())
 
-    def _send_climate_menu(self, chat_id: int, message_id: Optional[int] = None):
+    def _send_climate_menu(self, chat_id: int, message_id: int | None = None):
         try:
             floors = self._get_floors()
             fb = floors.get("basement", {})
@@ -579,7 +580,7 @@ class TelegramBot:
             logger.error(f"Error showing climate menu: {e}")
             self.send_message(chat_id, f"Помилка даних клімату: {e}")
 
-    def _send_floor1_details(self, chat_id: int, message_id: Optional[int] = None):
+    def _send_floor1_details(self, chat_id: int, message_id: int | None = None):
         floors = self._get_floors()
         f1 = floors.get("floor1", {})
         temp = f1.get("temperature") if f1.get("temperature") is not None else f1.get("last_known_temperature")
@@ -608,7 +609,7 @@ class TelegramBot:
         else:
             self.send_message(chat_id, msg, reply_markup=reply_markup)
 
-    def _send_floor2_details(self, chat_id: int, message_id: Optional[int] = None):
+    def _send_floor2_details(self, chat_id: int, message_id: int | None = None):
         floors = self._get_floors()
         f2 = floors.get("floor2", {})
         t2 = f"{f2.get('temperature')}°C" if f2.get('temperature') is not None else "--"
@@ -636,7 +637,7 @@ class TelegramBot:
         else:
             self.send_message(chat_id, msg, reply_markup=reply_markup)
 
-    def _send_basement_details(self, chat_id: int, message_id: Optional[int] = None):
+    def _send_basement_details(self, chat_id: int, message_id: int | None = None):
         floors = self._get_floors()
         fb = floors.get("basement", {})
         tb = f"{fb.get('temperature')}°C" if fb.get('temperature') is not None else "--"
@@ -665,7 +666,7 @@ class TelegramBot:
         else:
             self.send_message(chat_id, msg, reply_markup=reply_markup)
 
-    def _send_outdoor_details(self, chat_id: int, message_id: Optional[int] = None):
+    def _send_outdoor_details(self, chat_id: int, message_id: int | None = None):
         msg = (
             "🌳 *Вулиця (Зовнішній клімат)*\n\n"
             "• Стан: ⏳ Фізичний вуличний датчик ще не встановлений.\n"
@@ -801,7 +802,7 @@ class TelegramBot:
             from server.config import config
             api_key = config.get("llm", {}).get("api_key")
             api_base = config.get("llm", {}).get("api_base", "https://openrouter.ai/api/v1")
-            
+
             b64_audio = base64.b64encode(audio_data).decode("utf-8")
             payload = {
                 "model": "google/gemini-2.5-flash",

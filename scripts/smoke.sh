@@ -45,10 +45,10 @@ echo "  -> Усі тести пройдено успішно."
 
 echo "[3/5] Перевірка відсутності витоку реальних MAC/секретів у git..."
 FORBIDDEN_MACS="41:42:62:69:51:9B|F8:5C:7E:EE:7D:CC|A4:C1:38:EC:EC:6C|A4:C1:38:CC:CA:49|B8:7E:39:88:22:9B|A0:62:56:5C:9B:FC"
-LEAK_COUNT=$(git grep -iE "$FORBIDDEN_MACS" | wc -l || true)
+LEAK_COUNT=$(git grep -iE "$FORBIDDEN_MACS" -- ':!scripts/smoke.sh' ':!.github/workflows/*' | wc -l || true)
 if [ "$LEAK_COUNT" -ne 0 ]; then
     echo "  [ПОМИЛКА] Знайдено витік персональних MAC-адрес у відстежуваних файлах ($LEAK_COUNT збігів)!"
-    git grep -n -iE "$FORBIDDEN_MACS"
+    git grep -n -iE "$FORBIDDEN_MACS" -- ':!scripts/smoke.sh' ':!.github/workflows/*'
     exit 1
 fi
 echo "  -> Жодних витоків реальних MAC-адрес не виявлено."

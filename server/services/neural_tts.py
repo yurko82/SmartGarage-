@@ -5,14 +5,14 @@ Uses Microsoft neural voices (uk-UA-OstapNeural / uk-UA-PolinaNeural) via edge-t
 HeyGen Voice Turbo and ElevenLabs Flash/Turbo via server.tts subsystem.
 Provides caching, HTTP streaming for web clients, and local PipeWire playback (pw-play).
 """
-import os
 import logging
+import os
 from pathlib import Path
 from typing import Optional
 
-from server.tts.normalizer import normalize_ukrainian_text
-from server.tts.manager import tts_manager, TTSManager
 from server.tts.cache import DEFAULT_CACHE_DIR
+from server.tts.manager import TTSManager, tts_manager
+from server.tts.normalizer import normalize_ukrainian_text
 
 logger = logging.getLogger("NeuralTTS")
 
@@ -31,7 +31,7 @@ class NeuralTTSService:
         self.rate = rate
         self.manager = tts_manager
 
-    def synthesize(self, text: str, voice: Optional[str] = None) -> Path:
+    def synthesize(self, text: str, voice: str | None = None) -> Path:
         """Синхронний синтез мовлення, що повертає шлях до згенерованого MP3/WAV файлу."""
         clean = clean_text_for_tts(text)
         if not clean:
@@ -45,11 +45,11 @@ class NeuralTTSService:
         out_file.write_bytes(result.audio_bytes)
         return out_file
 
-    async def synthesize_async(self, text: str, voice: Optional[str] = None) -> Path:
+    async def synthesize_async(self, text: str, voice: str | None = None) -> Path:
         """Асинхронний метод для сумісності."""
         return self.synthesize(text, voice)
 
-    def speak_locally(self, text: str, voice: Optional[str] = None):
+    def speak_locally(self, text: str, voice: str | None = None):
         """Асинхронно синтезує та відтворює звук на Bluetooth/PipeWire виході."""
         self.manager.speak_locally(text, voice_id=voice or self.default_voice)
 

@@ -4,32 +4,32 @@ import logging
 import threading
 import time
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional
 
 try:
-    from bleak import BleakScanner, BleakClient
+    from bleak import BleakClient, BleakScanner
     BLEAK_AVAILABLE = True
 except ImportError:
     BLEAK_AVAILABLE = False
 
-from server.storage.telemetry_db import TelemetryDB
 from server.sensors.freshness import (
     SENSOR_FRESHNESS_THRESHOLD_SECONDS,
     SENSOR_POLL_INTERVAL_SECONDS,
+    SOURCE_BLE_DIRECT,
+    SOURCE_CACHE,
+    SOURCE_ESP32_BRIDGE,
+    SOURCE_NONE,
+    SOURCE_SQLITE_HISTORY,
+    STATUS_NEVER_SEEN,
+    STATUS_NOT_INSTALLED,
+    STATUS_OFFLINE,
     STATUS_ONLINE,
     STATUS_STALE,
-    STATUS_OFFLINE,
-    STATUS_NOT_INSTALLED,
-    STATUS_NEVER_SEEN,
-    SOURCE_BLE_DIRECT,
-    SOURCE_ESP32_BRIDGE,
-    SOURCE_SQLITE_HISTORY,
-    SOURCE_CACHE,
-    SOURCE_NONE,
     build_sensor_payload,
     format_iso_timestamp,
-    format_relative_time_ua
+    format_relative_time_ua,
 )
+from server.storage.telemetry_db import TelemetryDB
 
 logger = logging.getLogger(__name__)
 
@@ -73,16 +73,16 @@ class BluetoothSensorManager:
     def cache_path(self, val):
         pass
 
-    def __init__(self, config_path: Optional[str] = None, telemetry_db: Optional[TelemetryDB] = None):
+    def __init__(self, config_path: str | None = None, telemetry_db: TelemetryDB | None = None):
         self._custom_config_path = Path(config_path) if config_path else None
         self.telemetry_db = telemetry_db or TelemetryDB()
         self._lock = threading.RLock()
         self._running = False
-        self._thread: Optional[threading.Thread] = None
+        self._thread: threading.Thread | None = None
 
         # Cached sensor states keyed by MAC address (uppercase)
-        self.sensors: Dict[str, Dict[str, Any]] = {}
-        self.primary_mac: Optional[str] = None
+        self.sensors: dict[str, dict[str, Any]] = {}
+        self.primary_mac: str | None = None
 
         self._load_config()
         self._load_cache()
@@ -93,7 +93,7 @@ class BluetoothSensorManager:
             return
 
         try:
-            with open(self.config_path, "r", encoding="utf-8") as f:
+            with open(self.config_path, encoding="utf-8") as f:
                 data = json.load(f)
 
             with self._lock:
@@ -150,7 +150,7 @@ class BluetoothSensorManager:
         if not self.cache_path.exists():
             return
         try:
-            with open(self.cache_path, "r", encoding="utf-8") as f:
+            with open(self.cache_path, encoding="utf-8") as f:
                 cached = json.load(f)
             with self._lock:
                 for mac, vals in cached.items():
@@ -224,7 +224,7 @@ class BluetoothSensorManager:
             self._thread.join(timeout=2.0)
         logger.info("BluetoothSensorManager stopped.")
 
-    def poll_on_demand(self, mac: Optional[str] = None):
+    def poll_on_demand(self, mac: str | None = None):
         """Trigger an on-demand background poll of sensors without blocking the caller."""
         if not BLEAK_AVAILABLE:
             return
@@ -402,14 +402,14 @@ class BluetoothSensorManager:
                 except Exception as edb:
                     logger.debug(f"TelemetryDB recording error for {mac}: {edb}")
 
-    def get_telemetry(self) -> Dict[str, Any]:
+    def get_telemetry(self) -> dict[str, Any]:
         """Return thread-safe snapshot of all sensor data, primary values, and floor climate."""
         now = time.time()
         with self._lock:
             device_list = list(self.sensors.values())
 
             # Map configured devices by floor
-            floor_sensor_map: Dict[str, Dict[str, Any]] = {}
+            floor_sensor_map: dict[str, dict[str, Any]] = {}
             for s in device_list:
                 if s.get("type") == "speaker":
                     continue
@@ -506,7 +506,7 @@ class BluetoothSensorManager:
                 "primary_last_updated_iso": primary_lu_iso
             }
 
-    def bind_sensor(self, floor_key: str, new_mac: str, alias: Optional[str] = None) -> bool:
+    def bind_sensor(self, floor_key: str, new_mac: str, alias: str | None = None) -> bool:
         """Bind or update the MAC address of a floor sensor."""
         floor_key = floor_key.lower().strip()
         if floor_key in ("1", "first", "floor_1", "1-й поверх", "перший поверх"):
@@ -528,7 +528,7 @@ class BluetoothSensorManager:
             # Read existing config
             cfg_data = {}
             if self.config_path.exists():
-                with open(self.config_path, "r", encoding="utf-8") as f:
+                with open(self.config_path, encoding="utf-8") as f:
                     cfg_data = json.load(f)
 
             # Remove old placeholder for this floor if MAC changed

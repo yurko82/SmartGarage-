@@ -11,22 +11,23 @@ Smart Garage - HeyGen Voice Turbo REST TTS Provider Adapter
 - Список голосів отримується динамічно через GET /v3/voices; фіктивні voice_id не вигадуються.
 """
 
-import time
 import logging
-from typing import List, Optional, Dict, Any
+import time
+from typing import Any, Dict, List, Optional
+
 import requests
 
 from server.tts.base import (
-    TTSProvider,
-    TTSResult,
-    TTSVoiceInfo,
-    TTSError,
     TTSAuthError,
+    TTSError,
+    TTSMalformedResponseError,
+    TTSProvider,
     TTSRateLimitError,
+    TTSResult,
     TTSServerError,
     TTSTimeoutError,
+    TTSVoiceInfo,
     TTSVoiceNotFoundError,
-    TTSMalformedResponseError,
 )
 
 logger = logging.getLogger("HeyGenTTSProvider")
@@ -39,9 +40,9 @@ class HeyGenTTSProvider(TTSProvider):
 
     def __init__(
         self,
-        api_key: Optional[str] = None,
+        api_key: str | None = None,
         model: str = "heygen-voice-1-turbo-free",
-        default_voice_id: Optional[str] = None,
+        default_voice_id: str | None = None,
         timeout: float = 12.0,
         max_retries: int = 2,
         base_url: str = HEYGEN_API_BASE,
@@ -51,13 +52,13 @@ class HeyGenTTSProvider(TTSProvider):
         self.model = model or "heygen-voice-1-turbo-free"
         self.default_voice_id = (default_voice_id or "").strip()
         self.base_url = base_url.rstrip("/")
-        self._cached_voices: Optional[List[TTSVoiceInfo]] = None
+        self._cached_voices: list[TTSVoiceInfo] | None = None
 
     def is_configured(self) -> bool:
         """Перевіряє, чи задано API-ключ на сервері."""
         return bool(self.api_key)
 
-    def _get_headers(self) -> Dict[str, str]:
+    def _get_headers(self) -> dict[str, str]:
         if not self.api_key:
             raise TTSAuthError("Відсутній HEYGEN_API_KEY на сервері. Синтез через HeyGen неможливий.")
         return {
@@ -66,7 +67,7 @@ class HeyGenTTSProvider(TTSProvider):
             "Accept": "application/json",
         }
 
-    def get_available_voices(self) -> List[TTSVoiceInfo]:
+    def get_available_voices(self) -> list[TTSVoiceInfo]:
         """
         Отримує актуальний перелік доступних публічних українських голосів з HeyGen API.
         Не хардкодить вигадані ID.
@@ -95,7 +96,7 @@ class HeyGenTTSProvider(TTSProvider):
                 return []
 
             data = resp.json().get("data", [])
-            voices: List[TTSVoiceInfo] = []
+            voices: list[TTSVoiceInfo] = []
             for item in data:
                 v_id = item.get("voice_id") or item.get("id")
                 name = item.get("name", "HeyGen Voice")
@@ -121,7 +122,7 @@ class HeyGenTTSProvider(TTSProvider):
             logger.warning(f"Не вдалося отримати голоси HeyGen: {e}")
             return []
 
-    def synthesize(self, text: str, voice_id: Optional[str] = None, **kwargs) -> TTSResult:
+    def synthesize(self, text: str, voice_id: str | None = None, **kwargs) -> TTSResult:
         """
         Виконує REST TTS запит до POST /v3/models/audio/tts та завантажує готовий WAV.
         Підтримує обмежені повтори з експоненційним backoff для 429 та 5xx.

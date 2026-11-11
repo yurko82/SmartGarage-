@@ -1,19 +1,20 @@
 import os
+
 os.environ["TESTING"] = "1"
 os.environ["ADMIN_PIN"] = "9876"
 os.environ["ESP32_API_KEY"] = "test_esp32_secret_key_12345"
-import unittest
+import json
 import tempfile
 import time
+import unittest
 from pathlib import Path
-import json
 from unittest.mock import MagicMock, patch
 
-from server.memory.memory import Memory
+from server.ai.tools import GARAGE_TOOLS, ToolDispatcher
 from server.commands.processor import CommandProcessor
+from server.memory.memory import Memory
 from server.router.router import CommandRouter
 from server.storage.telemetry_db import TelemetryDB
-from server.ai.tools import GARAGE_TOOLS, ToolDispatcher
 from server.webapp import app
 
 
@@ -525,7 +526,7 @@ class TestWebApp(unittest.TestCase):
         with self.client.get("/manifest.json") as manifest_res:
             self.assertEqual(manifest_res.status_code, 200)
 
-    def test_telemetry_history_endpoint(self):
+    def test_telemetry_history_query_params(self):
         res = self.client.get("/api/telemetry/history?floor=basement&hours=24")
         self.assertEqual(res.status_code, 200)
         data = res.get_json()
@@ -671,9 +672,9 @@ class TestESP32Controller(unittest.TestCase):
 class TestAutomationEngine(unittest.TestCase):
 
     def setUp(self):
+        from server.automation.engine import AutomationEngine
         from server.devices.esp32 import ESP32Controller
         from server.devices.projector import ProjectorController
-        from server.automation.engine import AutomationEngine
         self.esp = ESP32Controller(host="127.0.0.1", port=9997)
         self.projector = ProjectorController(ip="127.0.0.1", port=9996)
         self.engine = AutomationEngine(self.esp, self.projector, logger=DummyLogger())
@@ -1229,6 +1230,7 @@ class TestPresenceGreetingDebounce(unittest.TestCase):
 
     def test_owner_arrival_greeting_debounced(self):
         from unittest.mock import MagicMock
+
         from server.core.core import SmartGarage
 
         garage = SmartGarage(start_workers=False)
@@ -1270,6 +1272,7 @@ class TestPresenceGreetingDebounce(unittest.TestCase):
 
     def test_guest_arrival_automation_when_owner_away(self):
         from unittest.mock import MagicMock, patch
+
         from server.core.core import SmartGarage
 
         garage = SmartGarage(start_workers=False)
@@ -1347,6 +1350,7 @@ class TestAudioAndRadio(unittest.TestCase):
 
     def test_radio_fetch_from_mirrors_fallback(self):
         from unittest.mock import MagicMock, patch
+
         from server.services.radio_service import RadioService
 
         radio = RadioService()
@@ -1367,6 +1371,7 @@ class TestAudioAndRadio(unittest.TestCase):
 
     def test_radio_fetch_from_mirrors_all_fail(self):
         from unittest.mock import patch
+
         from server.services.radio_service import RadioService
 
         radio = RadioService()
@@ -1542,7 +1547,8 @@ class TestMQTTBridge(unittest.TestCase):
 
     def test_play_song_tool_and_speaker(self):
         from unittest.mock import MagicMock, patch
-        from server.ai.tools import ToolDispatcher, GARAGE_TOOLS
+
+        from server.ai.tools import GARAGE_TOOLS, ToolDispatcher
 
         # Check tool declaration
         tool_names = [t["function"]["name"] for t in GARAGE_TOOLS]
@@ -1567,6 +1573,7 @@ class TestMQTTBridge(unittest.TestCase):
 
         # 3. Bluetooth speaker suffix stripping
         import hashlib
+
         from server.devices.bluetooth_speaker import BluetoothSpeakerController
         spk = BluetoothSpeakerController()
         clean_target = "Океан Ельзи"
@@ -1716,8 +1723,9 @@ class TestYTMusicWebAPI(unittest.TestCase):
 
     def test_speaker_autoplay_flag_and_stop(self):
         """Test speaker autoplay flag is set on play_playlist and cleared on manual stop."""
-        from server.devices.bluetooth_speaker import BluetoothSpeakerController
         from unittest.mock import MagicMock
+
+        from server.devices.bluetooth_speaker import BluetoothSpeakerController
         spk = BluetoothSpeakerController(mac="AA:BB:CC:DD:EE:FF", name="Test Speaker")
         spk.play_youtube = MagicMock(return_value=True)
 
@@ -2098,7 +2106,7 @@ class TestOwnerSecurityConstraints(unittest.TestCase):
 
     def test_audit_logging_and_secret_redaction(self):
         """Audit logging must record actions without leaking secrets."""
-        from server.security.audit import sanitize_details, audit_log
+        from server.security.audit import audit_log, sanitize_details
         raw = {
             "password": "super_secret_password",
             "pin": "7777",
@@ -2137,24 +2145,24 @@ class TestSensorFreshnessAndTelemetryTruth(unittest.TestCase):
     """
 
     def setUp(self):
-        from server.webapp import app, garage
         from server.sensors.freshness import (
             SENSOR_FRESHNESS_THRESHOLD_SECONDS,
+            SOURCE_BLE_DIRECT,
+            SOURCE_CACHE,
+            SOURCE_ESP32_BRIDGE,
+            SOURCE_NONE,
+            SOURCE_SQLITE_HISTORY,
+            STATUS_NEVER_SEEN,
+            STATUS_NOT_INSTALLED,
+            STATUS_OFFLINE,
             STATUS_ONLINE,
             STATUS_STALE,
-            STATUS_OFFLINE,
-            STATUS_NOT_INSTALLED,
-            STATUS_NEVER_SEEN,
-            SOURCE_BLE_DIRECT,
-            SOURCE_ESP32_BRIDGE,
-            SOURCE_SQLITE_HISTORY,
-            SOURCE_CACHE,
-            SOURCE_NONE,
             build_sensor_payload,
-            merge_sensor_readings,
             format_iso_timestamp,
-            format_relative_time_ua
+            format_relative_time_ua,
+            merge_sensor_readings,
         )
+        from server.webapp import app, garage
         self.app = app
         self.app.testing = True
         self.client = self.app.test_client()

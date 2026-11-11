@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+
 import yaml
 from dotenv import load_dotenv
 
@@ -8,7 +9,7 @@ load_dotenv(BASE_DIR / ".env", override=True)
 
 CONFIG_PATH = BASE_DIR / "config" / "config.yaml"
 
-with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+with open(CONFIG_PATH, encoding="utf-8") as f:
     config = yaml.safe_load(f) or {}
 
 # Support environment variables for sensitive tokens and OpenRouter config

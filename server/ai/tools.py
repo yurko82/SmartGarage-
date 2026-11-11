@@ -2,7 +2,8 @@
 import json
 import logging
 import uuid
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
+
 from server.security.audit import audit_log
 
 logger = logging.getLogger(__name__)
@@ -470,7 +471,7 @@ class ToolDispatcher:
         self.garage = garage
         self.session_manager = session_mgr
 
-    def _validate_tool_arguments(self, tool_name: str, args: Dict[str, Any]) -> Tuple[bool, Optional[str]]:
+    def _validate_tool_arguments(self, tool_name: str, args: dict[str, Any]) -> tuple[bool, str | None]:
         """Strict validation of tool arguments against schema to prevent fallback to {} or defaults."""
         if not isinstance(args, dict):
             return False, "аргументи мають бути передані як JSON-об'єкт"
@@ -562,7 +563,7 @@ class ToolDispatcher:
 
         return True, None
 
-    def execute(self, tool_name: str, arguments: Dict[str, Any], session_id: str = "default") -> Dict[str, Any]:
+    def execute(self, tool_name: str, arguments: dict[str, Any], session_id: str = "default") -> dict[str, Any]:
         """Execute a tool call and return structured result dict with strict allowlist enforcement."""
         cid = f"ai_{uuid.uuid4().hex[:8]}"
         if not self.garage:
@@ -830,7 +831,7 @@ class ToolDispatcher:
         session_mgr.record_tool_action(session_id, tool_name, arguments, res, initial_query=arguments.get("query") or arguments.get("station") or tool_name)
         return res
 
-    def _control_device(self, device: str, action: str) -> Dict[str, Any]:
+    def _control_device(self, device: str, action: str) -> dict[str, Any]:
         if not hasattr(self.garage, "esp32") or not self.garage.esp32:
             return {"success": False, "error": "ESP32 контролер недоступний"}
 
@@ -928,7 +929,7 @@ class ToolDispatcher:
 
         return {"success": False, "error": f"Непідтримувана дія '{action}' для пристрою '{device}'"}
 
-    def _run_scenario(self, scenario: str) -> Dict[str, Any]:
+    def _run_scenario(self, scenario: str) -> dict[str, Any]:
         if not hasattr(self.garage, "automation") or not self.garage.automation:
             return {"success": False, "error": "Модуль автоматизації недоступний"}
 
@@ -950,7 +951,7 @@ class ToolDispatcher:
 
         return {"success": False, "error": f"Невідомий сценарій '{scenario}'"}
 
-    def _play_radio(self, station: str, speaker_target: str = "") -> Dict[str, Any]:
+    def _play_radio(self, station: str, speaker_target: str = "") -> dict[str, Any]:
         initial_st = station
         st_name = (station or "Hit FM").strip()
         if not hasattr(self.garage, "speaker") or not self.garage.speaker:
@@ -961,8 +962,8 @@ class ToolDispatcher:
                 "station": st_name
             }
 
-        from server.services.radio_service import radio_service
         from server.devices_config import get_speaker_config
+        from server.services.radio_service import radio_service
         spk_f1 = (get_speaker_config("floor1").get("mac") or "00:11:22:33:44:01").upper().strip()
         spk_gar = (get_speaker_config("garage").get("mac") or "00:11:22:33:44:02").upper().strip()
         if speaker_target in ("jx-bt", "jxbt", "floor1", "1 поверх"):
@@ -1012,7 +1013,7 @@ class ToolDispatcher:
             "error": f"Радіостанцію '{st_name}' не знайдено."
         }
 
-    def _play_song(self, query: str, speaker_target: str = "") -> Dict[str, Any]:
+    def _play_song(self, query: str, speaker_target: str = "") -> dict[str, Any]:
         initial_q = query
         q = (query or "").strip()
         q_lower = q.lower()
@@ -1104,7 +1105,7 @@ class ToolDispatcher:
                 "initial_query": initial_q
             }
 
-    def _play_user_playlist(self, playlist_name: str, speaker_target: str = "", shuffle: bool = False) -> Dict[str, Any]:
+    def _play_user_playlist(self, playlist_name: str, speaker_target: str = "", shuffle: bool = False) -> dict[str, Any]:
         if not hasattr(self.garage, "speaker") or not self.garage.speaker:
             return {"success": False, "error": "Контролер колонки недоступний"}
 
@@ -1129,12 +1130,12 @@ class ToolDispatcher:
             return {"success": True, "message": f"🔊 Відтворюю з '{p_title}' на YouTube Music ({spk_name}): {t_title}"}
         return {"success": False, "error": f"Не вдалося знайти або відтворити плейлист '{playlist_name}' на {spk_name}"}
 
-    def _list_user_playlists(self) -> Dict[str, Any]:
+    def _list_user_playlists(self) -> dict[str, Any]:
         from server.services.ytmusic_service import ytmusic_service
         pls = ytmusic_service.get_user_playlists()
         return {"success": True, "playlists": pls}
 
-    def _next_music_track(self) -> Dict[str, Any]:
+    def _next_music_track(self) -> dict[str, Any]:
         if not hasattr(self.garage, "speaker") or not self.garage.speaker:
             return {"success": False, "error": "Контролер колонки недоступний"}
         ok, p_title, t_title = self.garage.speaker.play_next()
@@ -1143,7 +1144,7 @@ class ToolDispatcher:
             return {"success": True, "message": f"⏭️ Наступний трек на YouTube Music ({spk_name}): {t_title} (з '{p_title}')"}
         return {"success": False, "error": f"Не вдалося перемкнути на наступний трек на {spk_name}"}
 
-    def _prev_music_track(self) -> Dict[str, Any]:
+    def _prev_music_track(self) -> dict[str, Any]:
         if not hasattr(self.garage, "speaker") or not self.garage.speaker:
             return {"success": False, "error": "Контролер колонки недоступний"}
         ok, p_title, t_title = self.garage.speaker.play_prev()
@@ -1152,7 +1153,7 @@ class ToolDispatcher:
             return {"success": True, "message": f"⏮️ Попередній трек на YouTube Music ({spk_name}): {t_title} (з '{p_title}')"}
         return {"success": False, "error": f"Не вдалося повернутися до попереднього треку на {spk_name}"}
 
-    def _seek_music_track(self, position: Optional[int] = None, delta: Optional[int] = None) -> Dict[str, Any]:
+    def _seek_music_track(self, position: int | None = None, delta: int | None = None) -> dict[str, Any]:
         if not hasattr(self.garage, "speaker") or not self.garage.speaker:
             return {"success": False, "error": "Контролер колонки недоступний"}
         target_pos = position
@@ -1167,7 +1168,7 @@ class ToolDispatcher:
             return {"success": True, "message": f"⏩ Перемотано на позицію {int(target_pos)} сек"}
         return {"success": False, "error": "Не вдалося перемотати трек"}
 
-    def _scan_bluetooth_devices(self, duration: int = 7) -> Dict[str, Any]:
+    def _scan_bluetooth_devices(self, duration: int = 7) -> dict[str, Any]:
         try:
             d = max(3, min(int(duration or 7), 15))
             from server.webapp import _scan_all_ble
@@ -1233,7 +1234,7 @@ class ToolDispatcher:
                 "error": f"Помилка сканування Bluetooth ефіру: {e}"
             }
 
-    def _manage_workshop_profile(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
+    def _manage_workshop_profile(self, arguments: dict[str, Any]) -> dict[str, Any]:
         try:
             from server.memory.user_profile import user_profile_manager
             action = arguments.get("action", "get")
@@ -1290,7 +1291,7 @@ class ToolDispatcher:
         except Exception as e:
             return {"success": False, "error": f"Помилка роботи з профілем: {e}"}
 
-    def _search_bike_knowledge(self, query: str, category: Optional[str] = None) -> Dict[str, Any]:
+    def _search_bike_knowledge(self, query: str, category: str | None = None) -> dict[str, Any]:
         try:
             from server.memory.knowledge_base import bike_knowledge_base
             results = bike_knowledge_base.search(query=query, category=category)
@@ -1305,7 +1306,7 @@ class ToolDispatcher:
         except Exception as e:
             return {"success": False, "error": f"Помилка пошуку в базі знань: {e}"}
 
-    def _manage_presence_guest(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
+    def _manage_presence_guest(self, arguments: dict[str, Any]) -> dict[str, Any]:
         try:
             if not hasattr(self.garage, "presence") or not self.garage.presence:
                 return {"success": False, "error": "Менеджер присутності недоступний"}
@@ -1379,7 +1380,7 @@ class ToolDispatcher:
         except Exception as e:
             return {"success": False, "error": f"Помилка керування гостем: {e}"}
 
-    def _get_visitor_report(self, days: Optional[int] = 7, limit: int = 50) -> Dict[str, Any]:
+    def _get_visitor_report(self, days: int | None = 7, limit: int = 50) -> dict[str, Any]:
         try:
             if not hasattr(self.garage, "presence") or not self.garage.presence:
                 return {"success": False, "error": "Менеджер присутності недоступний"}
