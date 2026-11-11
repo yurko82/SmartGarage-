@@ -8,6 +8,7 @@ from server.webapp import app
 class TestESP32Diagnostics(unittest.TestCase):
 
     def setUp(self):
+        app.config["TESTING"] = True
         self.controller = ESP32Controller(mode="mock")
 
     def tearDown(self):
