@@ -2218,6 +2218,27 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                 }
 
+                // CC1101 Radio Transceiver status card on Dashboard
+                const dashRfBadge = document.getElementById('dashRfBadge');
+                const dashRfStateVal = document.getElementById('dashRfStateVal');
+                const dashRfEdgeCount = document.getElementById('dashRfEdgeCount');
+
+                const rfData = st.rf || (st.esp32 && st.esp32.rf_diagnostics) || {};
+                if (dashRfStateVal) {
+                    const marcName = rfData.marc_state_name || 'RX';
+                    const isRx = marcName === 'RX';
+                    dashRfStateVal.innerHTML = isRx ? `🟢 Прийом (${marcName})` : (marcName === 'TX' ? `🔵 Передача (${marcName})` : `🟡 ${marcName}`);
+                    dashRfStateVal.style.color = isRx ? '#00f0ff' : '#eab308';
+                }
+                if (dashRfBadge) {
+                    const freq = rfData.frequency_mhz ? Number(rfData.frequency_mhz).toFixed(2) : '433.92';
+                    dashRfBadge.textContent = `${freq} МГц • OOK`;
+                }
+                if (dashRfEdgeCount) {
+                    const edges = rfData.edge_count !== undefined ? rfData.edge_count : '--';
+                    dashRfEdgeCount.textContent = `Імпульсів: ${Number(edges).toLocaleString('uk-UA')}`;
+                }
+
                 // ESP32 Status Pill & Gateway Strip
                 const esp = st.esp32 || {};
                 const espOnline = !!(esp.online !== undefined ? esp.online : (st.online && st.transport !== 'none'));

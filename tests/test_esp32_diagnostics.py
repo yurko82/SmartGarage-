@@ -94,6 +94,54 @@ class TestESP32Diagnostics(unittest.TestCase):
         res_clear = client.post("/api/esp32/clear_logs")
         self.assertEqual(res_clear.status_code, 200)
 
+    def test_get_rf_diagnostics_calculation(self):
+        # Setup sample CC1101 telemetry data
+        self.controller.state["rf_diag"] = {
+            "diag": "spi_active",
+            "ver": "0x14",
+            "marc": 13,
+            "rssi": -138,
+            "gdo0": 0,
+            "edges": 1586,
+            "bb_tw": 66,
+            "f": [16, 176, 113],
+            "m2": 48,
+            "pk0": 50,
+            "io0": 13,
+            "csn": 10,
+            "mosi": 11,
+            "sck": 12,
+            "miso": 13
+        }
+        self.controller.state["last_rf_sniffed"] = {
+            "code": 15835393,
+            "hex": "0xF1A101",
+            "bits": 24,
+            "protocol": 1,
+            "delay": 320
+        }
+
+        rf_diag = self.controller.get_rf_diagnostics()
+        self.assertTrue(rf_diag["success"])
+        self.assertTrue(rf_diag["available"])
+        self.assertAlmostEqual(rf_diag["frequency_mhz"], 433.92, places=2)
+        self.assertEqual(rf_diag["marc_state_name"], "RX")
+        self.assertIn("Прийом", rf_diag["marc_state_desc"])
+        self.assertIn("ASK / OOK", rf_diag["modulation"])
+        self.assertEqual(rf_diag["edge_count"], 1586)
+        self.assertIn("Bit-Bang SPI", rf_diag["spi_status"])
+        self.assertEqual(rf_diag["last_captured"]["code"], 15835393)
+
+    def test_rf_status_endpoint_returns_diagnostics(self):
+        client = app.test_client()
+        res = client.get("/api/rf/status", headers={"X-Admin-PIN": "7777"})
+        self.assertEqual(res.status_code, 200)
+        data = res.get_json()
+        self.assertTrue(data["success"])
+        self.assertIn("diagnostics", data)
+        self.assertIn("frequency_mhz", data["diagnostics"])
+        self.assertIn("marc_state_name", data["diagnostics"])
+
 
 if __name__ == "__main__":
     unittest.main()

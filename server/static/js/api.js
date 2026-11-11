@@ -287,6 +287,41 @@
         }
     };
 
+    // =========================================================================
+    // ПІДСИСТЕМА 433 МГц ТА CC1101 (RF TRANSCEIVER)
+    // =========================================================================
+    const rf = {
+        async getStatus() {
+            return await request('/api/rf/status');
+        },
+
+        async triggerDiag() {
+            return await request('/api/rf/diag', { method: 'POST' });
+        },
+
+        async startLearn(duration = 120) {
+            return await request('/api/rf/learn/start', {
+                method: 'POST',
+                body: { duration: duration }
+            });
+        },
+
+        async stopLearn() {
+            return await request('/api/rf/learn/stop', { method: 'POST' });
+        },
+
+        async getLearnStatus() {
+            return await request('/api/rf/learn/status');
+        },
+
+        async transmit(code, repeats = 10) {
+            return await request('/api/rf/transmit', {
+                method: 'POST',
+                body: { code: code, repeats: repeats }
+            });
+        }
+    };
+
     return {
         request: request,
         getCsrfToken: getCsrfToken,
@@ -294,6 +329,7 @@
         auth: auth,
         devices: devices,
         speaker: speaker,
-        telemetry: telemetry
+        telemetry: telemetry,
+        rf: rf
     };
 }));

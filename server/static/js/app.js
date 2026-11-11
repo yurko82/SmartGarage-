@@ -2287,6 +2287,26 @@ document.addEventListener('DOMContentLoaded', () => {
     const statRfLastRx = document.getElementById('statRfLastRx');
     const rfActivityTableBody = document.getElementById('rfActivityTableBody');
 
+    // CC1101 Detailed Diagnostics Elements
+    const rfLivePulseBadge = document.getElementById('rfLivePulseBadge');
+    const rfLivePulseDot = document.getElementById('rfLivePulseDot');
+    const rfLivePulseText = document.getElementById('rfLivePulseText');
+    const rfMarcStateBadge = document.getElementById('rfMarcStateBadge');
+    const rfMarcStateText = document.getElementById('rfMarcStateText');
+    const rfMarcStateDesc = document.getElementById('rfMarcStateDesc');
+    const rfExactFreqText = document.getElementById('rfExactFreqText');
+    const rfFreqRegsText = document.getElementById('rfFreqRegsText');
+    const rfModulationText = document.getElementById('rfModulationText');
+    const rfFilterText = document.getElementById('rfFilterText');
+    const rfEdgeCountText = document.getElementById('rfEdgeCountText');
+    const rfEdgeDeltaBadge = document.getElementById('rfEdgeDeltaBadge');
+    const rfGdoLevelText = document.getElementById('rfGdoLevelText');
+    const rfHwSummaryText = document.getElementById('rfHwSummaryText');
+    const rfLearnStatusSummary = document.getElementById('rfLearnStatusSummary');
+    const btnStartRfLearn120 = document.getElementById('btnStartRfLearn120');
+    const btnStopRfLearn = document.getElementById('btnStopRfLearn');
+    const rfLastSniffedContainer = document.getElementById('rfLastSniffedContainer');
+
     const btnRefreshRelays = document.getElementById('btnRefreshRelays');
     const relaysTableBody = document.getElementById('relaysTableBody');
     const relayConfigForm = document.getElementById('relayConfigForm');
@@ -2302,11 +2322,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const pairStatusIndicator = document.getElementById('pairStatusIndicator');
     const pairStatusMsg = document.getElementById('pairStatusMsg');
 
-    const btnStartRfLearn = document.getElementById('btnStartRfLearn');
-    const rfLearnStatusBox = document.getElementById('rfLearnStatusBox');
-    const rfLearnStatusText = document.getElementById('rfLearnStatusText');
-
     let pairTimer = null;
+    let lastRfEdgeCount = null;
 
     function formatTime(ts) {
         if (!ts) return 'ніколи';
@@ -2321,13 +2338,119 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (!data.success) return;
                 const m = data.metrics || {};
                 const rf = data.rf_status || {};
+                const diag = data.diagnostics || {};
+
+                // 1. Оновлення блоку апаратної діагностики CC1101
+                if (rfMarcStateText) {
+                    const marcName = diag.marc_state_name || (rf.marc !== undefined ? `0x${Number(rf.marc).toString(16).toUpperCase()}` : '0x0D');
+                    rfMarcStateText.textContent = `${marcName} (${diag.marc_state_desc || 'Прийом активний'})`;
+                    if (rfMarcStateBadge) {
+                        const isRx = marcName === 'RX';
+                        rfMarcStateBadge.style.color = isRx ? 'var(--success)' : (marcName === 'TX' ? '#3b82f6' : '#eab308');
+                    }
+                }
+                if (rfMarcStateDesc && diag.marc_state_desc) {
+                    rfMarcStateDesc.textContent = diag.marc_state_desc;
+                }
+
+                // Частота
+                if (rfExactFreqText) {
+                    const freq = diag.frequency_mhz || (rf.f ? ((rf.f[0] << 16 | rf.f[1] << 8 | rf.f[2]) * 26.0 / 65536.0).toFixed(3) : 433.92);
+                    rfExactFreqText.textContent = `${Number(freq).toFixed(3)} МГц`;
+                }
+                if (rfFreqRegsText) {
+                    const fRegs = diag.frequency_registers || rf.f || [16, 176, 113];
+                    rfFreqRegsText.textContent = `FREQ[2..0]: 0x${Number(fRegs[0]).toString(16).toUpperCase()}, 0x${Number(fRegs[1]).toString(16).toUpperCase()}, 0x${Number(fRegs[2]).toString(16).toUpperCase()}`;
+                }
+
+                // Модуляція
+                if (rfModulationText) {
+                    rfModulationText.textContent = diag.modulation || 'ASK / OOK (Пульти)';
+                }
+                if (rfFilterText) {
+                    rfFilterText.textContent = `RxBW: ${diag.filter_bandwidth_khz || 325} кГц • Асинхронний режим`;
+                }
+
+                // Лічильник фронтів / імпульсів з анімацією спалаху
+                const currentEdges = diag.edge_count !== undefined ? diag.edge_count : (rf.edges || 0);
+                if (rfEdgeCountText) {
+                    rfEdgeCountText.textContent = Number(currentEdges).toLocaleString('uk-UA');
+                }
+                if (typeof lastRfEdgeCount === 'number' && currentEdges > lastRfEdgeCount && rfEdgeDeltaBadge) {
+                    const diff = currentEdges - lastRfEdgeCount;
+                    rfEdgeDeltaBadge.textContent = `+${diff} імпульсів`;
+                    rfEdgeDeltaBadge.style.display = 'inline-block';
+                    rfEdgeDeltaBadge.style.background = 'rgba(56, 189, 248, 0.25)';
+                    rfEdgeDeltaBadge.style.color = '#38bdf8';
+                    if (rfLivePulseDot) rfLivePulseDot.style.background = '#38bdf8';
+                    if (rfLivePulseText) rfLivePulseText.textContent = `📡 Вловлено радіосигнал (+${diff} фронтів)!`;
+                    setTimeout(() => {
+                        if (rfEdgeDeltaBadge) rfEdgeDeltaBadge.style.display = 'none';
+                        if (rfLivePulseDot) rfLivePulseDot.style.background = '#22c55e';
+                        if (rfLivePulseText) rfLivePulseText.textContent = 'Синтезатор у захваті (RX)';
+                    }, 2500);
+                }
+                lastRfEdgeCount = currentEdges;
+
+                if (rfGdoLevelText) {
+                    const gdoVal = diag.gdo0_level !== undefined ? diag.gdo0_level : (rf.gdo0 || 0);
+                    const rssiVal = diag.rssi_dbm !== undefined ? diag.rssi_dbm : (rf.rssi || -138);
+                    rfGdoLevelText.textContent = `GDO0 рівень: ${gdoVal} • RSSI: ${rssiVal} dBm`;
+                }
+
+                if (rfHwSummaryText) {
+                    const spiInfo = diag.spi_status || 'Bit-Bang SPI 500 кГц ✅';
+                    const chipInfo = diag.chip_version || 'TI CC1101 (v0x14)';
+                    rfHwSummaryText.textContent = `${chipInfo} • ${spiInfo} • GDO0: GPIO 7`;
+                }
+
+                // Статус режиму навчання (RF Learn)
+                const learn = data.learning || diag.learning || {};
+                const isLearning = Boolean(learn.learning);
+                if (rfLearnStatusSummary) {
+                    if (isLearning) {
+                        const rem = learn.remaining_sec !== undefined ? learn.remaining_sec : '...';
+                        rfLearnStatusSummary.innerHTML = `⏱️ <strong style="color: #38bdf8;">Режим навчання АКТИВНИЙ (${rem} с)</strong>. Натисніть кнопку на пульті біля антени!`;
+                    } else {
+                        rfLearnStatusSummary.textContent = 'Режим навчання неактивний. Натисніть кнопку нижче та піднесіть пульт до антени.';
+                    }
+                }
+                if (btnStartRfLearn120) btnStartRfLearn120.style.display = isLearning ? 'none' : 'inline-block';
+                if (btnStopRfLearn) btnStopRfLearn.style.display = isLearning ? 'inline-block' : 'none';
+
+                // Останній перехоплений сигнал пульта
+                const lastSniffed = diag.last_captured || data.last_rf_sniffed || rf.last_sniffed;
+                if (rfLastSniffedContainer) {
+                    if (lastSniffed && lastSniffed.code) {
+                        const codeHex = lastSniffed.hex || ('0x' + Number(lastSniffed.code).toString(16).toUpperCase());
+                        rfLastSniffedContainer.innerHTML = `
+                            <div style="background: rgba(34,197,94,0.1); border: 1px solid #22c55e; border-radius: 6px; padding: 8px 12px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+                                <div>
+                                    <span style="font-weight: 800; color: #22c55e; font-size: 14px;">${escapeHtml(codeHex)}</span> 
+                                    <span style="color: #fff; font-weight: 600;">(${lastSniffed.code})</span>
+                                    <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">
+                                        Протокол: ${lastSniffed.protocol || 1} • Біти: ${lastSniffed.bits || 24} • Затримка: ${lastSniffed.delay || 320} мкс
+                                    </div>
+                                </div>
+                                <button type="button" class="btn-sm btn-fill-sniffed" data-code="${lastSniffed.code}" style="background: rgba(34,197,94,0.2); color: #22c55e; border: 1px solid #22c55e; cursor: pointer;">
+                                    📋 Вставити у форму реле
+                                </button>
+                            </div>
+                        `;
+                    } else {
+                        rfLastSniffedContainer.innerHTML = '<span class="text-muted">Очікування сигналу... Натисніть кнопку на пульті біля антени.</span>';
+                    }
+                }
+
+                // 2. Оновлення стандартних карток
                 if (statRfModuleStatus) {
-                    const ok = rf.cc1101 !== false;
+                    const ok = rf.cc1101 !== false && (diag.available !== false);
                     statRfModuleStatus.innerHTML = ok ? '🟢 Онлайн (433.92 МГц)' : '🔴 Офлайн';
                     statRfModuleStatus.style.color = ok ? 'var(--success)' : 'var(--danger)';
                 }
                 if (statRfRssi) {
-                    statRfRssi.textContent = (rf.rssi !== undefined && rf.rssi !== null) ? `Сигнал (RSSI): ${rf.rssi} dBm` : 'Сигнал: готовність';
+                    const rssiNum = diag.rssi_dbm !== undefined ? diag.rssi_dbm : rf.rssi;
+                    statRfRssi.textContent = (rssiNum !== undefined && rssiNum !== null) ? `Сигнал (RSSI): ${rssiNum} dBm` : 'Сигнал: готовність';
                 }
                 if (statRfTxCount) statRfTxCount.textContent = m.tx_count || 0;
                 if (statRfRxCount) statRfRxCount.textContent = m.rx_count || 0;
@@ -2732,6 +2855,75 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         });
     }
+
+    if (btnStartRfLearn120) {
+        btnStartRfLearn120.addEventListener('click', () => {
+            btnStartRfLearn120.disabled = true;
+            fetch('/api/rf/learn/start', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ duration: 120 })
+            })
+            .then(res => res.json())
+            .then(d => {
+                btnStartRfLearn120.disabled = false;
+                if (d.success) {
+                    loadRfStatus();
+                } else {
+                    alert('Не вдалося запустити режим навчання: ' + (d.error || ''));
+                }
+            })
+            .catch(err => {
+                btnStartRfLearn120.disabled = false;
+                alert('Помилка: ' + err.message);
+            });
+        });
+    }
+
+    if (btnStopRfLearn) {
+        btnStopRfLearn.addEventListener('click', () => {
+            btnStopRfLearn.disabled = true;
+            fetch('/api/rf/learn/stop', { method: 'POST' })
+            .then(res => res.json())
+            .then(d => {
+                btnStopRfLearn.disabled = false;
+                if (d.success) {
+                    loadRfStatus();
+                }
+            })
+            .catch(() => {
+                btnStopRfLearn.disabled = false;
+            });
+        });
+    }
+
+    // Клік на кнопку "Вставити у форму реле" із перехопленого коду
+    document.addEventListener('click', (e) => {
+        const btnFill = e.target.closest('.btn-fill-sniffed');
+        if (btnFill) {
+            const code = btnFill.getAttribute('data-code');
+            if (code) {
+                const numCode = parseInt(code, 10);
+                if (relayCodeOnInput) relayCodeOnInput.value = numCode;
+                if (relayCodeOffInput) relayCodeOffInput.value = numCode + 1;
+                if (relayNameInput && !relayNameInput.value) {
+                    relayNameInput.value = 'Пульт 433 МГц';
+                }
+                const formEl = document.getElementById('relayConfigForm');
+                if (formEl) {
+                    formEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    formEl.style.transition = 'box-shadow 0.3s ease';
+                    formEl.style.boxShadow = '0 0 15px rgba(34, 197, 94, 0.4)';
+                    setTimeout(() => { formEl.style.boxShadow = ''; }, 1500);
+                }
+            }
+        }
+    });
+
+    // Автоматичне періодичне опитування радіотракту кожні 3.5 секунди
+    setInterval(() => {
+        loadRfStatus();
+    }, 3500);
 
     function escapeHtml(text) {
         if (!text) return '';

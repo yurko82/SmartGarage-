@@ -218,8 +218,8 @@
                     </div>
                 </div>
 
-                <!-- BLE Climate Network Status -->
-                <div class="sensors-grid" style="grid-template-columns: 1fr;">
+                <!-- Climate & Radio Network Status -->
+                <div class="sensors-grid" style="grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px;">
                     <div class="sensor-box">
                         <div class="sensor-header">
                             <span class="sensor-icon">📡</span>
@@ -229,6 +229,24 @@
                             <span class="sensor-val text-bat" id="valBleSensorsCount">2 / 2 онлайн</span>
                         </div>
                         <div class="sensor-sub" id="subBleSensors">Підвал та 2-й поверх на зв'язку</div>
+                    </div>
+
+                    <!-- 433 MHz CC1101 Transceiver Live Status -->
+                    <div class="sensor-box" id="dashRfStatusCard" style="border-left: 3px solid var(--accent-cyan, #00f0ff);">
+                        <div class="sensor-header" style="display: flex; justify-content: space-between; align-items: center;">
+                            <div style="display: flex; align-items: center; gap: 6px;">
+                                <span class="sensor-icon">📻</span>
+                                <span class="sensor-source-tag">Радіотрансивер CC1101</span>
+                            </div>
+                            <span class="sensor-badge" id="dashRfBadge" style="background: rgba(34,197,94,0.15); color: #22c55e; font-size: 10px; padding: 2px 8px; border-radius: 12px; font-weight: 600;">RX 433.92 МГц</span>
+                        </div>
+                        <div class="sensor-value-row" style="margin-top: 6px;">
+                            <span class="sensor-val" id="dashRfStateVal" style="color: #00f0ff; font-size: 1.15rem; font-weight: 700;">🟢 Активний (RX)</span>
+                        </div>
+                        <div class="sensor-sub" id="dashRfSubDetails" style="font-size: 0.8rem; color: var(--text-muted); display: flex; justify-content: space-between; align-items: center;">
+                            <span>Частота: <strong>433.92 МГц</strong> • OOK</span>
+                            <span id="dashRfEdgeCount">Імпульсів: --</span>
+                        </div>
                     </div>
                 </div>
             </section>

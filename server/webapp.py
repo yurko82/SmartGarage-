@@ -456,6 +456,7 @@ def garage_state():
     }
     state["speaker"] = garage.speaker.get_status() if hasattr(garage, "speaker") else {}
     state["esp32"] = garage.esp32.get_diagnostics() if hasattr(garage, "esp32") else {}
+    state["rf"] = garage.esp32.get_rf_diagnostics() if hasattr(garage, "esp32") and garage.esp32 else {}
 
     # Record point into telemetry history only if real FRESH readings exist
     if primary_current_temp is not None and primary_online:
@@ -561,9 +562,17 @@ def rf_pair_stop():
 @require_auth
 def rf_diag_route():
     if hasattr(garage, "esp32") and garage.esp32:
-        garage.esp32.rf_diag()
-        diag = garage.esp32.state.get("rf_diag") or garage.esp32.state.get("rf_status")
-        return jsonify({"success": True, "rf_status": diag})
+        if request.method == "POST":
+            garage.esp32.rf_diag()
+            import time
+
+            time.sleep(0.08)
+        diagnostics = garage.esp32.get_rf_diagnostics()
+        return jsonify({
+            "success": True,
+            "rf_status": diagnostics.get("raw") or garage.esp32.state.get("rf_diag") or garage.esp32.state.get("rf_status"),
+            "diagnostics": diagnostics,
+        })
     return jsonify({"success": False, "error": "ESP32 не ініціалізовано"}), 500
 
 
@@ -656,13 +665,15 @@ def rf_status_get():
         metrics = garage.esp32.get_rf_metrics()
         activity = garage.esp32.get_rf_activity(limit=25)
         learn_status = garage.esp32.rf_learn_status()
-        rf_status = garage.esp32.state.get("rf_status") or {"cc1101": True, "freq": 433.92, "rssi": -85}
+        diagnostics = garage.esp32.get_rf_diagnostics()
+        raw_rf = diagnostics.get("raw") or garage.esp32.state.get("rf_status") or {"cc1101": True, "freq": 433.92, "rssi": -85}
         return jsonify({
             "success": True,
             "metrics": metrics,
             "activity": activity,
             "learning": learn_status,
-            "rf_status": rf_status
+            "rf_status": raw_rf,
+            "diagnostics": diagnostics,
         })
     return jsonify({"success": False, "error": "ESP32 не ініціалізовано"}), 500
 

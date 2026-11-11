@@ -435,6 +435,7 @@ class ESP32Controller:
                         self._serial_handshake_verified = True
                         if "diag" in data:
                             self.state["rf_diag"] = data
+                            self.state["rf_status"] = data
                             self.log_event("rf", "info", "CC1101 SPI Diag", f"VER={data.get('ver')}, MARC={data.get('marc')}, GDO0={data.get('gdo0')}, Edges={data.get('edges')}", data)
                         else:
                             self.state["rf_status"] = data
@@ -1054,6 +1055,123 @@ class ESP32Controller:
         with self._lock:
             return self._send_serial_command("CMD:RF_DIAG")
 
+    def get_rf_diagnostics(self) -> dict[str, Any]:
+        """
+        Повертає повну, розшифровану апаратну діагностику радіотракту CC1101 (433.92 МГц).
+        Включає поточний стан кінцевого автомата (MARCSTATE), точну обчислену частоту,
+        режим модуляції, статус піна GDO0, тест шини SPI та лічильник імпульсів.
+        """
+        with self._lock:
+            diag = self.state.get("rf_diag") or self.state.get("rf_status") or {}
+            last_sniffed = self.state.get("last_rf_sniffed")
+            learning = self.rf_learn_status()
+            metrics = self.get_rf_metrics() if hasattr(self, "rf_manager") else {"tx_count": 0, "rx_count": 0}
+
+            # Розшифровка MARCSTATE (стан кінцевого автомата радіоядра TI CC1101)
+            marc_raw = diag.get("marc")
+            marc_states = {
+                0: ("SLEEP", "Сон / вимкнено", "secondary"),
+                1: ("IDLE", "Спокій / очікування", "warning"),
+                6: ("MANCAL", "Ручне калібрування", "info"),
+                7: ("MANRTX", "Перемикання RX/TX", "info"),
+                8: ("FS_WAKEUP", "Прокидання синтезатора", "info"),
+                9: ("CALIBRATE", "Калібрування PLL", "info"),
+                10: ("SETTLING", "Стабілізація частоти", "info"),
+                13: ("RX", "Прийом ефіру (демодулятор активний)", "success"),
+                14: ("RX_END", "Завершення прийому", "info"),
+                17: ("RXFIFO_OVERFLOW", "Переповнення RX буфера", "danger"),
+                19: ("TX", "Передача в ефір", "primary"),
+                22: ("TXFIFO_UNDERFLOW", "Помилка буфера TX", "danger"),
+            }
+            marc_info = marc_states.get(
+                marc_raw,
+                (f"0x{marc_raw:02X}" if marc_raw is not None else "--", "Невідомий стан", "secondary"),
+            )
+
+            # Точний динамічний розрахунок робочої частоти за регістрами FREQ[2..0]
+            freq_arr = diag.get("f")
+            freq_mhz = 433.92
+            if isinstance(freq_arr, (list, tuple)) and len(freq_arr) == 3:
+                try:
+                    f_val = (freq_arr[0] << 16) | (freq_arr[1] << 8) | freq_arr[2]
+                    freq_mhz = round((f_val * 26.0) / 65536.0, 3)
+                except Exception:
+                    freq_mhz = 433.92
+
+            # Тип модуляції (MDMCFG2)
+            m2 = diag.get("m2")
+            modulation = "ASK / OOK (Пульти EV1527/PT2262)"
+            if m2 is not None:
+                mod_type = (m2 >> 4) & 0x07
+                if mod_type == 3:
+                    modulation = "ASK / OOK (Амплітудна модуляція)"
+                elif mod_type == 0:
+                    modulation = "2-FSK"
+                elif mod_type == 1:
+                    modulation = "GFSK"
+                elif mod_type == 4:
+                    modulation = "4-FSK"
+                elif mod_type == 7:
+                    modulation = "MSK"
+
+            # Режим пакетів (PKTCTRL0)
+            pk0 = diag.get("pk0")
+            packet_mode = "Асинхронний послідовний на GDO0"
+            if pk0 is not None:
+                fmt = pk0 & 0x03
+                if fmt == 2:
+                    packet_mode = "Асинхронний послідовний (прямі імпульси GDO0)"
+                elif fmt == 0:
+                    packet_mode = "Пакетний режим з FIFO"
+                elif fmt == 1:
+                    packet_mode = "Синхронний послідовний"
+
+            # Конфігурація піна даних GDO0 (IOCFG0)
+            io0 = diag.get("io0")
+            gdo0_mode = "0x0D (Serial Data Out демодулятора)"
+            if io0 == 0x0D:
+                gdo0_mode = "Вихід демодулятора (RX) на пін GDO0"
+            elif io0 == 0x2E:
+                gdo0_mode = "Hi-Z вхід модулятора (TX) на пін GDO0"
+
+            # Тест шини SPI
+            spi_verified = diag.get("bb_tw") == 66  # 0x42
+            spi_status_text = "Bit-Bang SPI 500 кГц ✅ (OK, тест 0x42 пройдено)" if spi_verified else "SPI не підтверджено"
+
+            ver = diag.get("ver")
+            chip_desc = "Texas Instruments CC1101 (Rev 0x14)" if ver in ("0x14", 0x14) else f"CC1101 ({ver})"
+
+            return {
+                "success": True,
+                "available": bool(diag.get("diag") == "spi_active" or spi_verified),
+                "frequency_mhz": freq_mhz,
+                "frequency_registers": freq_arr or [16, 176, 113],
+                "marc_state": marc_raw,
+                "marc_state_name": marc_info[0],
+                "marc_state_desc": marc_info[1],
+                "marc_state_color": marc_info[2],
+                "modulation": modulation,
+                "filter_bandwidth_khz": 325,
+                "packet_mode": packet_mode,
+                "gdo0_mode": gdo0_mode,
+                "gdo0_level": diag.get("gdo0", 0),
+                "edge_count": diag.get("edges", 0),
+                "rssi_dbm": diag.get("rssi", -138),
+                "spi_status": spi_status_text,
+                "chip_version": chip_desc,
+                "pins": {
+                    "csn": diag.get("csn", 10),
+                    "sck": diag.get("sck", 12),
+                    "mosi": diag.get("mosi", 11),
+                    "miso": diag.get("miso", 13),
+                    "gdo0": 7,
+                },
+                "learning": learning,
+                "last_captured": last_sniffed,
+                "metrics": metrics,
+                "raw": diag,
+            }
+
     # --- FAN / VENTILATION ---
     def fan_on(self):
         with self._lock:
@@ -1283,6 +1401,7 @@ class ESP32Controller:
                 "stats": dict(self.stats),
                 "sensors": sensor_details,
                 "rf_status": self.state.get("rf_status"),
+                "rf_diagnostics": self.get_rf_diagnostics(),
                 "rf_learning": self.rf_learn_status(),
                 "rf_mappings": self.get_rf_mappings(),
                 "last_rf_sniffed": self.state.get("last_rf_sniffed"),

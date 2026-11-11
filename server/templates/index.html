@@ -773,7 +773,81 @@
                                 <h3>📡 433 МГц Трансивер (CC1101): Показники та Журнал ефіру</h3>
                                 <div style="display: flex; gap: 8px;">
                                     <button class="btn-sm" id="btnRefreshRfActivity" aria-label="Оновити журнал 433 МГц">🔄 Оновити лог</button>
-                                    <button class="btn-sm" id="btnRfDiag" aria-label="Апаратна діагностика CC1101">🧪 Діагностика</button>
+                                    <button class="btn-sm" id="btnRfDiag" aria-label="Апаратна діагностика CC1101">🧪 Опитати CC1101</button>
+                                </div>
+                            </div>
+
+                            <!-- CC1101 LIVE HARDWARE & SPECTRUM INSPECTOR -->
+                            <div class="rf-diagnostics-dashboard" style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(0, 240, 255, 0.2); border-radius: 10px; padding: 16px; margin-bottom: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.3);">
+                                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 10px;">
+                                    <div style="display: flex; align-items: center; gap: 10px;">
+                                        <span style="font-size: 22px;">📻</span>
+                                        <div>
+                                            <div style="font-size: 15px; font-weight: 700; color: #fff;">Трансивер Texas Instruments CC1101 (433.92 МГц)</div>
+                                            <div style="font-size: 11px; color: var(--text-muted);" id="rfHwSummaryText">Bit-Bang SPI 500 кГц • Пін GDO0: GPIO 7 • Асинхронний OOK</div>
+                                        </div>
+                                    </div>
+                                    <div style="display: flex; align-items: center; gap: 8px;">
+                                        <span id="rfLivePulseBadge" class="badge" style="background: rgba(34, 197, 94, 0.15); border: 1px solid #22c55e; color: #22c55e; padding: 4px 10px; font-size: 11px; display: flex; align-items: center; gap: 6px;">
+                                            <span style="width: 8px; height: 8px; border-radius: 50%; background: #22c55e; display: inline-block;" id="rfLivePulseDot"></span>
+                                            <span id="rfLivePulseText">Синтезатор у захваті (RX)</span>
+                                        </span>
+                                    </div>
+                                </div>
+
+                                <!-- Основний грід показників радіомодуля -->
+                                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; margin-bottom: 14px;">
+                                    <!-- Стан автомата MARCSTATE -->
+                                    <div class="stat-card" style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 8px; padding: 10px 14px;">
+                                        <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px;">Режим ядра (MARCSTATE):</div>
+                                        <div style="font-size: 17px; font-weight: 800; color: var(--success); margin-top: 4px;" id="rfMarcStateBadge">
+                                            <span id="rfMarcStateText">0x0D (RX)</span>
+                                        </div>
+                                        <div style="font-size: 11px; color: var(--text-muted); margin-top: 3px;" id="rfMarcStateDesc">Прийом радіоефіру активний</div>
+                                    </div>
+
+                                    <!-- Робоча частота -->
+                                    <div class="stat-card" style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 8px; padding: 10px 14px;">
+                                        <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px;">Точна робоча частота:</div>
+                                        <div style="font-size: 18px; font-weight: 800; color: var(--accent); margin-top: 4px;" id="rfExactFreqText">433.920 МГц</div>
+                                        <div style="font-size: 11px; color: var(--text-muted); margin-top: 3px;" id="rfFreqRegsText">FREQ[2..0]: 0x10, 0xB0, 0x71</div>
+                                    </div>
+
+                                    <!-- Модуляція та фільтр -->
+                                    <div class="stat-card" style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 8px; padding: 10px 14px;">
+                                        <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px;">Модуляція / Смуга RxBW:</div>
+                                        <div style="font-size: 15px; font-weight: 700; color: #fff; margin-top: 4px;" id="rfModulationText">ASK / OOK (Пульти)</div>
+                                        <div style="font-size: 11px; color: var(--text-muted); margin-top: 3px;" id="rfFilterText">RxBW: 325 кГц • Sync: off</div>
+                                    </div>
+
+                                    <!-- Лічильник фронтів та активність ефіру -->
+                                    <div class="stat-card" style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 8px; padding: 10px 14px;">
+                                        <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px;">Перепадів у ефірі (Edges):</div>
+                                        <div style="font-size: 18px; font-weight: 800; color: #38bdf8; margin-top: 4px; display: flex; align-items: center; justify-content: space-between;">
+                                            <span id="rfEdgeCountText">0</span>
+                                            <span id="rfEdgeDeltaBadge" style="font-size: 11px; padding: 2px 6px; border-radius: 4px; background: rgba(56,189,248,0.15); display: none;">+0</span>
+                                        </div>
+                                        <div style="font-size: 11px; color: var(--text-muted); margin-top: 3px;" id="rfGdoLevelText">GDO0 рівень: 0 • RSSI: -- dBm</div>
+                                    </div>
+                                </div>
+
+                                <!-- Блок навчання та останнього перехопленого коду -->
+                                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.05); border-radius: 8px; padding: 12px;">
+                                    <div>
+                                        <div style="font-size: 12px; font-weight: 700; color: var(--accent); margin-bottom: 6px;">🎙️ Режим перехоплення коду пульта (RF Learn)</div>
+                                        <div style="font-size: 12px; color: #cbd5e1; margin-bottom: 10px;" id="rfLearnStatusSummary">Режим навчання неактивний. Натисніть кнопку нижче та піднесіть пульт до антени.</div>
+                                        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                                            <button type="button" class="btn-sm btn-primary" id="btnStartRfLearn120" style="background: #2563eb; color: #fff;">🎙️ Почати навчання (120 с)</button>
+                                            <button type="button" class="btn-sm" id="btnStopRfLearn" style="display: none; background: #dc2626; color: #fff;">🛑 Зупинити навчання</button>
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        <div style="font-size: 12px; font-weight: 700; color: #22c55e; margin-bottom: 6px;">🎯 Останній перехоплений сигнал пульта</div>
+                                        <div id="rfLastSniffedContainer" style="font-size: 12px; color: var(--text-muted);">
+                                            <span>Очікування натискання кнопки на фізичному брелоку...</span>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
 
