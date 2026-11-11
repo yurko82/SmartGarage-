@@ -73,6 +73,9 @@ class TestESP32Diagnostics(unittest.TestCase):
 
     def test_webapp_esp32_endpoints(self):
         client = app.test_client()
+        with client.session_transaction() as sess:
+            sess["authenticated"] = True
+
         # 1. Status
         res = client.get("/api/esp32/status")
         self.assertEqual(res.status_code, 200)
@@ -134,7 +137,9 @@ class TestESP32Diagnostics(unittest.TestCase):
 
     def test_rf_status_endpoint_returns_diagnostics(self):
         client = app.test_client()
-        res = client.get("/api/rf/status", headers={"X-Admin-PIN": "7777"})
+        with client.session_transaction() as sess:
+            sess["authenticated"] = True
+        res = client.get("/api/rf/status")
         self.assertEqual(res.status_code, 200)
         data = res.get_json()
         self.assertTrue(data["success"])
