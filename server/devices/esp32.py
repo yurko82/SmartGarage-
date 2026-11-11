@@ -326,10 +326,19 @@ class ESP32Controller:
                     self._send_raw_serial("CMD:PING")
                     last_poll_cmd = now
 
-                line = self._serial.readline().decode("utf-8", errors="ignore").strip()
+                try:
+                    line = self._serial.readline().decode("utf-8", errors="ignore").strip()
+                except Exception as read_err:
+                    logger.warning("Помилка читання з Serial: %s", read_err)
+                    raise read_err
+
                 if line:
-                    self._parse_serial_line(line)
-            except Exception:
+                    try:
+                        self._parse_serial_line(line)
+                    except Exception as parse_err:
+                        logger.error("Помилка обробки рядка Serial '%s': %s", line, parse_err)
+            except Exception as err:
+                logger.warning("Втрата або збій з'єднання Serial: %s", err)
                 if self._serial:
                     try:
                         self._serial.close()
@@ -339,7 +348,7 @@ class ESP32Controller:
                     self._serial_handshake_verified = False
                     with self._lock:
                         self.state["online"] = False
-                    self.log_event("connection", "warning", "Втрата зв'язку USB Serial", f"Порт {self.serial_port_name} відключено")
+                    self.log_event("connection", "warning", "Втрата зв'язку USB Serial", f"Порт {self.serial_port_name} відключено ({err})")
                 time.sleep(2)
 
     def _send_raw_serial(self, cmd: str) -> bool:

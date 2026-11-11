@@ -21,6 +21,7 @@ PROTECTED_PATHS = [
 IGNORED_DEVICE_FILES = {
     "sensor_cache.json",
     "presence_log.json",
+    "presence_devices.json",
     "ytmusic_cookies.txt",
     "ytmusic_playlists.json",
     "telemetry.db",
