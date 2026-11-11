@@ -131,6 +131,16 @@ def isolate_smartgarage_data(tmp_path, monkeypatch):
     # Встановлення змінної середовища
     monkeypatch.setenv("SMARTGARAGE_DATA_DIR", str(data_dir))
 
+    # Перезавантажуємо стан garage.presence, якщо він вже імпортований
+    try:
+        from server.webapp import garage
+        if hasattr(garage, "presence") and garage.presence:
+            with garage.presence._lock:
+                garage.presence._load_data()
+                garage.presence._ensure_defaults()
+    except Exception:
+        pass
+
     # Перемикання devices_config на тестовий шаблон devices.yaml.example
     try:
         import server.devices_config as dev_cfg_mod

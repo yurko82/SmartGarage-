@@ -39,12 +39,32 @@ class PresenceManager:
     bonding) is the "correct" Bluetooth-native solution but is out of scope here.
     """
 
+    @property
+    def devices_path(self) -> Path:
+        if getattr(self, "_custom_devices_path", None):
+            return self._custom_devices_path
+        from server.utils.paths import get_devices_dir
+        return get_devices_dir() / "presence_devices.json"
+
+    @devices_path.setter
+    def devices_path(self, val):
+        self._custom_devices_path = Path(val) if val else None
+
+    @property
+    def log_path(self) -> Path:
+        if getattr(self, "_custom_log_path", None):
+            return self._custom_log_path
+        from server.utils.paths import get_devices_dir
+        return get_devices_dir() / "presence_log.json"
+
+    @log_path.setter
+    def log_path(self, val):
+        self._custom_log_path = Path(val) if val else None
+
     def __init__(self, data_dir: Optional[Path] = None, logger=None, presence_config: Optional[Dict[str, Any]] = None):
         self.logger = logger or Logger()
-        from server.utils.paths import get_devices_dir
-        base_dir = data_dir or get_devices_dir()
-        self.devices_path = base_dir / "presence_devices.json"
-        self.log_path = base_dir / "presence_log.json"
+        self._custom_devices_path = (Path(data_dir) / "presence_devices.json") if data_dir else None
+        self._custom_log_path = (Path(data_dir) / "presence_log.json") if data_dir else None
         self._lock = threading.RLock()
 
         self.devices: Dict[str, Dict[str, Any]] = {}
@@ -120,7 +140,7 @@ class PresenceManager:
                     "role": "owner",
                     "device_type": "phone",
                     "device_name": "Смартфон",
-                    "classic_mac": "00:11:22:33:44:55",
+                    "classic_mac": "00:11:22:33:44:05",
                     "ble_services": [],
                     "recent_ble_rpa": [],
                     "status": "away",
