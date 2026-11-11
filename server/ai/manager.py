@@ -573,6 +573,11 @@ class AIManager:
                 return "\n".join(fallback_responses).strip()
 
             return "AI завершив обробку."
+        except ImportError:
+            logger.info("OpenInterpreter не встановлено, виконання коду недоступне.")
+            if context_info:
+                return f"📋 Поточний стан системи:\n{context_info}"
+            return "Всі системи Smart Garage працюють у штатному режимі."
         except Exception as e:
             err_msg = str(e)
             if "401" in err_msg or "AuthenticationError" in err_msg or "No cookie auth" in err_msg or "Clerk" in err_msg:

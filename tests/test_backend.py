@@ -500,21 +500,27 @@ class TestWebApp(unittest.TestCase):
         res = self.client.get("/")
         self.assertEqual(res.status_code, 200)
         self.assertIn(b"Smart Garage", res.data)
+        self.assertIn(b"api.js", res.data)
         self.assertIn(b"app.js", res.data)
 
     def test_dashboard_page(self):
         res = self.client.get("/dashboard")
         self.assertEqual(res.status_code, 200)
         self.assertIn(b"Smart Garage", res.data)
+        self.assertIn(b"api.js", res.data)
         self.assertIn(b"dashboard.js", res.data)
 
         res_floor1 = self.client.get("/floor1")
         self.assertEqual(res_floor1.status_code, 200)
+        self.assertIn(b"api.js", res_floor1.data)
         self.assertIn(b"dashboard.js", res_floor1.data)
 
     def test_static_assets(self):
         with self.client.get("/static/css/style.css") as css_res:
             self.assertEqual(css_res.status_code, 200)
+        with self.client.get("/static/js/api.js") as api_js_res:
+            self.assertEqual(api_js_res.status_code, 200)
+            self.assertIn(b"GarageAPI", api_js_res.data)
         with self.client.get("/static/js/app.js") as js_res:
             self.assertEqual(js_res.status_code, 200)
         with self.client.get("/static/css/dashboard.css") as dash_css:
