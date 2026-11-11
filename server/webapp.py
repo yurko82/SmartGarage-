@@ -562,7 +562,8 @@ def rf_pair_stop():
 def rf_diag_route():
     if hasattr(garage, "esp32") and garage.esp32:
         garage.esp32.rf_diag()
-        return jsonify({"success": True, "rf_status": garage.esp32.state.get("rf_status")})
+        diag = garage.esp32.state.get("rf_diag") or garage.esp32.state.get("rf_status")
+        return jsonify({"success": True, "rf_status": diag})
     return jsonify({"success": False, "error": "ESP32 не ініціалізовано"}), 500
 
 

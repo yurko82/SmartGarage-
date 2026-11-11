@@ -28,6 +28,7 @@ public:
     
     String getDiagnosticsJson();
     bool isAvailable() const { return cc1101Available; }
+    void resetAndConfigure();
 
 private:
     bool autoDetectPins();

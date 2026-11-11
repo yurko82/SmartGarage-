@@ -352,7 +352,7 @@ void NetworkManager::processSerialCommand(String cmd) {
         rfSubsystem.setCarrier(true);
     } else if (cmd.equalsIgnoreCase("CARRIER_OFF") || cmd.equalsIgnoreCase("CMD:CARRIER_OFF")) {
         rfSubsystem.setCarrier(false);
-    } else if (cmd.equalsIgnoreCase("DIAG") || cmd.equalsIgnoreCase("CMD:DIAG") || cmd == "{\"command\":\"diagnostics\"}") {
+    } else if (cmd.equalsIgnoreCase("DIAG") || cmd.equalsIgnoreCase("CMD:DIAG") || cmd.equalsIgnoreCase("CMD:RF_DIAG") || cmd.equalsIgnoreCase("CMD:RF_STATUS") || cmd == "{\"command\":\"diagnostics\"}") {
         Serial.println("RESP:" + rfSubsystem.getDiagnosticsJson());
     } else if (cmd.equalsIgnoreCase("BLE_SCAN") || cmd.startsWith("CMD:BLE_SCAN")) {
         int duration = 15;

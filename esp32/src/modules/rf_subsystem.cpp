@@ -1,4 +1,5 @@
 volatile unsigned long g_rf_edge_count = 0;
+#include <SPI.h>
 #include "rf_subsystem.h"
 #include "gate_controller.h"
 
@@ -75,45 +76,282 @@ bool RfSubsystem::autoDetectPins() {
     return false;
 }
 
+static void bitbangWrite(uint8_t csn, uint8_t sck, uint8_t mosi, uint8_t miso, uint8_t addr, uint8_t val) {
+    pinMode(csn, OUTPUT);
+    pinMode(sck, OUTPUT);
+    pinMode(mosi, OUTPUT);
+    pinMode(miso, INPUT_PULLUP);
+    digitalWrite(sck, LOW);
+    digitalWrite(csn, LOW);
+    delayMicroseconds(5);
+    uint32_t to = 2000;
+    while (digitalRead(miso) && --to) delayMicroseconds(1);
+    
+    // Send addr
+    for (int i = 7; i >= 0; i--) {
+        digitalWrite(mosi, (addr >> i) & 1);
+        delayMicroseconds(5);
+        digitalWrite(sck, HIGH);
+        delayMicroseconds(5);
+        digitalWrite(sck, LOW);
+        delayMicroseconds(5);
+    }
+    // Send val
+    for (int i = 7; i >= 0; i--) {
+        digitalWrite(mosi, (val >> i) & 1);
+        delayMicroseconds(5);
+        digitalWrite(sck, HIGH);
+        delayMicroseconds(5);
+        digitalWrite(sck, LOW);
+        delayMicroseconds(5);
+    }
+    digitalWrite(csn, HIGH);
+    delayMicroseconds(10);
+}
+
+static uint8_t bitbangRead(uint8_t csn, uint8_t sck, uint8_t mosi, uint8_t miso, uint8_t addr) {
+    pinMode(csn, OUTPUT);
+    pinMode(sck, OUTPUT);
+    pinMode(mosi, OUTPUT);
+    pinMode(miso, INPUT_PULLUP);
+    digitalWrite(sck, LOW);
+    digitalWrite(csn, LOW);
+    delayMicroseconds(5);
+    uint32_t to = 2000;
+    while (digitalRead(miso) && --to) delayMicroseconds(1);
+    
+    uint8_t cmd = addr | 0x80;
+    for (int i = 7; i >= 0; i--) {
+        digitalWrite(mosi, (cmd >> i) & 1);
+        delayMicroseconds(5);
+        digitalWrite(sck, HIGH);
+        delayMicroseconds(5);
+        digitalWrite(sck, LOW);
+        delayMicroseconds(5);
+    }
+    uint8_t val = 0;
+    for (int i = 7; i >= 0; i--) {
+        digitalWrite(mosi, 0);
+        delayMicroseconds(5);
+        digitalWrite(sck, HIGH);
+        delayMicroseconds(5);
+        val = (val << 1) | digitalRead(miso);
+        digitalWrite(sck, LOW);
+        delayMicroseconds(5);
+    }
+    digitalWrite(csn, HIGH);
+    delayMicroseconds(10);
+    return val;
+}
+
+static uint8_t bitbangStrobe(uint8_t csn, uint8_t sck, uint8_t mosi, uint8_t miso, uint8_t strobe) {
+    pinMode(csn, OUTPUT);
+    pinMode(sck, OUTPUT);
+    pinMode(mosi, OUTPUT);
+    pinMode(miso, INPUT_PULLUP);
+    digitalWrite(sck, LOW);
+    digitalWrite(csn, LOW);
+    delayMicroseconds(5);
+    uint32_t to = 2000;
+    while (digitalRead(miso) && --to) delayMicroseconds(1);
+    
+    uint8_t status = 0;
+    for (int i = 7; i >= 0; i--) {
+        digitalWrite(mosi, (strobe >> i) & 1);
+        delayMicroseconds(5);
+        digitalWrite(sck, HIGH);
+        delayMicroseconds(5);
+        status = (status << 1) | digitalRead(miso);
+        digitalWrite(sck, LOW);
+        delayMicroseconds(5);
+    }
+    digitalWrite(csn, HIGH);
+    delayMicroseconds(10);
+    return status;
+}
+
+static uint8_t bitbangReadStatus(uint8_t csn, uint8_t sck, uint8_t mosi, uint8_t miso, uint8_t addr) {
+    pinMode(csn, OUTPUT);
+    pinMode(sck, OUTPUT);
+    pinMode(mosi, OUTPUT);
+    pinMode(miso, INPUT_PULLUP);
+    digitalWrite(sck, LOW);
+    digitalWrite(csn, LOW);
+    delayMicroseconds(5);
+    uint32_t to = 2000;
+    while (digitalRead(miso) && --to) delayMicroseconds(1);
+    
+    uint8_t cmd = addr | 0xC0;
+    for (int i = 7; i >= 0; i--) {
+        digitalWrite(mosi, (cmd >> i) & 1);
+        delayMicroseconds(5);
+        digitalWrite(sck, HIGH);
+        delayMicroseconds(5);
+        digitalWrite(sck, LOW);
+        delayMicroseconds(5);
+    }
+    uint8_t val = 0;
+    for (int i = 7; i >= 0; i--) {
+        digitalWrite(mosi, 0);
+        delayMicroseconds(5);
+        digitalWrite(sck, HIGH);
+        delayMicroseconds(5);
+        val = (val << 1) | digitalRead(miso);
+        digitalWrite(sck, LOW);
+        delayMicroseconds(5);
+    }
+    digitalWrite(csn, HIGH);
+    delayMicroseconds(10);
+    return val;
+}
+
+static void ccSpiWrite(uint8_t csn, uint8_t miso, uint8_t addr, uint8_t val) {
+    SPI.beginTransaction(SPISettings(500000, MSBFIRST, SPI_MODE0));
+    digitalWrite(csn, LOW);
+    uint32_t to = 2000;
+    while (digitalRead(miso) && --to) delayMicroseconds(1);
+    SPI.transfer(addr);
+    SPI.transfer(val);
+    digitalWrite(csn, HIGH);
+    SPI.endTransaction();
+    delayMicroseconds(5);
+}
+
+static uint8_t ccSpiRead(uint8_t csn, uint8_t miso, uint8_t addr) {
+    SPI.beginTransaction(SPISettings(500000, MSBFIRST, SPI_MODE0));
+    digitalWrite(csn, LOW);
+    uint32_t to = 2000;
+    while (digitalRead(miso) && --to) delayMicroseconds(1);
+    SPI.transfer(addr | 0x80);
+    uint8_t val = SPI.transfer(0x00);
+    digitalWrite(csn, HIGH);
+    SPI.endTransaction();
+    delayMicroseconds(5);
+    return val;
+}
+
+static uint8_t ccSpiStrobe(uint8_t csn, uint8_t miso, uint8_t cmd) {
+    SPI.beginTransaction(SPISettings(500000, MSBFIRST, SPI_MODE0));
+    digitalWrite(csn, LOW);
+    uint32_t to = 2000;
+    while (digitalRead(miso) && --to) delayMicroseconds(1);
+    uint8_t status = SPI.transfer(cmd);
+    digitalWrite(csn, HIGH);
+    SPI.endTransaction();
+    delayMicroseconds(5);
+    return status;
+}
+
+static uint8_t ccSpiReadStatus(uint8_t csn, uint8_t miso, uint8_t addr) {
+    SPI.beginTransaction(SPISettings(500000, MSBFIRST, SPI_MODE0));
+    digitalWrite(csn, LOW);
+    uint32_t to = 2000;
+    while (digitalRead(miso) && --to) delayMicroseconds(1);
+    SPI.transfer(addr | 0xC0);
+    uint8_t val = SPI.transfer(0x00);
+    digitalWrite(csn, HIGH);
+    SPI.endTransaction();
+    delayMicroseconds(5);
+    return val;
+}
+
+static int ccGetRssi(uint8_t csn, uint8_t miso) {
+    int rssi = ccSpiReadStatus(csn, miso, 0x34);
+    if (rssi >= 128) return (rssi - 256) / 2 - 74;
+    return (rssi / 2) - 74;
+}
+
+void RfSubsystem::resetAndConfigure() {
+    pinMode(pin_csn, OUTPUT);
+    digitalWrite(pin_csn, HIGH);
+    pinMode(pin_sck, OUTPUT);
+    pinMode(pin_mosi, OUTPUT);
+    pinMode(pin_miso, INPUT_PULLUP);
+
+    // CC1101 Manual Reset per TI datasheet
+    digitalWrite(pin_csn, LOW);
+    delayMicroseconds(10);
+    digitalWrite(pin_csn, HIGH);
+    delayMicroseconds(50);
+    digitalWrite(pin_csn, LOW);
+    uint32_t to = 2000;
+    while (digitalRead(pin_miso) && --to) delayMicroseconds(1);
+    
+    // Strobe SRES (0x30)
+    bitbangStrobe(pin_csn, pin_sck, pin_mosi, pin_miso, 0x30);
+    delay(25); // Час на внутрішній ресет та старт кварцу
+
+    bitbangStrobe(pin_csn, pin_sck, pin_mosi, pin_miso, 0x36); // SIDLE
+    delay(5);
+
+    // Запис регістрів 433.92 МГц ASK/OOK (SmartRF Studio)
+    bitbangWrite(pin_csn, pin_sck, pin_mosi, pin_miso, 0x00, 0x0D); // IOCFG2: GDO2 = Serial Data Out
+    bitbangWrite(pin_csn, pin_sck, pin_mosi, pin_miso, 0x02, 0x0D); // IOCFG0: GDO0 = Serial Data Out
+    bitbangWrite(pin_csn, pin_sck, pin_mosi, pin_miso, 0x08, 0x32); // PKTCTRL0: Asynchronous serial mode
+    bitbangWrite(pin_csn, pin_sck, pin_mosi, pin_miso, 0x07, 0x04); // PKTCTRL1
+    bitbangWrite(pin_csn, pin_sck, pin_mosi, pin_miso, 0x0B, 0x06); // FSCTRL1: 152 kHz IF
+    bitbangWrite(pin_csn, pin_sck, pin_mosi, pin_miso, 0x0C, 0x00); // FSCTRL0
+    bitbangWrite(pin_csn, pin_sck, pin_mosi, pin_miso, 0x0D, 0x10); // FREQ2: 433.92 MHz
+    bitbangWrite(pin_csn, pin_sck, pin_mosi, pin_miso, 0x0E, 0xB0); // FREQ1
+    bitbangWrite(pin_csn, pin_sck, pin_mosi, pin_miso, 0x0F, 0x71); // FREQ0
+    bitbangWrite(pin_csn, pin_sck, pin_mosi, pin_miso, 0x10, 0x87); // MDMCFG4: BW 325 kHz
+    bitbangWrite(pin_csn, pin_sck, pin_mosi, pin_miso, 0x11, 0x32); // MDMCFG3
+    bitbangWrite(pin_csn, pin_sck, pin_mosi, pin_miso, 0x12, 0x30); // MDMCFG2: ASK/OOK, no sync mode
+    bitbangWrite(pin_csn, pin_sck, pin_mosi, pin_miso, 0x13, 0x22); // MDMCFG1
+    bitbangWrite(pin_csn, pin_sck, pin_mosi, pin_miso, 0x14, 0xF8); // MDMCFG0
+    bitbangWrite(pin_csn, pin_sck, pin_mosi, pin_miso, 0x15, 0x00); // DEVIATN
+    bitbangWrite(pin_csn, pin_sck, pin_mosi, pin_miso, 0x17, 0x3F); // MCSM1: stay in RX
+    bitbangWrite(pin_csn, pin_sck, pin_mosi, pin_miso, 0x18, 0x18); // MCSM0: autocal
+    bitbangWrite(pin_csn, pin_sck, pin_mosi, pin_miso, 0x19, 0x1D); // FOCCFG
+    bitbangWrite(pin_csn, pin_sck, pin_mosi, pin_miso, 0x1A, 0x1C); // BSCFG
+    bitbangWrite(pin_csn, pin_sck, pin_mosi, pin_miso, 0x1B, 0xC7); // AGCCTRL2: Max LNA gain
+    bitbangWrite(pin_csn, pin_sck, pin_mosi, pin_miso, 0x1C, 0x00); // AGCCTRL1
+    bitbangWrite(pin_csn, pin_sck, pin_mosi, pin_miso, 0x1D, 0xB2); // AGCCTRL0
+    bitbangWrite(pin_csn, pin_sck, pin_mosi, pin_miso, 0x21, 0xB6); // FREND1
+    bitbangWrite(pin_csn, pin_sck, pin_mosi, pin_miso, 0x22, 0x11); // FREND0: PA power index 1 (ASK)
+    bitbangWrite(pin_csn, pin_sck, pin_mosi, pin_miso, 0x23, 0xEA); // FSCAL3
+    bitbangWrite(pin_csn, pin_sck, pin_mosi, pin_miso, 0x24, 0x2A); // FSCAL2
+    bitbangWrite(pin_csn, pin_sck, pin_mosi, pin_miso, 0x25, 0x00); // FSCAL1
+    bitbangWrite(pin_csn, pin_sck, pin_mosi, pin_miso, 0x26, 0x1F); // FSCAL0
+    bitbangWrite(pin_csn, pin_sck, pin_mosi, pin_miso, 0x29, 0x59); // FSTEST
+    bitbangWrite(pin_csn, pin_sck, pin_mosi, pin_miso, 0x2C, 0x81); // TEST2
+    bitbangWrite(pin_csn, pin_sck, pin_mosi, pin_miso, 0x2D, 0x35); // TEST1
+    bitbangWrite(pin_csn, pin_sck, pin_mosi, pin_miso, 0x2E, 0x09); // TEST0
+
+    // PA Table: +10 dBm
+    bitbangWrite(pin_csn, pin_sck, pin_mosi, pin_miso, 0x3E, 0xC0);
+    delay(5);
+
+    // Калібрування
+    bitbangStrobe(pin_csn, pin_sck, pin_mosi, pin_miso, 0x33); // SCAL
+    delay(5);
+}
+
 void RfSubsystem::init() {
     bool ccFound = autoDetectPins();
-    ELECHOUSE_cc1101.setSpiPin(pin_sck, pin_miso, pin_mosi, pin_csn);
-    ELECHOUSE_cc1101.setGDO0(pin_gdo0);
 
-    if (ccFound || ELECHOUSE_cc1101.getCC1101()) {
-        ELECHOUSE_cc1101.Init();
-        ELECHOUSE_cc1101.setMHZ(RF_FREQUENCY);
-        ELECHOUSE_cc1101.setModulation(2); // ASK/OOK
-        ELECHOUSE_cc1101.setRxBW(650.0);   // 650 кГц смуга пропускання за TI DN022
-        ELECHOUSE_cc1101.setPA(12);
-
+    if (ccFound) {
+        resetAndConfigure();
         enableReceive();
         mySwitch.setReceiveTolerance(80);
         cc1101Available = true;
-        gateCtrl.setLedColor(0, 160, 255); // Яскравий бірюзовий: слухання ефіру
-        Serial.printf("[CC1101] Модуль 433.92 МГц ініціалізовано (CSN=%d, MOSI=%d, SCK=%d, MISO=%d, GDO0=%d).\n",
+        gateCtrl.setLedColor(0, 160, 255);
+        Serial.printf("[CC1101] Модуль 433.92 МГц налаштовано напряму (CSN=%d, MOSI=%d, SCK=%d, MISO=%d, GDO0=%d).\n",
                       pin_csn, pin_mosi, pin_sck, pin_miso, pin_gdo0);
     } else {
         cc1101Available = false;
-        gateCtrl.setLedColor(40, 0, 0); // Червоний: помилка CC1101
+        gateCtrl.setLedColor(40, 0, 0);
         Serial.println("[CC1101] Помилка: CC1101 не відповідає.");
     }
 }
 
 void RfSubsystem::enableReceive() {
     pinMode(pin_gdo0, INPUT);
-    ELECHOUSE_cc1101.SpiWriteReg(CC1101_IOCFG0, 0x0D);   // GDO0 = Serial Data Output
-    ELECHOUSE_cc1101.SpiWriteReg(CC1101_MDMCFG2, 0x30);  // ASK/OOK, no sync word
-    ELECHOUSE_cc1101.SpiWriteReg(CC1101_PKTCTRL0, 0x32); // Asynchronous serial mode
-    ELECHOUSE_cc1101.SpiWriteReg(CC1101_MCSM1, 0x0C);    // RXOFF_MODE=11
-    ELECHOUSE_cc1101.SpiWriteReg(CC1101_AGCCTRL2, 0x03); // TI DN022: DVGA
-    ELECHOUSE_cc1101.SpiWriteReg(CC1101_AGCCTRL1, 0x00); // TI DN022: no CS lock
-    ELECHOUSE_cc1101.SpiWriteReg(CC1101_AGCCTRL0, 0x92); // TI DN022: 4-filter averaging, 8dB boundary
-    ELECHOUSE_cc1101.SpiWriteReg(CC1101_FREND1, 0xB6);   // TI DN022: mixer opt
-    ELECHOUSE_cc1101.SpiStrobe(CC1101_SIDLE);
-    ELECHOUSE_cc1101.SpiStrobe(CC1101_SFRX);
-    ELECHOUSE_cc1101.SpiStrobe(CC1101_SRX);
-    delayMicroseconds(1000);
+    bitbangWrite(pin_csn, pin_sck, pin_mosi, pin_miso, 0x02, 0x0D); // GDO0 = Serial Data Output
+    bitbangStrobe(pin_csn, pin_sck, pin_mosi, pin_miso, 0x36); // SIDLE
+    delayMicroseconds(500);
+    bitbangStrobe(pin_csn, pin_sck, pin_mosi, pin_miso, 0x34); // SRX
+    delayMicroseconds(800);
     mySwitch.enableReceive(digitalPinToInterrupt(pin_gdo0));
 }
 
@@ -125,18 +363,14 @@ void RfSubsystem::transmitCode(unsigned long code, unsigned int repeats) {
     if (!cc1101Available) return;
     disableReceive();
 
-    ELECHOUSE_cc1101.SpiWriteReg(CC1101_IOCFG0, 0x2E);
+    bitbangWrite(pin_csn, pin_sck, pin_mosi, pin_miso, 0x02, 0x2E); // GDO0 = High-Z Input
     pinMode(pin_gdo0, OUTPUT);
     digitalWrite(pin_gdo0, LOW);
 
-    ELECHOUSE_cc1101.SpiStrobe(CC1101_SIDLE);
-    delayMicroseconds(200);
-    ELECHOUSE_cc1101.SpiStrobe(CC1101_STX);
-
-    unsigned long startWait = micros();
-    while (((ELECHOUSE_cc1101.SpiReadStatus(0x35) & 0x1F) != 0x13) && (micros() - startWait < 5000)) {
-        delayMicroseconds(50);
-    }
+    bitbangStrobe(pin_csn, pin_sck, pin_mosi, pin_miso, 0x36); // SIDLE
+    delayMicroseconds(500);
+    bitbangStrobe(pin_csn, pin_sck, pin_mosi, pin_miso, 0x35); // STX
+    delayMicroseconds(800);
 
     mySwitch.enableTransmit(pin_gdo0);
     mySwitch.setPulseLength(RF_PULSE_LENGTH);
@@ -144,7 +378,6 @@ void RfSubsystem::transmitCode(unsigned long code, unsigned int repeats) {
     mySwitch.send(code, 24);
     mySwitch.disableTransmit();
 
-    pinMode(pin_gdo0, INPUT);
     enableReceive();
 
     Serial.printf("[RF433] Сигнал 0x%lX (%lu) надіслано в ефір (повторів=%u)\n", code, code, repeats);
@@ -160,13 +393,13 @@ void RfSubsystem::setCarrier(bool enable) {
     if (!cc1101Available) return;
     disableReceive();
     if (enable) {
-        ELECHOUSE_cc1101.SpiWriteReg(CC1101_IOCFG0, 0x2E);
+        bitbangWrite(pin_csn, pin_sck, pin_mosi, pin_miso, 0x02, 0x2E);
         pinMode(pin_gdo0, OUTPUT);
         digitalWrite(pin_gdo0, HIGH);
-        ELECHOUSE_cc1101.SpiStrobe(CC1101_SIDLE);
+        bitbangStrobe(pin_csn, pin_sck, pin_mosi, pin_miso, 0x36); // SIDLE
         delay(1);
-        ELECHOUSE_cc1101.SpiStrobe(CC1101_STX);
-        gateCtrl.setLedColor(180, 0, 0); // Червоний: несуча активна
+        bitbangStrobe(pin_csn, pin_sck, pin_mosi, pin_miso, 0x35); // STX
+        gateCtrl.setLedColor(180, 0, 0);
         Serial.println("RESP:{\"status\":\"ok\",\"carrier\":true,\"freq\":433.92}");
     } else {
         pinMode(pin_gdo0, INPUT);
@@ -191,7 +424,7 @@ void RfSubsystem::stopPairing() {
 void RfSubsystem::startLearning(int durationSec) {
     rfLearningActive = true;
     rfLearningEndTime = millis() + (unsigned long)durationSec * 1000UL;
-    gateCtrl.setLedColor(140, 0, 200); // Фіолетовий: режим навчання
+    gateCtrl.setLedColor(140, 0, 200);
 }
 
 void RfSubsystem::stopLearning() {
@@ -206,17 +439,27 @@ int RfSubsystem::getLearningRemainingSec() const {
 }
 
 String RfSubsystem::getDiagnosticsJson() {
-    enableReceive();
-    delay(10);
-    byte ver = ELECHOUSE_cc1101.SpiReadStatus(0x31);
-    byte marc = ELECHOUSE_cc1101.SpiReadStatus(0x35) & 0x1F;
-    int rssi = ELECHOUSE_cc1101.getRssi();
+    // Тест біт-бенг запису та читання
+    bitbangWrite(pin_csn, pin_sck, pin_mosi, pin_miso, 0x06, 0x42); // PKTLEN = 0x42
+    uint8_t bb_tw = bitbangRead(pin_csn, pin_sck, pin_mosi, pin_miso, 0x06);
+
+    byte ver = bitbangReadStatus(pin_csn, pin_sck, pin_mosi, pin_miso, 0x31);
+    byte marc = bitbangReadStatus(pin_csn, pin_sck, pin_mosi, pin_miso, 0x35) & 0x1F;
+    int rssi = -138;
     int gdo0 = digitalRead(pin_gdo0);
+    unsigned long edges = g_rf_edge_count;
+
+    byte freq2 = bitbangRead(pin_csn, pin_sck, pin_mosi, pin_miso, 0x0D);
+    byte freq1 = bitbangRead(pin_csn, pin_sck, pin_mosi, pin_miso, 0x0E);
+    byte freq0 = bitbangRead(pin_csn, pin_sck, pin_mosi, pin_miso, 0x0F);
+    byte mdmcfg2 = bitbangRead(pin_csn, pin_sck, pin_mosi, pin_miso, 0x12);
+    byte pktctrl0 = bitbangRead(pin_csn, pin_sck, pin_mosi, pin_miso, 0x08);
+    byte iocfg0 = bitbangRead(pin_csn, pin_sck, pin_mosi, pin_miso, 0x02);
 
     char buf[256];
     snprintf(buf, sizeof(buf),
-             "{\"diag\":\"spi_active\",\"ver\":\"0x%02X\",\"marc\":%d,\"rssi\":%d,\"gdo0\":%d,\"csn\":%d,\"mosi\":%d,\"sck\":%d,\"miso\":%d}",
-             ver, marc, rssi, gdo0, pin_csn, pin_mosi, pin_sck, pin_miso);
+             "{\"diag\":\"spi_active\",\"ver\":\"0x%02X\",\"marc\":%d,\"rssi\":%d,\"gdo0\":%d,\"edges\":%lu,\"bb_tw\":%d,\"f\":[%d,%d,%d],\"m2\":%d,\"pk0\":%d,\"io0\":%d,\"csn\":%d,\"mosi\":%d,\"sck\":%d,\"miso\":%d}",
+             ver, marc, rssi, gdo0, edges, (int)bb_tw, freq2, freq1, freq0, mdmcfg2, pktctrl0, iocfg0, pin_csn, pin_mosi, pin_sck, pin_miso);
     return String(buf);
 }
 
@@ -245,14 +488,15 @@ void RfSubsystem::update() {
 
     if (!cc1101Available) return;
 
-    // 3. Автоматичний Keep-Alive для RX режиму CC1101
-    if (!rfPairingActive && (now - lastRxKeepAlive >= 200)) {
+    // 3. Захист від переповнення RX FIFO (раз на 10 сек)
+    if (!rfPairingActive && (now - lastRxKeepAlive >= 10000)) {
         lastRxKeepAlive = now;
-        byte marc = ELECHOUSE_cc1101.SpiReadStatus(0x35) & 0x1F;
-        if (marc != 0x0D) {
-            ELECHOUSE_cc1101.SpiStrobe(CC1101_SIDLE);
-            ELECHOUSE_cc1101.SpiStrobe(CC1101_SFRX);
-            ELECHOUSE_cc1101.SpiStrobe(CC1101_SRX);
+        byte marc = ccSpiReadStatus(pin_csn, pin_miso, 0x35) & 0x1F;
+        // 0x11 = RXFIFO_OVERFLOW, 0x16 = TXFIFO_UNDERFLOW
+        if (marc == 0x11 || marc == 0x16) {
+            ccSpiStrobe(pin_csn, pin_miso, 0x36); // SIDLE
+            ccSpiStrobe(pin_csn, pin_miso, 0x3A); // SFRX
+            enableReceive();
         }
     }
 
