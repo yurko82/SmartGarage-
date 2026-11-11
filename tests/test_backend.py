@@ -298,7 +298,7 @@ class TestCommandProcessor(unittest.TestCase):
 
         handled, resp = self.processor.execute("включи радіо на jbl")
         self.assertTrue(handled)
-        mock_speaker.set_active_speaker.assert_called_with("F8:5C:7E:EE:7D:CC", "Юрій: JBL Clip 5")
+        mock_speaker.set_active_speaker.assert_called_with(self.processor.garage_speaker_mac, "Юрій: JBL Clip 5")
         self.assertIn("Hit FM", resp)
         self.assertIn("JBL Clip 5", resp)
 
@@ -317,7 +317,7 @@ class TestCommandProcessor(unittest.TestCase):
         mock_speaker.connect.return_value = True
         handled, resp = self.processor.execute("на оид грає норм, спробуй включити на xt-bt")
         self.assertTrue(handled)
-        mock_speaker.set_active_speaker.assert_called_with("41:42:62:69:51:9B", "JX-BT (1-й поверх)")
+        mock_speaker.set_active_speaker.assert_called_with(self.processor.floor1_speaker_mac, "JX-BT (1-й поверх)")
         self.assertIn("JX-BT", resp)
 
         # Commands without explicit word 'радіо'
@@ -634,7 +634,7 @@ class TestWebApp(unittest.TestCase):
         self.assertIn("basement", data["floors"])
 
     def test_sensors_bind_endpoint(self):
-        res = self.client.post("/api/sensors/bind", json={"floor": "floor2", "mac": "A4:C1:38:EC:EC:6C", "alias": "2-й поверх"})
+        res = self.client.post("/api/sensors/bind", json={"floor": "floor2", "mac": "00:11:22:33:44:04", "alias": "2-й поверх"})
         self.assertEqual(res.status_code, 200)
         data = res.get_json()
         self.assertTrue(data["success"])
@@ -849,11 +849,11 @@ class TestPresenceBLEMatching(unittest.TestCase):
             name="Юрій",
             role="owner",
             device_type="phone",
-            classic_mac="B8:7E:39:88:22:9B"
+            classic_mac="00:11:22:33:44:05"
         )
 
         result = self.presence.record_sighting(
-            mac="B8:7E:39:88:22:9B",
+            mac="00:11:22:33:44:05",
             name="",
             rssi=-47,
             service_uuids=[],
@@ -1008,7 +1008,7 @@ class TestAITools(unittest.TestCase):
     def test_scan_bluetooth_devices_tool(self):
         with patch("server.webapp._scan_all_ble") as mock_scan:
             mock_scan.return_value = [
-                {"mac": "A4:C1:38:CC:CA:49", "name": "LYWSD03MMC", "rssi": -55, "source": "ble"},
+                {"mac": "00:11:22:33:44:03", "name": "LYWSD03MMC", "rssi": -55, "source": "ble"},
                 {"mac": "11:22:33:44:55:66", "name": "", "rssi": -85, "source": "ble"}
             ]
             res = self.dispatcher.execute("scan_bluetooth_devices", {"duration": 5})
@@ -2525,11 +2525,16 @@ class TestBleScanFiltering(unittest.TestCase):
         bound = get_bound_macs()
         self.assertIsInstance(bound, set)
         # Verify climate sensors and speakers are present
-        self.assertIn("A4:C1:38:CC:CA:49", bound)
-        self.assertIn("A4:C1:38:EC:EC:6C", bound)
-        self.assertIn("41:42:62:69:51:9B", bound)
-        self.assertIn("F8:5C:7E:EE:7D:CC", bound)
-        self.assertIn("B8:7E:39:88:22:9B", bound)
+        self.assertIn("00:11:22:33:44:03", bound)
+        self.assertIn("00:11:22:33:44:04", bound)
+        self.assertIn("00:11:22:33:44:01", bound)
+        self.assertIn("00:11:22:33:44:02", bound)
+        from server.devices_config import get_owner_mac
+        owner_mac = get_owner_mac()
+        expected_phones = {"00:11:22:33:44:05"}
+        if owner_mac:
+            expected_phones.add(owner_mac)
+        self.assertTrue(any(m in bound for m in expected_phones))
 
     @patch("server.webapp.garage")
     def test_scan_all_ble_filters_bound_devices(self, mock_garage):
@@ -2539,7 +2544,7 @@ class TestBleScanFiltering(unittest.TestCase):
         mock_esp = MagicMock()
         mock_esp.is_connected = True
         mock_esp.scan_ble.return_value = [
-            {"mac": "A4:C1:38:CC:CA:49", "name": "Basement Temp", "rssi": -65},
+            {"mac": "00:11:22:33:44:03", "name": "Basement Temp", "rssi": -65},
             {"mac": "AA:BB:CC:DD:EE:11", "name": "Guest Phone", "rssi": -70}
         ]
         mock_garage.esp32 = mock_esp
@@ -2551,13 +2556,13 @@ class TestBleScanFiltering(unittest.TestCase):
             new_devices = _scan_all_ble(duration=1, only_new=True)
             macs = [d["mac"] for d in new_devices]
             self.assertIn("AA:BB:CC:DD:EE:11", macs)
-            self.assertNotIn("A4:C1:38:CC:CA:49", macs)
+            self.assertNotIn("00:11:22:33:44:03", macs)
 
             # With only_new=False: all devices are returned
             all_devices = _scan_all_ble(duration=1, only_new=False)
             all_macs = [d["mac"] for d in all_devices]
             self.assertIn("AA:BB:CC:DD:EE:11", all_macs)
-            self.assertIn("A4:C1:38:CC:CA:49", all_macs)
+            self.assertIn("00:11:22:33:44:03", all_macs)
 
 
 class TestTemperatureAndBatteryBehavior(unittest.TestCase):
@@ -2580,14 +2585,14 @@ class TestTemperatureAndBatteryBehavior(unittest.TestCase):
                     "temperature": 18.5,
                     "humidity": 60.0,
                     "battery": 87,
-                    "mac": "A4:C1:38:CC:CA:49"
+                    "mac": "00:11:22:33:44:03"
                 },
                 "floor2": {
                     "online": True,
                     "temperature": 21.0,
                     "humidity": 52.0,
                     "battery": 92,
-                    "mac": "A4:C1:38:EC:EC:6C"
+                    "mac": "00:11:22:33:44:04"
                 },
                 "floor1": {
                     "online": False,

@@ -460,11 +460,12 @@ document.addEventListener('DOMContentLoaded', () => {
                         fullJblVolumeVal.textContent = s.volume + '%';
                     }
                     if (fullSpeakerBtnJxbt && fullSpeakerBtnJbl) {
-                        const curMac = (s.mac || '').toUpperCase();
-                        if (curMac === '41:42:62:69:51:9B') {
+                        const isFloor1 = s.floor === 'floor1' || (s.name && s.name.includes('JX-BT'));
+                        const isGarage = s.floor === 'garage' || (s.name && s.name.includes('JBL'));
+                        if (isFloor1) {
                             fullSpeakerBtnJxbt.classList.add('active');
                             fullSpeakerBtnJbl.classList.remove('active');
-                        } else if (curMac === 'F8:5C:7E:EE:7D:CC') {
+                        } else if (isGarage) {
                             fullSpeakerBtnJbl.classList.add('active');
                             fullSpeakerBtnJxbt.classList.remove('active');
                         }
@@ -524,12 +525,12 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     if (fullSpeakerBtnJxbt) {
         fullSpeakerBtnJxbt.addEventListener('click', () => {
-            switchFullSpeaker('41:42:62:69:51:9B', 'JX-BT (1-й поверх)');
+            switchFullSpeaker('floor1', 'JX-BT (1-й поверх)');
         });
     }
     if (fullSpeakerBtnJbl) {
         fullSpeakerBtnJbl.addEventListener('click', () => {
-            switchFullSpeaker('F8:5C:7E:EE:7D:CC', 'JBL Clip 5 (Гараж)');
+            switchFullSpeaker('garage', 'JBL Clip 5 (Гараж)');
         });
     }
 

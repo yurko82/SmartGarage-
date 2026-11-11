@@ -8,6 +8,22 @@ from server.services.radio_service import radio_service
 
 
 class CommandProcessor:
+    @property
+    def floor1_speaker_mac(self) -> str:
+        try:
+            from server.devices_config import get_speaker_config
+            return (get_speaker_config("floor1").get("mac") or "00:11:22:33:44:01").upper().strip()
+        except Exception:
+            return "00:11:22:33:44:01"
+
+    @property
+    def garage_speaker_mac(self) -> str:
+        try:
+            from server.devices_config import get_speaker_config
+            return (get_speaker_config("garage").get("mac") or "00:11:22:33:44:02").upper().strip()
+        except Exception:
+            return "00:11:22:33:44:02"
+
 
     def __init__(self, logger, memory=None, projector=None, esp32=None, automation=None, bt_sensors=None, speaker=None, presence=None, telemetry_db=None):
         self.logger = logger
@@ -53,9 +69,9 @@ class CommandProcessor:
         """Повертає природну українську назву локації/колонки для відповідей."""
         mac = getattr(self.speaker, "mac", "") or ""
         name = getattr(self.speaker, "name", "") or ""
-        if "41:42:62:69:51:9B" in mac.upper() or "1 поверх" in name or "1-й поверх" in name or "JX-BT" in name or "Музика 1" in name or "Музика перший" in name:
+        if self.floor1_speaker_mac in mac.upper() or "1 поверх" in name or "1-й поверх" in name or "JX-BT" in name or "Музика 1" in name or "Музика перший" in name:
             return "на першому поверсі" if locative else "акустика першого поверху"
-        if "F8:5C:7E:EE:7D:CC" in mac.upper() or "JBL" in name or "Clip" in name:
+        if self.garage_speaker_mac in mac.upper() or "JBL" in name or "Clip" in name:
             return "на колонці JBL Clip 5" if locative else "колонка JBL Clip 5"
         return f"на {name}" if locative and name else (name or "колонці")
 
@@ -465,9 +481,9 @@ class CommandProcessor:
             ))
 
             if is_floor1_target:
-                self.speaker.set_active_speaker("41:42:62:69:51:9B", "JX-BT (1-й поверх)")
+                self.speaker.set_active_speaker(self.floor1_speaker_mac, "JX-BT (1-й поверх)")
             elif is_jbl_target:
-                self.speaker.set_active_speaker("F8:5C:7E:EE:7D:CC", "Юрій: JBL Clip 5")
+                self.speaker.set_active_speaker(self.garage_speaker_mac, "Юрій: JBL Clip 5")
 
             station_query = cmd
             for prefix in sorted((
@@ -574,9 +590,9 @@ class CommandProcessor:
                 "колонці jbl", "колонках jbl", "на кліп", "clip 5"
             ))
             if is_floor1_target:
-                self.speaker.set_active_speaker("41:42:62:69:51:9B", "JX-BT (1-й поверх)")
+                self.speaker.set_active_speaker(self.floor1_speaker_mac, "JX-BT (1-й поверх)")
             elif is_jbl_target:
-                self.speaker.set_active_speaker("F8:5C:7E:EE:7D:CC", "Юрій: JBL Clip 5")
+                self.speaker.set_active_speaker(self.garage_speaker_mac, "Юрій: JBL Clip 5")
 
             spk_loc = self._format_speaker_location(locative=True)
             is_shuffle = any(w in cmd for w in ("перемішай", "рандом", "випадков", "shuffle"))
@@ -601,9 +617,9 @@ class CommandProcessor:
                 "колонці jbl", "колонках jbl", "на кліп", "clip 5"
             ))
             if is_floor1_target:
-                self.speaker.set_active_speaker("41:42:62:69:51:9B", "JX-BT (1-й поверх)")
+                self.speaker.set_active_speaker(self.floor1_speaker_mac, "JX-BT (1-й поверх)")
             elif is_jbl_target:
-                self.speaker.set_active_speaker("F8:5C:7E:EE:7D:CC", "Юрій: JBL Clip 5")
+                self.speaker.set_active_speaker(self.garage_speaker_mac, "Юрій: JBL Clip 5")
 
             import re
             target_name = cmd
@@ -744,9 +760,9 @@ class CommandProcessor:
                 is_speaker_target = not is_video_query
 
             if is_floor1_target:
-                self.speaker.set_active_speaker("41:42:62:69:51:9B", "JX-BT (1-й поверх)")
+                self.speaker.set_active_speaker(self.floor1_speaker_mac, "JX-BT (1-й поверх)")
             elif is_jbl_target:
-                self.speaker.set_active_speaker("F8:5C:7E:EE:7D:CC", "Юрій: JBL Clip 5")
+                self.speaker.set_active_speaker(self.garage_speaker_mac, "Юрій: JBL Clip 5")
 
             # Remove speaker/projector destination suffixes
             for suffix in (
@@ -883,8 +899,8 @@ class CommandProcessor:
             "включити на xt-bt", "включити на jx-bt", "увімкнути на xt-bt", "увімкнути на jx-bt",
             "перемкни на xt-bt", "перемкни на jx-bt", "переключи на xt-bt", "переключи на jx-bt"
         )):
-            self.speaker.set_active_speaker("41:42:62:69:51:9B", "JX-BT (1-й поверх)")
-            ok = self.speaker.connect("41:42:62:69:51:9B")
+            self.speaker.set_active_speaker(self.floor1_speaker_mac, "JX-BT (1-й поверх)")
+            ok = self.speaker.connect(self.floor1_speaker_mac)
             if not ok:
                 return True, "⚠️ Не вдалося підключитися до JX-BT (1-й поверх). Схоже, приймач вимкнений або не відповідає (br-connection-page-timeout)."
             if hasattr(self.speaker, "resume_or_replay_last") and self.speaker.resume_or_replay_last():
@@ -896,7 +912,7 @@ class CommandProcessor:
             "підключи jbl", "з'єднай з jbl", "підключи jbl clip", "підключи колонку jbl", "підключи колонки jbl",
             "включи jbl", "увімкни jbl", "включи колонку jbl", "включи колонки jbl"
         ):
-            ok = self.speaker.connect("F8:5C:7E:EE:7D:CC")
+            ok = self.speaker.connect(self.garage_speaker_mac)
             return True, "🔊 Колонку JBL Clip 5 успішно підключено!" if ok else "Не вдалося підключитися до JBL Clip 5."
 
         if cmd in (

@@ -9,48 +9,64 @@ from typing import Dict, List, Any, Optional
 class TelemetryDB:
     """Persistent SQLite-backed storage for sensor climate history (temperature, humidity, battery)."""
 
-    def __init__(self, db_path: Optional[str] = None):
-        if db_path is None:
-            base_dir = Path(__file__).resolve().parent.parent.parent
-            self.db_path = base_dir / "devices" / "telemetry.db"
-        else:
-            self.db_path = Path(db_path)
+    @property
+    def db_path(self) -> Path:
+        if getattr(self, "_custom_db_path", None):
+            return self._custom_db_path
+        from server.utils.paths import get_devices_dir
+        return get_devices_dir() / "telemetry.db"
 
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+    @db_path.setter
+    def db_path(self, val):
+        self._custom_db_path = Path(val) if val else None
+
+    def __init__(self, db_path: Optional[str] = None):
+        self._custom_db_path = Path(db_path) if db_path is not None else None
         self._lock = threading.RLock()
+        self._initialized_paths = set()
         self._last_record_per_floor: Dict[str, Dict[str, Any]] = {}
-        self._init_db()
+        with self._lock:
+            conn = self._get_connection()
+            conn.close()
+
+    def _ensure_schema(self, conn: sqlite3.Connection):
+        cur = conn.cursor()
+        cur.execute("PRAGMA journal_mode=WAL;")
+        cur.execute("PRAGMA synchronous=NORMAL;")
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS climate_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp REAL NOT NULL,
+                datetime_str TEXT NOT NULL,
+                floor TEXT NOT NULL,
+                mac TEXT,
+                sensor_name TEXT,
+                temperature REAL,
+                humidity REAL,
+                battery REAL
+            );
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_climate_timestamp ON climate_history(timestamp);")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_climate_floor_ts ON climate_history(floor, timestamp);")
+        conn.commit()
 
     def _get_connection(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(str(self.db_path), timeout=10.0)
+        p = self.db_path
+        p.parent.mkdir(parents=True, exist_ok=True)
+        conn = sqlite3.connect(str(p), timeout=10.0)
         conn.row_factory = sqlite3.Row
+        if not hasattr(self, "_initialized_paths"):
+            self._initialized_paths = set()
+        resolved = str(p.resolve())
+        if resolved not in self._initialized_paths:
+            self._ensure_schema(conn)
+            self._initialized_paths.add(resolved)
         return conn
 
     def _init_db(self):
         with self._lock:
             conn = self._get_connection()
-            try:
-                cur = conn.cursor()
-                cur.execute("PRAGMA journal_mode=WAL;")
-                cur.execute("PRAGMA synchronous=NORMAL;")
-                cur.execute("""
-                    CREATE TABLE IF NOT EXISTS climate_history (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        timestamp REAL NOT NULL,
-                        datetime_str TEXT NOT NULL,
-                        floor TEXT NOT NULL,
-                        mac TEXT,
-                        sensor_name TEXT,
-                        temperature REAL,
-                        humidity REAL,
-                        battery REAL
-                    );
-                """)
-                cur.execute("CREATE INDEX IF NOT EXISTS idx_climate_timestamp ON climate_history(timestamp);")
-                cur.execute("CREATE INDEX IF NOT EXISTS idx_climate_floor_ts ON climate_history(floor, timestamp);")
-                conn.commit()
-            finally:
-                conn.close()
+            conn.close()
 
     def record(self, floor: str, temperature: Optional[float], humidity: Optional[float] = None,
                battery: Optional[float] = None, mac: Optional[str] = None,

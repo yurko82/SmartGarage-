@@ -231,7 +231,7 @@ All notable changes to the Smart Garage Infrastructure project will be documente
 
 ### Added & Fixed
 - **Bluetooth Speaker `JX-BT` (1-й поверх) & Internet Radio Streaming**:
-  - Інтегровано підтримку другого Bluetooth-аудіопристрою `JX-BT` (`41:42:62:69:51:9B`) на 1-му поверсі поруч із JBL Clip 5.
+  - Інтегровано підтримку другого Bluetooth-аудіопристрою `JX-BT` (`00:11:22:33:44:01`) на 1-му поверсі поруч із JBL Clip 5.
   - Оновлено тач-дашборд: динамічне відображення активної колонки, вибір радіостанцій в один клік, керування гучністю та трансляцією онлайн-потоків (Kiss FM, Hit FM, Radio ROKS тощо).
   - Виправлено конфлікт маршрутизації команд у `server/commands/processor.py`: запити *«включи радіо...»* тепер спрямовуються на онлайн-радіопотік, а не на завантаження відео з YouTube.
 - **PipeWire Native Audio Output & Bluetooth Optimization**:
@@ -271,7 +271,7 @@ All notable changes to the Smart Garage Infrastructure project will be documente
 
 ### Added
 - **Bluetooth Audio & JBL Clip 5 Integration**:
-  - Створено повнофункціональний контролер [`BluetoothSpeakerController`](server/devices/bluetooth_speaker.py) для аудіосистеми JBL Clip 5 (`F8:5C:7E:EE:7D:CC`).
+  - Створено повнофункціональний контролер [`BluetoothSpeakerController`](server/devices/bluetooth_speaker.py) для аудіосистеми JBL Clip 5 (`00:11:22:33:44:02`).
   - **Тач-Дашборд 1-го поверху (`/dashboard`):** додано спеціалізовану картку аудіосистеми з кнопками «🔗 З'єднати» / «🔌 Відключити», слайдером гучності (0–100%), статусом «Зараз відтворюється», кнопками керування плеєром (Пауза/Продовжити/Стоп) та швидким пошуком пісень.
   - **Класична консоль (`/`):** додано статус колонки в сайдбар та віджет керування у вкладку «🎬 Медіахаб».
   - **API аудіосистеми:** реалізовано ендпоінти `GET /api/speaker/status`, `POST /api/speaker/connect`, `POST /api/speaker/disconnect`, `POST /api/speaker/volume`, `POST /api/speaker/play`, `POST /api/speaker/control`.
@@ -281,7 +281,7 @@ All notable changes to the Smart Garage Infrastructure project will be documente
 ### Added
 - **3-Floor Multi-Zone Climate System (Підвал, 1-й поверх, 2-й поверх)**:
   - Додано підтримку трьох Bluetooth LE датчиків Xiaomi LYWSD03MMC з прив'язкою по поверхах:
-    - 🏢 **2-й поверх:** поточний датчик `A4:C1:38:EC:EC:6C`.
+    - 🏢 **2-й поверх:** поточний датчик `00:11:22:33:44:04`.
     - 🏠 **1-й поверх:** датчик `A4:C1:38:00:00:01` (з можливістю швидкої зміни MAC).
     - ⚓ **Підвал:** датчик `A4:C1:38:00:00:02` (з можливістю швидкої зміни MAC).
   - **Тач-інтерфейс Дашборду 1-го поверху:** додано 3-секційну плитку клімату з окремою температурою, вологістю та зарядом батареї для кожного поверху.

@@ -41,7 +41,8 @@ class PresenceManager:
 
     def __init__(self, data_dir: Optional[Path] = None, logger=None, presence_config: Optional[Dict[str, Any]] = None):
         self.logger = logger or Logger()
-        base_dir = data_dir or (Path(__file__).resolve().parent.parent.parent / "devices")
+        from server.utils.paths import get_devices_dir
+        base_dir = data_dir or get_devices_dir()
         self.devices_path = base_dir / "presence_devices.json"
         self.log_path = base_dir / "presence_log.json"
         self._lock = threading.RLock()

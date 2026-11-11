@@ -10,12 +10,8 @@ class Memory:
         if filename is not None:
             self.file = Path(filename)
         else:
-            mem_path = config.get("memory", {}).get("path", "./memory")
-            path_obj = Path(mem_path)
-            if path_obj.is_dir() or not path_obj.suffix:
-                self.file = path_obj / "memory.json"
-            else:
-                self.file = path_obj
+            from server.utils.paths import get_memory_dir
+            self.file = get_memory_dir() / "memory.json"
 
         if not self.file.exists():
             self.file.parent.mkdir(parents=True, exist_ok=True)

@@ -40,6 +40,17 @@ logger = logging.getLogger("TTSManager")
 
 
 class TTSManager:
+    @property
+    def settings_file(self) -> Path:
+        if getattr(self, "_custom_settings_file", None):
+            return self._custom_settings_file
+        from server.utils.paths import get_memory_dir
+        return get_memory_dir() / "tts_settings.json"
+
+    @settings_file.setter
+    def settings_file(self, val):
+        self._custom_settings_file = Path(val) if val else None
+
     """Центральний координатор синтезу мовлення в системі Smart Garage."""
 
     def __init__(
@@ -73,7 +84,7 @@ class TTSManager:
             max_items=max_items,
         )
 
-        self.settings_file = Path(__file__).resolve().parent.parent.parent / "memory" / "tts_settings.json"
+        self._custom_settings_file = None
         self._providers: Dict[str, TTSProvider] = {}
         self._init_providers()
         self._load_settings(explicit_provider=active_provider, explicit_voice=active_voice_id)

@@ -1,0 +1,33 @@
+# config/devices.yaml.example — Шаблон конфігурації фізичних пристроїв гаража
+# Скопіюйте цей файл у config/devices.yaml та вкажіть власні MAC-адреси.
+# Файл config/devices.yaml додано в .gitignore і він не відстежується git.
+
+speakers:
+  floor1:
+    mac: "00:11:22:33:44:01"
+    name: "JX-BT (1-й поверх)"
+    floor: "floor1"
+  garage:
+    mac: "00:11:22:33:44:02"
+    name: "Юрій: JBL Clip 5"
+    floor: "garage"
+
+sensors:
+  basement:
+    mac: "00:11:22:33:44:03"
+    name: "Xiaomi Mijia (Підвал)"
+    floor: "basement"
+    type: "temperature_sensor"
+  floor2:
+    mac: "00:11:22:33:44:04"
+    name: "Xiaomi Mijia (2-й поверх)"
+    floor: "floor2"
+    type: "temperature_sensor"
+
+owner:
+  phone_mac: "00:11:22:33:44:05"
+  name: "Motorola Edge 50 Pro (Юрій)"
+
+esp32:
+  wifi_bssid: "00:11:22:33:44:06"
+  wifi_channel: 6

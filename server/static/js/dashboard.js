@@ -1492,7 +1492,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Speaker switching logic between JX-BT and JBL Clip 5
     async function switchSpeaker(targetMac) {
         hapticFeedback();
-        const isJbl = targetMac === 'F8:5C:7E:EE:7D:CC';
+        const isJbl = targetMac === 'garage' || targetMac === 'jbl' || (typeof targetMac === 'string' && targetMac.toLowerCase().includes('jbl'));
         const targetBtn = isJbl ? btnSpeakerJbl : btnSpeakerJxbt;
         const otherBtn = isJbl ? btnSpeakerJxbt : btnSpeakerJbl;
         const name = isJbl ? 'JBL Clip 5 (Гараж)' : 'JX-BT (1-й поверх)';
@@ -1533,10 +1533,10 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     if (btnSpeakerJxbt) {
-        btnSpeakerJxbt.addEventListener('click', () => switchSpeaker('41:42:62:69:51:9B'));
+        btnSpeakerJxbt.addEventListener('click', () => switchSpeaker('floor1'));
     }
     if (btnSpeakerJbl) {
-        btnSpeakerJbl.addEventListener('click', () => switchSpeaker('F8:5C:7E:EE:7D:CC'));
+        btnSpeakerJbl.addEventListener('click', () => switchSpeaker('garage'));
     }
 
     if (speakerSelect) {
@@ -2249,8 +2249,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 // Update segmented switcher buttons
                 if (btnSpeakerJxbt && btnSpeakerJbl) {
-                    const isJxbtActive = activeMac === '41:42:62:69:51:9B';
-                    const isJblActive = activeMac === 'F8:5C:7E:EE:7D:CC';
+                    const isJxbtActive = spk.floor === 'floor1' || (spk.name && spk.name.includes('JX-BT'));
+                    const isJblActive = spk.floor === 'garage' || (spk.name && spk.name.includes('JBL'));
 
                     btnSpeakerJxbt.classList.toggle('active', isJxbtActive);
                     btnSpeakerJbl.classList.toggle('active', isJblActive);
@@ -2259,8 +2259,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     let jblOnline = isJblActive && spkConnected;
 
                     if (Array.isArray(spk.speakers)) {
-                        const sJxbt = spk.speakers.find(s => (s.mac || '').toUpperCase() === '41:42:62:69:51:9B');
-                        const sJbl = spk.speakers.find(s => (s.mac || '').toUpperCase() === 'F8:5C:7E:EE:7D:CC');
+                        const sJxbt = spk.speakers.find(s => s.floor === 'floor1' || (s.name && s.name.includes('JX-BT')));
+                        const sJbl = spk.speakers.find(s => s.floor === 'garage' || (s.name && s.name.includes('JBL')));
                         if (sJxbt && sJxbt.connected !== undefined) jxbtOnline = sJxbt.connected;
                         if (sJbl && sJbl.connected !== undefined) jblOnline = sJbl.connected;
                     }

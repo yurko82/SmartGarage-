@@ -38,17 +38,44 @@ CHAR_BATTERY = "00002a19-0000-1000-8000-00805f9b34fb"
 
 
 class BluetoothSensorManager:
+    def _get_floor2_mac(self) -> str:
+        try:
+            from server.devices_config import get_sensor_config
+            return (get_sensor_config("floor2").get("mac") or "").upper().strip()
+        except Exception:
+            return ""
+
+    def _get_basement_mac(self) -> str:
+        try:
+            from server.devices_config import get_sensor_config
+            return (get_sensor_config("basement").get("mac") or "").upper().strip()
+        except Exception:
+            return ""
+
     """Manages Bluetooth LE sensor devices (temperature, humidity, battery, etc.)."""
 
-    def __init__(self, config_path: Optional[str] = None, telemetry_db: Optional[TelemetryDB] = None):
-        if config_path is None:
-            base_dir = Path(__file__).resolve().parent.parent.parent
-            self.config_path = base_dir / "devices" / "bluetooth_devices.json"
-        else:
-            self.config_path = Path(config_path)
+    @property
+    def config_path(self) -> Path:
+        if getattr(self, "_custom_config_path", None):
+            return self._custom_config_path
+        from server.utils.paths import get_devices_dir
+        return get_devices_dir() / "bluetooth_devices.json"
 
+    @config_path.setter
+    def config_path(self, val):
+        self._custom_config_path = Path(val) if val else None
+
+    @property
+    def cache_path(self) -> Path:
+        return self.config_path.parent / "sensor_cache.json"
+
+    @cache_path.setter
+    def cache_path(self, val):
+        pass
+
+    def __init__(self, config_path: Optional[str] = None, telemetry_db: Optional[TelemetryDB] = None):
+        self._custom_config_path = Path(config_path) if config_path else None
         self.telemetry_db = telemetry_db or TelemetryDB()
-        self.cache_path = self.config_path.parent / "sensor_cache.json"
         self._lock = threading.RLock()
         self._running = False
         self._thread: Optional[threading.Thread] = None
@@ -110,9 +137,9 @@ class BluetoothSensorManager:
                     if info.get("type") != "speaker":
                         if floor_val == "floor1" and "00:00:01" not in mac:
                             self.primary_mac = mac
-                        elif not self.primary_mac and (floor_val == "floor2" or mac == "A4:C1:38:EC:EC:6C"):
+                        elif not self.primary_mac and (floor_val == "floor2" or (self._get_floor2_mac() and mac == self._get_floor2_mac())):
                             self.primary_mac = mac
-                        elif not self.primary_mac and (floor_val == "basement" or mac == "A4:C1:38:CC:CA:49"):
+                        elif not self.primary_mac and (floor_val == "basement" or (self._get_basement_mac() and mac == self._get_basement_mac())):
                             self.primary_mac = mac
 
         except Exception as e:
@@ -243,7 +270,7 @@ class BluetoothSensorManager:
         with self._lock:
             macs_to_poll = [
                 mac for mac, s in self.sensors.items()
-                if "LYWSD03MMC" in (s.get("name") or "").upper() or s.get("type") == "temperature_sensor" or mac == "A4:C1:38:EC:EC:6C"
+                if "LYWSD03MMC" in (s.get("name") or "").upper() or s.get("type") == "temperature_sensor" or (self._get_floor2_mac() and mac == self._get_floor2_mac())
             ]
 
         for mac in macs_to_poll:

@@ -9,9 +9,9 @@ LOG_FILE="/var/log/bluetooth-audio-fix.log"
 FALLBACK_LOG="/tmp/bluetooth-audio-fix.log"
 
 # Target Known Bluetooth Speakers in Smart Garage:
-# 1) JX-BT (1st floor): 41:42:62:69:51:9B
-# 2) JBL Clip 5 (Garage): F8:5C:7E:EE:7D:CC
-DEFAULT_DEVICES=("41:42:62:69:51:9B" "F8:5C:7E:EE:7D:CC")
+# 1) JX-BT (1st floor): 00:11:22:33:44:01
+# 2) JBL Clip 5 (Garage): 00:11:22:33:44:02
+DEFAULT_DEVICES=("${JXBT_MAC:-00:11:22:33:44:01}" "${JBL_MAC:-00:11:22:33:44:02}")
 TARGET_MAC="${1:-${DEFAULT_DEVICES[0]}}"
 
 # Logging helper

@@ -311,14 +311,14 @@ def generate_html_content() -> str:
             <tbody>
                 <tr>
                     <td><b>2-й поверх</b></td>
-                    <td>Xiaomi LYWSD03MMC<br><code>A4:C1:38:EC:EC:6C</code></td>
+                    <td>Xiaomi LYWSD03MMC<br><code>00:11:22:33:44:04</code></td>
                     <td>BLE (Bluetooth Low Energy)</td>
                     <td>Температура (°C), Відносна вологість (%), Заряд батарейки (%)</td>
                     <td><span class="badge badge-green">Встановлено</span><br>Опитується ESP32 що 2 хв та Bleak сервером. Запис у SQLite.</td>
                 </tr>
                 <tr>
                     <td><b>Підвал (Сховище)</b></td>
-                    <td>Xiaomi LYWSD03MMC<br><code>A4:C1:38:CC:CA:49</code></td>
+                    <td>Xiaomi LYWSD03MMC<br><code>00:11:22:33:44:03</code></td>
                     <td>BLE (Bluetooth Low Energy)</td>
                     <td>Температура (°C), Відносна вологість (%), Заряд батарейки (%)</td>
                     <td><span class="badge badge-green">Встановлено</span><br>Контроль вогкості та замерзання, моніторинг сховища, графіки.</td>
@@ -360,21 +360,21 @@ def generate_html_content() -> str:
                 </tr>
                 <tr>
                     <td><b>Presence Radar (Власник)</b></td>
-                    <td>Motorola Edge 50 Pro<br><code>B8:7E:39:88:22:9B</code></td>
+                    <td>Motorola Edge 50 Pro<br><code>00:11:22:33:44:05</code></td>
                     <td>Classic BT + BLE RPA Rotation</td>
                     <td>RSSI (дБм), наближення: <code>immediate / near / away</code></td>
                     <td><span class="badge badge-purple">Відстеження</span><br>Автоматичне привітання Юрія, сценарії «Прибуття / Від'їзд».</td>
                 </tr>
                 <tr>
                     <td><b>Акустика 1-й поверх</b></td>
-                    <td>JX-BT Audio<br><code>41:42:62:69:51:9B</code></td>
+                    <td>JX-BT Audio<br><code>00:11:22:33:44:01</code></td>
                     <td>Bluetooth Audio (PipeWire)</td>
                     <td>Потік аудіо, гучність 0-100%</td>
                     <td><span class="badge badge-blue">Медіа</span><br>Основна колонка для озвучення відповідей AI та музики.</td>
                 </tr>
                 <tr>
                     <td><b>Акустика Гараж</b></td>
-                    <td>JBL Clip 5<br><code>F8:5C:7E:EE:7D:CC</code></td>
+                    <td>JBL Clip 5<br><code>00:11:22:33:44:02</code></td>
                     <td>Bluetooth Audio (PipeWire)</td>
                     <td>Потік аудіо, гучність 0-100%</td>
                     <td><span class="badge badge-blue">Медіа</span><br>Портативна акустична колонка для робочої зони.</td>
@@ -638,13 +638,13 @@ def generate_html_content() -> str:
                 <tr>
                     <td><b>Картка «2-й поверх»</b></td>
                     <td>Поточна температура (°C), вологість (%), батарейка, бейдж давності («Свіжі» / «Застарілі»).</td>
-                    <td><code>GET /api/sensors/floors</code> (сенсор <code>A4:C1:38:EC:EC:6C</code>).</td>
+                    <td><code>GET /api/sensors/floors</code> (сенсор <code>00:11:22:33:44:04</code>).</td>
                     <td><code>server/devices/bluetooth_sensor.py</code><br><code>server/sensors/freshness.py</code></td>
                 </tr>
                 <tr>
                     <td><b>Картка «Підвал (Сховище)»</b></td>
                     <td>Поточна температура (°C), вологість (%), батарейка, бейдж давності.</td>
-                    <td><code>GET /api/sensors/floors</code> (сенсор <code>A4:C1:38:CC:CA:49</code>).</td>
+                    <td><code>GET /api/sensors/floors</code> (сенсор <code>00:11:22:33:44:03</code>).</td>
                     <td><code>server/devices/bluetooth_sensor.py</code><br><code>server/storage/telemetry_db.py</code></td>
                 </tr>
                 <tr>

@@ -13,12 +13,19 @@ logger = logging.getLogger(__name__)
 class UserProfileManager:
     """Керує довготривалою пам'яттю профілю користувача, веломайстерні, інструментів та велосипедів у ремонті."""
 
+    @property
+    def storage_path(self) -> Path:
+        if getattr(self, "_custom_storage_path", None):
+            return self._custom_storage_path
+        from server.utils.paths import get_memory_dir
+        return get_memory_dir() / "user_profile.json"
+
+    @storage_path.setter
+    def storage_path(self, val):
+        self._custom_storage_path = Path(val) if val else None
+
     def __init__(self, storage_path: Optional[Path] = None):
-        if storage_path is not None:
-            self.storage_path = Path(storage_path)
-        else:
-            mem_path = config.get("memory", {}).get("path", "./memory")
-            self.storage_path = Path(mem_path) / "user_profile.json"
+        self._custom_storage_path = Path(storage_path) if storage_path is not None else None
 
         if not self.storage_path.exists():
             self._init_default_profile()

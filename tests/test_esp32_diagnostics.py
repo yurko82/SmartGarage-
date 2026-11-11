@@ -50,7 +50,7 @@ class TestESP32Diagnostics(unittest.TestCase):
                 "basement": {
                     "name": "Підвал",
                     "floor": "basement",
-                    "mac": "A4:C1:38:CC:CA:49",
+                    "mac": "00:11:22:33:44:03",
                     "online": True,
                     "temperature": 15.5,
                     "humidity": 70,

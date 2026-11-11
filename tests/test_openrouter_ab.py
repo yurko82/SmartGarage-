@@ -93,8 +93,8 @@ class TestOpenRouterConfigurationAndSecurity(unittest.TestCase):
         """Функція санітизації контексту видаляє IP, MAC-адреси та паролі."""
         raw_telemetry = (
             "- Проектор HY350MAX (192.168.100.191): онлайн\n"
-            "- Колонка JX-BT (41:42:62:69:51:9B): підключено\n"
-            "- Датчик підвалу (A4:C1:38:12:34:56): 18.2°C\n"
+            "- Колонка JX-BT (00:11:22:33:44:01): підключено\n"
+            "- Датчик підвалу (00:11:22:33:44:03): 18.2°C\n"
             "- Конфігурація: secret_token = 'super_secret_token_12345'\n"
             "- Клієнт: ip 10.0.0.15\n"
         )
@@ -103,8 +103,8 @@ class TestOpenRouterConfigurationAndSecurity(unittest.TestCase):
         self.assertNotIn("192.168.100.191", sanitized)
         self.assertNotIn("10.0.0.15", sanitized)
         # Перевірка відсутності MAC
-        self.assertNotIn("41:42:62:69:51:9B", sanitized)
-        self.assertNotIn("A4:C1:38:12:34:56", sanitized)
+        self.assertNotIn("00:11:22:33:44:01", sanitized)
+        self.assertNotIn("00:11:22:33:44:03", sanitized)
         # Перевірка відсутності секрету
         self.assertNotIn("super_secret_token_12345", sanitized)
 

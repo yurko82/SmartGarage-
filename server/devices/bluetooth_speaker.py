@@ -46,14 +46,22 @@ class BluetoothSpeakerController:
     Handles pairing/connection, volume adjustments, and audio playback via PipeWire/PulseAudio.
     """
 
-    def __init__(self, mac: str = "41:42:62:69:51:9B", name: str = "JX-BT (1-й поверх)", logger=None):
+    def __init__(self, mac: Optional[str] = None, name: Optional[str] = None, logger=None):
+        from server.utils.paths import get_devices_dir
+        from server.devices_config import get_speaker_config, get_configured_speakers_list
+
+        if not mac:
+            def_spk = get_speaker_config("floor1") or (get_configured_speakers_list() or [{}])[0]
+            mac = def_spk.get("mac", "00:11:22:33:44:01")
+            name = name or def_spk.get("name", "JX-BT (1-й поверх)")
+
         self.mac = mac.upper().strip()
-        self.name = name
+        self.name = name or "Колонка"
         self.logger = logger or Logger()
         self.sink_name = f"bluez_output.{self.mac.replace(':', '_')}.1"
         self._lock = threading.Lock()
 
-        self.config_path = Path(__file__).resolve().parent.parent.parent / "devices" / "bluetooth_devices.json"
+        self.config_path = get_devices_dir() / "bluetooth_devices.json"
         self.media_dir = Path(__file__).resolve().parent.parent.parent / "media"
         self.media_dir.mkdir(parents=True, exist_ok=True)
 
@@ -259,9 +267,12 @@ class BluetoothSpeakerController:
             except Exception:
                 pass
         if not speakers:
+            from server.devices_config import get_configured_speakers_list
+            speakers = get_configured_speakers_list()
+        if not speakers:
             speakers = [
-                {"mac": "41:42:62:69:51:9B", "name": "JX-BT (1-й поверх)", "floor": "floor1"},
-                {"mac": "F8:5C:7E:EE:7D:CC", "name": "Юрій: JBL Clip 5", "floor": "garage"}
+                {"mac": "00:11:22:33:44:01", "name": "JX-BT (1-й поверх)", "floor": "floor1"},
+                {"mac": "00:11:22:33:44:02", "name": "Юрій: JBL Clip 5", "floor": "garage"}
             ]
         return speakers
 
@@ -495,6 +506,11 @@ class BluetoothSpeakerController:
     def switch_speaker(self, target_mac: str) -> bool:
         """Seamlessly switch active output to target Bluetooth speaker, transferring stream if active."""
         target_mac = target_mac.upper().strip()
+        if ":" not in target_mac:
+            for s in self.get_configured_speakers():
+                if s.get("floor", "").upper() == target_mac or target_mac in s.get("name", "").upper():
+                    target_mac = s["mac"].upper().strip()
+                    break
         if not target_mac:
             return False
 

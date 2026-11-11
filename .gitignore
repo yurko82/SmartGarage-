@@ -31,3 +31,10 @@ memory/user_profile.json
 memory/memory.json
 config/mosquitto/password.txt
 
+
+# Device hardware config
+config/devices.yaml
+!config/devices.yaml.example
+data/
+esp32/src/secrets.h
+!esp32/src/secrets.h.example

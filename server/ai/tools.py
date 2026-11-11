@@ -415,7 +415,7 @@ GARAGE_TOOLS = [
                     },
                     "mac": {
                         "type": "string",
-                        "description": "Bluetooth MAC-адреса або BLE RPA пристрою гостя (наприклад: '62:FD:D0:F6:F2:CF')."
+                        "description": "Bluetooth MAC-адреса або BLE RPA пристрою гостя (наприклад: '00:11:22:33:44:55')."
                     },
                     "device_name": {
                         "type": "string",
@@ -718,10 +718,13 @@ class ToolDispatcher:
                 if not hasattr(self.garage, "speaker") or not self.garage.speaker:
                     res = {"success": False, "error": "Контролер колонки недоступний"}
                 else:
+                    from server.devices_config import get_speaker_config
+                    spk_f1 = (get_speaker_config("floor1").get("mac") or "00:11:22:33:44:01").upper().strip()
+                    spk_gar = (get_speaker_config("garage").get("mac") or "00:11:22:33:44:02").upper().strip()
                     if target in ("jx-bt", "jxbt", "xt-bt", "xtbt", "floor1", "1 поверх"):
-                        self.garage.speaker.set_active_speaker("41:42:62:69:51:9B", "JX-BT (1-й поверх)")
+                        self.garage.speaker.set_active_speaker(spk_f1, "JX-BT (1-й поверх)")
                     elif target in ("jbl", "garage", "гараж"):
-                        self.garage.speaker.set_active_speaker("F8:5C:7E:EE:7D:CC", "Юрій: JBL Clip 5")
+                        self.garage.speaker.set_active_speaker(spk_gar, "Юрій: JBL Clip 5")
 
                     spk_name = self.garage.speaker.name or "Колонку"
                     if action == "connect":
@@ -959,10 +962,13 @@ class ToolDispatcher:
             }
 
         from server.services.radio_service import radio_service
+        from server.devices_config import get_speaker_config
+        spk_f1 = (get_speaker_config("floor1").get("mac") or "00:11:22:33:44:01").upper().strip()
+        spk_gar = (get_speaker_config("garage").get("mac") or "00:11:22:33:44:02").upper().strip()
         if speaker_target in ("jx-bt", "jxbt", "floor1", "1 поверх"):
-            self.garage.speaker.set_active_speaker("41:42:62:69:51:9B", "JX-BT (1-й поверх)")
+            self.garage.speaker.set_active_speaker(spk_f1, "JX-BT (1-й поверх)")
         elif speaker_target in ("jbl", "garage", "гараж"):
-            self.garage.speaker.set_active_speaker("F8:5C:7E:EE:7D:CC", "Юрій: JBL Clip 5")
+            self.garage.speaker.set_active_speaker(spk_gar, "Юрій: JBL Clip 5")
 
         raw_name = getattr(self.garage.speaker, "name", None)
         spk_name = str(raw_name) if raw_name and not hasattr(raw_name, "_mock_return_value") else "Bluetooth-колонка"
@@ -1037,10 +1043,13 @@ class ToolDispatcher:
                 "initial_query": initial_q
             }
 
+        from server.devices_config import get_speaker_config
+        spk_f1 = (get_speaker_config("floor1").get("mac") or "00:11:22:33:44:01").upper().strip()
+        spk_gar = (get_speaker_config("garage").get("mac") or "00:11:22:33:44:02").upper().strip()
         if speaker_target in ("jx-bt", "jxbt", "floor1", "1 поверх"):
-            self.garage.speaker.set_active_speaker("41:42:62:69:51:9B", "JX-BT (1-й поверх)")
+            self.garage.speaker.set_active_speaker(spk_f1, "JX-BT (1-й поверх)")
         elif speaker_target in ("jbl", "garage", "гараж"):
-            self.garage.speaker.set_active_speaker("F8:5C:7E:EE:7D:CC", "Юрій: JBL Clip 5")
+            self.garage.speaker.set_active_speaker(spk_gar, "Юрій: JBL Clip 5")
 
         raw_name = getattr(self.garage.speaker, "name", None)
         spk_name = str(raw_name) if raw_name and not hasattr(raw_name, "_mock_return_value") else "Bluetooth-колонка"
@@ -1099,10 +1108,13 @@ class ToolDispatcher:
         if not hasattr(self.garage, "speaker") or not self.garage.speaker:
             return {"success": False, "error": "Контролер колонки недоступний"}
 
+        from server.devices_config import get_speaker_config
+        spk_f1 = (get_speaker_config("floor1").get("mac") or "00:11:22:33:44:01").upper().strip()
+        spk_gar = (get_speaker_config("garage").get("mac") or "00:11:22:33:44:02").upper().strip()
         if speaker_target in ("jx-bt", "jxbt", "floor1", "1 поверх"):
-            self.garage.speaker.set_active_speaker("41:42:62:69:51:9B", "JX-BT (1-й поверх)")
+            self.garage.speaker.set_active_speaker(spk_f1, "JX-BT (1-й поверх)")
         elif speaker_target in ("jbl", "garage", "гараж"):
-            self.garage.speaker.set_active_speaker("F8:5C:7E:EE:7D:CC", "Юрій: JBL Clip 5")
+            self.garage.speaker.set_active_speaker(spk_gar, "Юрій: JBL Clip 5")
 
         # Stop projector video if active
         if hasattr(self.garage, "projector") and self.garage.projector:
@@ -1161,13 +1173,30 @@ class ToolDispatcher:
             from server.webapp import _scan_all_ble
             devs = _scan_all_ble(duration=d)
 
-            known_devices = {
-                "A4:C1:38:CC:CA:49": {"name": "Xiaomi Mijia (Підвал)", "type": "Кліматичний BLE-датчик", "location": "Підвал"},
-                "A4:C1:38:EC:EC:6C": {"name": "Xiaomi Mijia (2-й поверх)", "type": "Кліматичний BLE-датчик", "location": "2-й поверх"},
-                "41:42:62:69:51:9B": {"name": "JX-BT (1-й поверх)", "type": "Bluetooth-акустика", "location": "1-й поверх"},
-                "F8:5C:7E:EE:7D:CC": {"name": "JBL Clip 5 (Гараж)", "type": "Bluetooth-колонка", "location": "Гараж"},
-                "B8:7E:39:88:22:9B": {"name": "Motorola Edge 50 Pro (Юрій)", "type": "Смартфон власника (Bluetooth)", "location": "Присутність"},
-            }
+            from server.devices_config import get_devices_config
+            dev_cfg = get_devices_config()
+            known_devices = {}
+            for s_key, s_info in dev_cfg.get("sensors", {}).items():
+                if s_info.get("mac"):
+                    known_devices[s_info["mac"].upper().strip()] = {
+                        "name": s_info.get("name", s_key),
+                        "type": "Кліматичний BLE-датчик",
+                        "location": s_info.get("floor", s_key)
+                    }
+            for spk_key, spk_info in dev_cfg.get("speakers", {}).items():
+                if spk_info.get("mac"):
+                    known_devices[spk_info["mac"].upper().strip()] = {
+                        "name": spk_info.get("name", spk_key),
+                        "type": "Bluetooth-акустика",
+                        "location": spk_info.get("floor", spk_key)
+                    }
+            owner_mac = dev_cfg.get("owner", {}).get("phone_mac")
+            if owner_mac:
+                known_devices[owner_mac.upper().strip()] = {
+                    "name": dev_cfg.get("owner", {}).get("name", "Юрій"),
+                    "type": "Смартфон власника (Bluetooth)",
+                    "location": "Присутність"
+                }
 
             formatted = []
             for dev in devs:

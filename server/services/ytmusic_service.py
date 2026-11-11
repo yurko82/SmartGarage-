@@ -29,12 +29,26 @@ def is_russian_content(text: str) -> bool:
 class YTMusicService:
     """Manages YouTube Music playlists, Liked Songs, and track selection."""
 
+    @property
+    def devices_dir(self) -> Path:
+        if getattr(self, "_custom_devices_dir", None):
+            return self._custom_devices_dir
+        from server.utils.paths import get_devices_dir
+        return get_devices_dir()
+
+    @property
+    def cache_file(self) -> Path:
+        return self.devices_dir / "ytmusic_playlists.json"
+
+    @property
+    def tracks_cache_dir(self) -> Path:
+        p = self.devices_dir / "ytmusic_cache"
+        p.mkdir(parents=True, exist_ok=True)
+        return p
+
     def __init__(self, devices_dir: Optional[Path] = None):
         self.root_dir = Path(__file__).resolve().parent.parent.parent
-        self.devices_dir = devices_dir or (self.root_dir / "devices")
-        self.cache_file = self.devices_dir / "ytmusic_playlists.json"
-        self.tracks_cache_dir = self.devices_dir / "ytmusic_cache"
-        self.tracks_cache_dir.mkdir(parents=True, exist_ok=True)
+        self._custom_devices_dir = devices_dir
 
         self._lock = threading.Lock()
         self._playlists_cache: List[Dict[str, Any]] = []

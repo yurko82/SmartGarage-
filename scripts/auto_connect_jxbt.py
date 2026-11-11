@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Continuous auto-connection script for JX-BT (41:42:62:69:51:9B).
+Continuous auto-connection script for JX-BT speaker.
 Keeps trying to pair & connect in background.
 As soon as connection succeeds, automatically configures PipeWire and launches Hit FM!
 """
@@ -9,7 +9,15 @@ import time
 import subprocess
 import dbus
 
-TARGET_MAC = "41:42:62:69:51:9B"
+import os, yaml
+try:
+    _cfg_f = Path(__file__).resolve().parent.parent / "config" / "devices.yaml"
+    if not _cfg_f.exists(): _cfg_f = Path(__file__).resolve().parent.parent / "config" / "devices.yaml.example"
+    _cfg = yaml.safe_load(open(_cfg_f, "r", encoding="utf-8")) or {}
+    _def_mac = _cfg.get("speakers", {}).get("floor1", {}).get("mac", "00:11:22:33:44:01")
+except Exception:
+    _def_mac = "00:11:22:33:44:01"
+TARGET_MAC = sys.argv[1] if len(sys.argv) > 1 else _def_mac
 TARGET_NAME = "JX-BT"
 A2DP_SINK_UUID = "0000110b-0000-1000-8000-00805f9b34fb"
 DEV_PATH = f"/org/bluez/hci0/dev_{TARGET_MAC.replace(':', '_')}"

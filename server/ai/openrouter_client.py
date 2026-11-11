@@ -94,11 +94,19 @@ def sanitize_context_snapshot(snapshot: str) -> str:
 class CostTracker:
     """Облік використання токенів та витрат (USD) у розрізі днів із захистом від перевищення бюджету."""
 
+    @property
+    def storage_path(self) -> Path:
+        if getattr(self, "_custom_storage_path", None):
+            return self._custom_storage_path
+        from server.utils.paths import get_memory_dir
+        return get_memory_dir() / "openrouter_usage.json"
+
+    @storage_path.setter
+    def storage_path(self, val):
+        self._custom_storage_path = Path(val) if val else None
+
     def __init__(self, storage_path: Optional[Path] = None):
-        if storage_path is not None:
-            self.storage_path = Path(storage_path)
-        else:
-            self.storage_path = Path(__file__).resolve().parent.parent.parent / "memory" / "openrouter_usage.json"
+        self._custom_storage_path = Path(storage_path) if storage_path is not None else None
         self._lock = threading.Lock()
         self._load()
 

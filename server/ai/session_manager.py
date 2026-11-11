@@ -275,11 +275,19 @@ class SessionContext:
 class SessionManager:
     """Централізоване потокобезпечне керування ізольованими сесіями з персистентністю."""
 
+    @property
+    def storage_path(self) -> Path:
+        if getattr(self, "_custom_storage_path", None):
+            return self._custom_storage_path
+        from server.utils.paths import get_memory_dir
+        return get_memory_dir() / "dialog_sessions.json"
+
+    @storage_path.setter
+    def storage_path(self, val):
+        self._custom_storage_path = Path(val) if val else None
+
     def __init__(self, storage_path: Optional[Path] = None, session_ttl: int = 1800, action_ttl: int = 300):
-        if storage_path is not None:
-            self.storage_path = Path(storage_path)
-        else:
-            self.storage_path = Path(__file__).resolve().parent.parent.parent / "memory" / "dialog_sessions.json"
+        self._custom_storage_path = Path(storage_path) if storage_path else None
         self.session_ttl = session_ttl
         self.action_ttl = action_ttl
         self._sessions: Dict[str, SessionContext] = {}

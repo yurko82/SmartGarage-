@@ -175,9 +175,21 @@ struct BleFloorSensor {
   unsigned long lastUpdated;
 };
 
+#if __has_include("secrets.h")
+#include "secrets.h"
+#endif
+
+#ifndef BLE_MAC_FLOOR2
+#define BLE_MAC_FLOOR2 "00:11:22:33:44:04"
+#endif
+
+#ifndef BLE_MAC_BASEMENT
+#define BLE_MAC_BASEMENT "00:11:22:33:44:03"
+#endif
+
 BleFloorSensor bleSensors[] = {
-  {"A4:C1:38:EC:EC:6C", "2-й поверх", "floor2", 0.0, 0.0, 0, false, 0},
-  {"A4:C1:38:CC:CA:49", "Підвал", "basement", 0.0, 0.0, 0, false, 0}
+  {BLE_MAC_FLOOR2, "2-й поверх", "floor2", 0.0, 0.0, 0, false, 0},
+  {BLE_MAC_BASEMENT, "Підвал", "basement", 0.0, 0.0, 0, false, 0}
 };
 const int NUM_BLE_SENSORS = sizeof(bleSensors) / sizeof(bleSensors[0]);
 
@@ -1068,7 +1080,7 @@ void setup() {
     if (foundSmGrg) {
       WiFi.begin(WIFI_SSID, WIFI_PASSWORD, targetChannel);
     } else {
-      Serial.println("[WiFi] Пряме підключення до модему за BSSID (A0:62:56:5C:9B:FC, Канал: 6)...");
+      Serial.println("[WiFi] Пряме підключення до модему за BSSID (MODEM_BSSID, Канал: 6)...");
       WiFi.begin(WIFI_SSID, WIFI_PASSWORD, 6, MODEM_BSSID);
     }
 

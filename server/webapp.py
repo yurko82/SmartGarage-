@@ -1023,7 +1023,8 @@ def get_bound_macs() -> set:
 
     # 1. Configured hardware / sensors / speakers from bluetooth_devices.json
     try:
-        bt_file = Path(__file__).resolve().parent.parent / "devices" / "bluetooth_devices.json"
+        from server.utils.paths import get_devices_dir
+        bt_file = get_devices_dir() / "bluetooth_devices.json"
         if bt_file.exists():
             with open(bt_file, "r", encoding="utf-8") as f:
                 data = json.load(f)

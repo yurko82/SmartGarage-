@@ -51,12 +51,24 @@ ZONE_DESCRIPTIONS = {
     "main_fan": "1-й поверх (Гараж): Вентиляція",
 }
 
-DEFAULT_MAPPINGS_FILE = Path(__file__).resolve().parent.parent.parent / "config" / "rf_mappings.json"
+from server.utils.paths import get_rf_mappings_file
+DEFAULT_MAPPINGS_FILE = get_rf_mappings_file()
 
 
 class RfManager:
+    @property
+    def config_path(self) -> Path:
+        if getattr(self, "_custom_config_path", None):
+            return self._custom_config_path
+        from server.utils.paths import get_rf_mappings_file
+        return get_rf_mappings_file()
+
+    @config_path.setter
+    def config_path(self, val):
+        self._custom_config_path = Path(val) if val else None
+
     def __init__(self, config_path: Optional[Path] = None, dedup_window_sec: float = 0.8):
-        self.config_path = Path(config_path) if config_path else DEFAULT_MAPPINGS_FILE
+        self._custom_config_path = Path(config_path) if config_path else None
         self.dedup_window_sec = dedup_window_sec
         self.mappings: Dict[str, Dict[str, Any]] = {}
         self.relays: Dict[str, Dict[str, Any]] = {}
