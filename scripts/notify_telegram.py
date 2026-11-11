@@ -2,6 +2,7 @@
 import sys
 import os
 from pathlib import Path
+import requests
 
 # Ensure repo root is in sys.path
 root = Path(__file__).resolve().parent.parent
@@ -27,11 +28,14 @@ def main():
         print("Telegram token or admin_chat_id missing", file=sys.stderr)
         sys.exit(3)
         
-    ok = bot.send_message(bot.admin_chat_id, text)
-    if ok:
+    url = f"{bot.api_base}/sendMessage"
+    # Try sending with HTML or plain text fallback to avoid Markdown entity parse errors
+    r = requests.post(url, json={"chat_id": bot.admin_chat_id, "text": text}, timeout=10)
+    if r.status_code == 200:
         print("OK")
+        sys.exit(0)
     else:
-        print("FAIL", file=sys.stderr)
+        print(f"FAIL: {r.status_code} {r.text}", file=sys.stderr)
         sys.exit(4)
 
 if __name__ == "__main__":
