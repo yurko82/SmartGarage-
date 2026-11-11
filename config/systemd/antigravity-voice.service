@@ -14,7 +14,7 @@ Environment="PYTHONUNBUFFERED=1"
 Environment="XDG_RUNTIME_DIR=/run/user/%U"
 Environment="PULSE_SERVER=/run/user/%U/pulse/native"
 Slice=antigravity-voice.slice
-ExecStart=%h/AI/OpenInterpreter/venv/bin/python -m server.services.voice_listener
+ExecStart=%h/AI/sg-venv/bin/python -m server.voice.service
 Restart=always
 RestartSec=5
 

@@ -139,7 +139,7 @@ class TelemetryDB:
             conn = self._get_connection()
             try:
                 cur = conn.cursor()
-                params: List[Any] = [start_ts]
+                params: list[Any] = [start_ts]
 
                 query = """
                     SELECT id, timestamp, datetime_str, floor, mac, sensor_name, temperature, humidity, battery
