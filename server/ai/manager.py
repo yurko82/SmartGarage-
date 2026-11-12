@@ -211,7 +211,7 @@ class AIManager:
             "prompt": f"Юрій: {prompt}",
             "stream": False,
             "options": {
-                "temperature": 0.1,
+                "temperature": 0.85,
                 "num_ctx": 2048
             }
         }

@@ -296,7 +296,7 @@ class OpenRouterClient:
         self.max_retries = int(max_retries if max_retries is not None else (os.getenv("OPENROUTER_MAX_RETRIES") or llm_cfg.get("max_retries", 2)))
         self.retry_backoff = float(retry_backoff if retry_backoff is not None else llm_cfg.get("retry_backoff", 1.0))
         self.max_tokens = int(max_tokens if max_tokens is not None else (os.getenv("OPENROUTER_MAX_TOKENS") or llm_cfg.get("max_tokens", 400)))
-        self.temperature = float(temperature if temperature is not None else llm_cfg.get("temperature", 0.0))
+        self.temperature = float(temperature if temperature is not None else llm_cfg.get("temperature", 0.95))
 
         # 5. Обмеження витрат
         self.daily_budget_usd = float(
