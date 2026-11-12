@@ -60,6 +60,8 @@ class CommandRouter:
                 success=success,
                 is_blocked=is_blocked
             )
+            if hasattr(self.ai, "conversation_buffer") and response:
+                self.ai.conversation_buffer.add_simple_turn(session_id, prompt, response)
             return response
 
         # Try converting accidental English keyboard layout to Ukrainian for command execution
@@ -93,6 +95,8 @@ class CommandRouter:
                     success=success,
                     is_blocked=is_blocked
                 )
+                if hasattr(self.ai, "conversation_buffer") and response:
+                    self.ai.conversation_buffer.add_simple_turn(session_id, converted_prompt, response)
                 return response
 
         prompt_for_ai = prompt

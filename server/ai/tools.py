@@ -30,6 +30,10 @@ GARAGE_TOOLS = [
                         "type": "string",
                         "enum": ["on", "off", "toggle"],
                         "description": "Дія: on/off/toggle для light, fan та окремих зон освітлення."
+                    },
+                    "delay_seconds": {
+                        "type": "number",
+                        "description": "Затримка перед виконанням дії у секундах (наприклад: 30 для півхвилини, 60 для 1 хвилини, 300 для 5 хвилин). За замовчуванням 0 (негайно)."
                     }
                 },
                 "required": ["device", "action"]
@@ -282,6 +286,10 @@ GARAGE_TOOLS = [
                         "type": "string",
                         "enum": ["jbl", "jx-bt"],
                         "description": "Цільова колонка: 'jbl' (JBL Clip 5 у гаражі) або 'jx-bt' (JX-BT на 1-му поверсі)."
+                    },
+                    "delay_seconds": {
+                        "type": "number",
+                        "description": "Затримка перед увімкненням у секундах (наприклад: 30 для півхвилини, 60 для 1 хвилини, 300 для 5 хвилин). За замовчуванням 0 (негайно)."
                     }
                 },
                 "required": []
@@ -295,7 +303,12 @@ GARAGE_TOOLS = [
             "description": "Зупинка відтворення радіостанції або музичного потоку на Bluetooth-колонці.",
             "parameters": {
                 "type": "object",
-                "properties": {}
+                "properties": {
+                    "delay_seconds": {
+                        "type": "number",
+                        "description": "Затримка перед зупинкою у секундах (наприклад: 600 для зупинки через 10 хвилин). За замовчуванням 0 (негайно)."
+                    }
+                }
             }
         }
     },
@@ -306,7 +319,61 @@ GARAGE_TOOLS = [
             "description": "Зупинка будь-якої музики, треку, пісні, аудіо або радіо на активній Bluetooth-колонці (JBL Clip 5 у гаражі або JX-BT на 1-му поверсі). Використовуй цей інструмент ЗАВЖДИ, коли користувач просить 'виключ музику', 'вимкни музику', 'зупини музику', 'виключи пісню', 'вимкни пісню', 'стоп', 'тиша', 'виключ радіо', 'вимкни радіо'.",
             "parameters": {
                 "type": "object",
+                "properties": {
+                    "delay_seconds": {
+                        "type": "number",
+                        "description": "Затримка перед зупинкою у секундах (наприклад: 600 для зупинки через 10 хвилин). За замовчуванням 0 (негайно)."
+                    }
+                }
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "schedule_delayed_command",
+            "description": "Планування відкладеного виконання будь-якої дії гаража через вказану кількість секунд або хвилин (наприклад: 'через 1 хвилину увімкни світло', 'через 10 хвилин вимкни радіо', 'через 30 секунд увімкни радіо Релакс на колонку JBL'). Використовуй цей інструмент щоразу, коли Юрій просить виконати дію 'через X секунд/хвилин'.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "command": {
+                        "type": "string",
+                        "description": "Текст команди, яку потрібно виконати із затримкою (наприклад: 'включи радіо релакс на jbl', 'вимкни світло в підвалі', 'зупини музику')."
+                    },
+                    "delay_seconds": {
+                        "type": "number",
+                        "description": "Кількість секунд затримки перед виконанням (наприклад: 30 для півхвилини, 60 для 1 хвилини, 120 для 2 хвилин тощо)."
+                    }
+                },
+                "required": ["command", "delay_seconds"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_active_timers",
+            "description": "Перегляд списку активних запланованих таймерів та відкладених команд у системі.",
+            "parameters": {
+                "type": "object",
                 "properties": {}
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "cancel_timer",
+            "description": "Скасування запланованого таймера або відкладеної команди за її ID або 'all' для скасування всіх активних таймерів.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "timer_id": {
+                        "type": "string",
+                        "description": "ID таймера або 'all' для скасування всіх."
+                    }
+                },
+                "required": ["timer_id"]
             }
         }
     },
@@ -561,6 +628,24 @@ class ToolDispatcher:
                 except (ValueError, TypeError):
                     return False, "days має бути цілим числом"
 
+        elif tool_name == "schedule_delayed_command":
+            cmd = args.get("command")
+            if not cmd or not str(cmd).strip():
+                return False, "параметр 'command' є обов'язковим і не може бути порожнім"
+            delay = args.get("delay_seconds")
+            if delay is None:
+                return False, "параметр 'delay_seconds' є обов'язковим"
+            try:
+                if float(delay) < 0:
+                    return False, "delay_seconds не може бути від'ємним"
+            except (ValueError, TypeError):
+                return False, "delay_seconds має бути числовим значенням"
+
+        elif tool_name == "cancel_timer":
+            tid = args.get("timer_id")
+            if not tid or not str(tid).strip():
+                return False, "параметр 'timer_id' є обов'язковим"
+
         return True, None
 
     def execute(self, tool_name: str, arguments: dict[str, Any], session_id: str = "default") -> dict[str, Any]:
@@ -594,6 +679,9 @@ class ToolDispatcher:
             "search_bike_knowledge",
             "manage_presence_guest",
             "get_visitor_report",
+            "schedule_delayed_command",
+            "list_active_timers",
+            "cancel_timer",
         }
         if tool_name not in ALLOWED_TOOLS:
             res = {
@@ -628,7 +716,8 @@ class ToolDispatcher:
             if tool_name == "control_device":
                 device = arguments.get("device")
                 action = arguments.get("action")
-                res = self._control_device(device, action)
+                delay = float(arguments.get("delay_seconds") or 0)
+                res = self._control_device(device, action, delay_seconds=delay, session_id=session_id)
 
             elif tool_name == "play_song":
                 query = str(arguments.get("query") or "").strip()
@@ -787,14 +876,64 @@ class ToolDispatcher:
             elif tool_name == "play_radio":
                 station = arguments.get("station") or "Hit FM"
                 spk = str(arguments.get("speaker") or "").lower()
-                res = self._play_radio(station, spk)
+                delay = float(arguments.get("delay_seconds") or 0)
+                res = self._play_radio(station, spk, delay_seconds=delay, session_id=session_id)
 
             elif tool_name in ("stop_radio", "stop_music"):
-                if hasattr(self.garage, "speaker") and self.garage.speaker:
+                delay = float(arguments.get("delay_seconds") or 0)
+                if delay > 0:
+                    from server.services.action_scheduler import action_scheduler
+                    rec = action_scheduler.schedule(
+                        delay_seconds=delay,
+                        action_fn=lambda: self.garage.speaker.stop() if hasattr(self.garage, "speaker") and self.garage.speaker else None,
+                        description="Зупинка аудіо/радіо/музики",
+                        session_id=session_id
+                    )
+                    mins = int(delay // 60)
+                    secs = int(delay % 60)
+                    t_desc = (f"{mins} хв " if mins > 0 else "") + (f"{secs} сек" if (secs > 0 or mins == 0) else "")
+                    res = {"success": True, "scheduled": True, "timer_id": rec["id"], "delay_seconds": delay, "message": f"⏳ Заплановано зупинку музики через {t_desc.strip()}."}
+                elif hasattr(self.garage, "speaker") and self.garage.speaker:
                     self.garage.speaker.stop()
                     res = {"success": True, "message": "⏹️ Відтворення аудіо/радіо/музики зупинено"}
                 else:
                     res = {"success": False, "error": "Контролер колонки недоступний"}
+
+            elif tool_name == "schedule_delayed_command":
+                cmd = str(arguments.get("command") or "").strip()
+                delay = float(arguments.get("delay_seconds") or 0)
+                from server.services.action_scheduler import action_scheduler
+                rec = action_scheduler.schedule(
+                    delay_seconds=delay,
+                    action_fn=lambda: self.garage.router.execute(cmd, session_id=session_id) if hasattr(self.garage, "router") else None,
+                    description=f"Команда: {cmd}",
+                    session_id=session_id
+                )
+                mins = int(delay // 60)
+                secs = int(delay % 60)
+                t_desc = (f"{mins} хв " if mins > 0 else "") + (f"{secs} сек" if (secs > 0 or mins == 0) else "")
+                res = {
+                    "success": True,
+                    "scheduled": True,
+                    "timer_id": rec["id"],
+                    "delay_seconds": delay,
+                    "message": f"⏳ Заплановано: '{cmd}' через {t_desc.strip()}."
+                }
+
+            elif tool_name == "list_active_timers":
+                from server.services.action_scheduler import action_scheduler
+                active = action_scheduler.list_active()
+                res = {"success": True, "count": len(active), "timers": active}
+
+            elif tool_name == "cancel_timer":
+                from server.services.action_scheduler import action_scheduler
+                tid = str(arguments.get("timer_id") or "").strip()
+                if tid.lower() in ("all", "всі", "все"):
+                    action_scheduler.clear()
+                    res = {"success": True, "message": "Всі активні таймери та відкладені дії скасовано."}
+                else:
+                    ok = action_scheduler.cancel(tid)
+                    res = {"success": ok, "message": f"Таймер {tid} скасовано" if ok else f"Таймер {tid} не знайдено"}
 
             elif tool_name == "scan_bluetooth_devices":
                 duration = arguments.get("duration", 7)
@@ -831,7 +970,26 @@ class ToolDispatcher:
         session_mgr.record_tool_action(session_id, tool_name, arguments, res, initial_query=arguments.get("query") or arguments.get("station") or tool_name)
         return res
 
-    def _control_device(self, device: str, action: str) -> dict[str, Any]:
+    def _control_device(self, device: str, action: str, delay_seconds: float = 0.0, session_id: str = "default") -> dict[str, Any]:
+        if delay_seconds > 0:
+            from server.services.action_scheduler import action_scheduler
+            rec = action_scheduler.schedule(
+                delay_seconds=delay_seconds,
+                action_fn=lambda: self._control_device(device, action, delay_seconds=0.0, session_id=session_id),
+                description=f"Керування пристроєм {device} ({action})",
+                session_id=session_id
+            )
+            mins = int(delay_seconds // 60)
+            secs = int(delay_seconds % 60)
+            t_desc = (f"{mins} хв " if mins > 0 else "") + (f"{secs} сек" if (secs > 0 or mins == 0) else "")
+            return {
+                "success": True,
+                "scheduled": True,
+                "timer_id": rec["id"],
+                "delay_seconds": delay_seconds,
+                "message": f"⏳ Заплановано: змінити стан {device} на {action} через {t_desc.strip()}."
+            }
+
         if not hasattr(self.garage, "esp32") or not self.garage.esp32:
             return {"success": False, "error": "ESP32 контролер недоступний"}
 
@@ -951,7 +1109,26 @@ class ToolDispatcher:
 
         return {"success": False, "error": f"Невідомий сценарій '{scenario}'"}
 
-    def _play_radio(self, station: str, speaker_target: str = "") -> dict[str, Any]:
+    def _play_radio(self, station: str, speaker_target: str = "", delay_seconds: float = 0.0, session_id: str = "default") -> dict[str, Any]:
+        if delay_seconds > 0:
+            from server.services.action_scheduler import action_scheduler
+            rec = action_scheduler.schedule(
+                delay_seconds=delay_seconds,
+                action_fn=lambda: self._play_radio(station, speaker_target, delay_seconds=0.0, session_id=session_id),
+                description=f"Увімкнення радіо '{station}'",
+                session_id=session_id
+            )
+            mins = int(delay_seconds // 60)
+            secs = int(delay_seconds % 60)
+            t_desc = (f"{mins} хв " if mins > 0 else "") + (f"{secs} сек" if (secs > 0 or mins == 0) else "")
+            return {
+                "success": True,
+                "scheduled": True,
+                "timer_id": rec["id"],
+                "delay_seconds": delay_seconds,
+                "message": f"⏳ Заплановано: увімкнути радіо '{station}' через {t_desc.strip()}."
+            }
+
         initial_st = station
         st_name = (station or "Hit FM").strip()
         if not hasattr(self.garage, "speaker") or not self.garage.speaker:

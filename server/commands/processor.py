@@ -76,6 +76,66 @@ class CommandProcessor:
             return "на колонці JBL Clip 5" if locative else "колонка JBL Clip 5"
         return f"на {name}" if locative and name else (name or "колонці")
 
+    def _extract_temporal_delay(self, command: str) -> tuple[float, str, str]:
+        """Витягує затримку виконання з фрази:
+        'через півхвилини включи радіо' -> (30.0, '30 секунд', 'включи радіо')
+        'через 1 хвилину вимкни світло' -> (60.0, '1 хвилину', 'вимкни світло')
+        'вимкни світло через 2 хвилини' -> (120.0, '2 хвилини', 'вимкни світло')
+        """
+        import re
+        patterns = [
+            # На початку фрази
+            r"^(?:через|за)\s+(півхвилин[иу]?|пів години|півгодини|\d+\s*(?:секунд[иу]?|сек|хвилин[иу]?|хв|годин[иу]?|год)|одну\s+хвилину|хвилину|дві\s+хвилини|три\s+хвилини|п[\x27\’]?ять\s+хвилин|десять\s+хвилин)\s+(.*)$",
+            # В кінці фрази
+            r"^(.*?)\s+(?:через|за)\s+(півхвилин[иу]?|пів години|півгодини|\d+\s*(?:секунд[иу]?|сек|хвилин[иу]?|хв|годин[иу]?|год)|одну\s+хвилину|хвилину|дві\s+хвилини|три\s+хвилини|п[\x27\’]?ять\s+хвилин|десять\s+хвилин)$"
+        ]
+        for p in patterns:
+            m = re.match(p, command.strip(), re.IGNORECASE)
+            if m:
+                if p.startswith("^(.*?)\\s+"):
+                    cleaned = m.group(1).strip()
+                    t_str = m.group(2).strip().lower()
+                else:
+                    t_str = m.group(1).strip().lower()
+                    cleaned = m.group(2).strip()
+
+                sec, desc = self._parse_time_string_to_seconds(t_str)
+                return sec, desc, cleaned
+        return 0.0, "", command
+
+    @staticmethod
+    def _parse_time_string_to_seconds(t_str: str) -> tuple[float, str]:
+        import re
+        t = t_str.strip().lower()
+        if "півхвилин" in t:
+            return 30.0, "30 секунд"
+        if "півгодин" in t or "пів годин" in t:
+            return 1800.0, "30 хвилин"
+        if t in ("хвилину", "одну хвилину", "1 хвилину", "1 хв"):
+            return 60.0, "1 хвилину"
+        if t in ("дві хвилини", "2 хвилини", "2 хв"):
+            return 120.0, "2 хвилини"
+        if t in ("три хвилини", "3 хвилини", "3 хв"):
+            return 180.0, "3 хвилини"
+        if t in ("п'ять хвилин", "п’ять хвилин", "5 хвилин", "5 хв"):
+            return 300.0, "5 хвилин"
+        if t in ("десять хвилин", "10 хвилин", "10 хв"):
+            return 600.0, "10 хвилин"
+
+        m_sec = re.search(r"(\d+)\s*(?:секунд|сек)", t)
+        if m_sec:
+            s = float(m_sec.group(1))
+            return s, f"{int(s)} сек"
+        m_min = re.search(r"(\d+)\s*(?:хвилин|хв)", t)
+        if m_min:
+            m = float(m_min.group(1))
+            return m * 60.0, f"{int(m)} хв"
+        m_hr = re.search(r"(\d+)\s*(?:годин|год)", t)
+        if m_hr:
+            h = float(m_hr.group(1))
+            return h * 3600.0, f"{int(h)} год"
+        return 60.0, "1 хвилину"
+
     def execute(self, command, session_id: str = "default"):
 
         command = command.strip()
@@ -180,6 +240,21 @@ class CommandProcessor:
             sub_candidate = command[filler_match.end():].strip()
             if sub_candidate:
                 command = sub_candidate
+
+        # Обробка відкладених команд із часовими затримками ("через хвилину ...")
+        delay_sec, delay_desc, cleaned_cmd = self._extract_temporal_delay(command)
+        if delay_sec > 0 and cleaned_cmd:
+            sub_handled, sub_resp = self.execute(cleaned_cmd, session_id=session_id)
+            if sub_handled and sub_resp:
+                from server.services.action_scheduler import action_scheduler
+                rec = action_scheduler.schedule(
+                    delay_seconds=delay_sec,
+                    action_fn=lambda: self.execute(cleaned_cmd, session_id=session_id),
+                    description=f"Команда: {cleaned_cmd}",
+                    session_id=session_id
+                )
+                return True, f"⏳ Зрозумів! Заплановано дію '{cleaned_cmd}' через {delay_desc}."
+            return False, None
 
         cmd = command.lower().rstrip("?!.,; ")
 
@@ -553,7 +628,8 @@ class CommandProcessor:
                     if not self.speaker.is_connected():
                         return True, f"⚠️ Не вдалося запустити радіо '{st['name']}' {spk_loc}: колонка не підключена по Bluetooth або вимкнена. Увімкніть живлення/перепідключіть приймач."
                     return True, f"Не вдалося запустити радіо '{st['name']}' {spk_loc}."
-            return True, f"Радіостанцію за запитом '{station_query}' не знайдено в каталозі."
+            # Якщо станцію не знайдено швидким пошуком — НЕ блокуємо ШІ помилкою, а передаємо запит моделі
+            return False, None
 
         # -----------------------
         # YOUTUBE MUSIC PLAYLISTS & FAVORITES
