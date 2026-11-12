@@ -146,20 +146,32 @@ class TestToolDispatcherScheduling(unittest.TestCase):
 
 class TestRouterConversationTurnSync(unittest.TestCase):
 
-    def test_command_turn_synced_to_ai_buffer(self):
+    def test_fast_command_turn_synced_to_ai_buffer(self):
         mock_commands = MagicMock()
-        mock_commands.execute.return_value = (True, "Освітлення гаража увімкнено.")
+        mock_commands.execute.return_value = (True, "Відтворення зупинено.")
 
         mock_ai = MagicMock()
         mock_ai.conversation_buffer = MagicMock()
 
         router = CommandRouter(mock_commands, mock_ai)
+        resp = router.execute("стоп", session_id="test_session")
+
+        self.assertEqual(resp, "Відтворення зупинено.")
+        mock_ai.conversation_buffer.add_simple_turn.assert_called_once_with(
+            "test_session", "стоп", "Відтворення зупинено."
+        )
+
+    def test_natural_language_routes_directly_to_ai(self):
+        mock_commands = MagicMock()
+        mock_ai = MagicMock()
+        mock_ai.chat.return_value = "Освітлення гаража увімкнено."
+
+        router = CommandRouter(mock_commands, mock_ai)
         resp = router.execute("увімкни світло", session_id="test_session")
 
         self.assertEqual(resp, "Освітлення гаража увімкнено.")
-        mock_ai.conversation_buffer.add_simple_turn.assert_called_once_with(
-            "test_session", "увімкни світло", "Освітлення гаража увімкнено."
-        )
+        mock_ai.chat.assert_called_once()
+        mock_commands.execute.assert_not_called()
 
 
 if __name__ == "__main__":
