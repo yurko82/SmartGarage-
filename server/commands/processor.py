@@ -244,17 +244,14 @@ class CommandProcessor:
         # Обробка відкладених команд із часовими затримками ("через хвилину ...")
         delay_sec, delay_desc, cleaned_cmd = self._extract_temporal_delay(command)
         if delay_sec > 0 and cleaned_cmd:
-            sub_handled, sub_resp = self.execute(cleaned_cmd, session_id=session_id)
-            if sub_handled and sub_resp:
-                from server.services.action_scheduler import action_scheduler
-                rec = action_scheduler.schedule(
-                    delay_seconds=delay_sec,
-                    action_fn=lambda: self.execute(cleaned_cmd, session_id=session_id),
-                    description=f"Команда: {cleaned_cmd}",
-                    session_id=session_id
-                )
-                return True, f"⏳ Зрозумів! Заплановано дію '{cleaned_cmd}' через {delay_desc}."
-            return False, None
+            from server.services.action_scheduler import action_scheduler
+            rec = action_scheduler.schedule(
+                delay_seconds=delay_sec,
+                action_fn=lambda: self.execute(cleaned_cmd, session_id=session_id),
+                description=f"Команда: {cleaned_cmd}",
+                session_id=session_id
+            )
+            return True, f"⏳ Зрозумів! Заплановано дію '{cleaned_cmd}' через {delay_desc}."
 
         cmd = command.lower().rstrip("?!.,; ")
 

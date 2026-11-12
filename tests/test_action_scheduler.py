@@ -83,6 +83,16 @@ class TestTemporalCommandParsing(unittest.TestCase):
         self.assertEqual(len(active), 1)
         action_scheduler.clear()
 
+    def test_delayed_command_does_not_execute_immediately(self):
+        action_scheduler.clear()
+        self.proc.speaker.play_stream = MagicMock()
+        handled, resp = self.proc.execute("через 30 секунд включи Kiss FM")
+        self.assertTrue(handled)
+        # Колонка НЕ повинна починати грати негайно при відкладеній команді!
+        self.proc.speaker.play_stream.assert_not_called()
+        self.assertEqual(len(action_scheduler.list_active()), 1)
+        action_scheduler.clear()
+
 
 class TestToolDispatcherScheduling(unittest.TestCase):
 
