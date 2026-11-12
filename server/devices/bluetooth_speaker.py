@@ -490,6 +490,8 @@ class BluetoothSpeakerController:
                 subprocess.run(["pkill", "-9", "-f", "souphttpsrc"], capture_output=True, timeout=2.0)
                 subprocess.run(["pkill", "-9", "-f", "gst-launch-1.0"], capture_output=True, timeout=2.0)
                 subprocess.run(["pkill", "-9", "-f", "gst-play-1.0"], capture_output=True, timeout=2.0)
+                subprocess.run(["pkill", "-9", "-f", "pactl list sinks short"], capture_output=True, timeout=2.0)
+                subprocess.run(["pkill", "-9", "-f", "bluez_output"], capture_output=True, timeout=2.0)
             except Exception:
                 pass
             if manual:
@@ -703,7 +705,13 @@ class BluetoothSpeakerController:
                 self.logger.error(f"Cannot stream '{title}': Bluetooth speaker {self.name} is not connected.")
                 return False
 
-        self.stop(manual=False)
+        # Clear stream info before stopping so watchdog cannot race to resurrect previous station
+        with self._lock:
+            self._active_stream = False
+            self._last_stream_url = None
+            self._last_stream_title = None
+
+        self.stop(manual=True)
         self._playlist_autoplay = False
         time.sleep(0.2)
 

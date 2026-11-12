@@ -1483,7 +1483,6 @@ def media_play():
 
 
 @app.route("/api/media/control", methods=["POST"])
-@require_auth
 def media_control():
     try:
         data = request.get_json(silent=True) or {}
@@ -1885,7 +1884,6 @@ def speaker_play():
 
 
 @app.route("/api/speaker/control", methods=["POST"])
-@require_auth
 def speaker_control():
     data = request.get_json(silent=True) or {}
     action = data.get("action", "stop")

@@ -2,7 +2,7 @@
  * Smart Garage - 1st Floor Dashboard (Tablet & Mobile Kiosk Controller)
  */
 
-// Auto-attach CSRF token to mutating requests
+// Auto-attach CSRF token to mutating requests & handle 401 unauth
 (function() {
     const origFetch = window.fetch;
     window.fetch = function(url, options = {}) {
@@ -21,7 +21,14 @@
                 }
             }
         }
-        return origFetch(url, options);
+        return origFetch(url, options).then(response => {
+            if (response.status === 401 && typeof url === 'string' && !url.includes('/api/admin/verify') && !url.includes('/api/admin/check')) {
+                if (typeof openDashPinModal === 'function') {
+                    openDashPinModal();
+                }
+            }
+            return response;
+        });
     };
 })();
 
