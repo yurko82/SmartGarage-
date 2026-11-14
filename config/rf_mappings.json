@@ -1,35 +1,35 @@
 {
   "version": "2.0",
-  "updated_at": 1794312884.1559484,
+  "updated_at": 1794682144.062349,
   "settings": {
     "dedup_window_sec": 0.8,
     "allow_rf_turn_on": false
   },
   "mappings": {
-    "15835393": {
-      "code": 15835393,
-      "hex": "0xF1A101",
-      "name": "Пульт Кнопка A (Підвал: Світло)",
-      "zone": "basement_light",
+    "9115963": {
+      "code": 9115963,
+      "hex": "0x8B193B",
+      "name": "Кнопка 0x8B193B",
+      "zone": "basement_fan",
       "action": "off",
       "enabled": true,
       "protocol": 1,
       "bits": 24,
       "delay": 320,
-      "created_at": 1794171603.8054986,
+      "created_at": 1794673728.8327348,
       "last_triggered": null
     },
-    "15835394": {
-      "code": 15835394,
-      "hex": "0xF1A102",
-      "name": "Пульт Кнопка B (2-й поверх: Світло)",
-      "zone": "floor2_light",
+    "156751": {
+      "code": 156751,
+      "hex": "0x2644F",
+      "name": "Кнопка 0x2644F",
+      "zone": "basement_fan",
       "action": "off",
       "enabled": true,
       "protocol": 1,
       "bits": 24,
       "delay": 320,
-      "created_at": 1794171603.8054996,
+      "created_at": 1794673930.8964095,
       "last_triggered": null
     }
   },
@@ -44,7 +44,7 @@
       "bits": 24,
       "delay": 320,
       "enabled": true,
-      "created_at": 1794171603.8054986,
+      "created_at": 1794682144.0623152,
       "last_switched": null,
       "last_action": null
     },
@@ -58,9 +58,9 @@
       "bits": 24,
       "delay": 320,
       "enabled": true,
-      "created_at": 1794171603.8054986,
-      "last_switched": 1794312884.1419408,
-      "last_action": "on"
+      "created_at": 1794682144.062316,
+      "last_switched": null,
+      "last_action": null
     },
     "relay_floor2_kitchen": {
       "id": "relay_floor2_kitchen",
@@ -72,7 +72,7 @@
       "bits": 24,
       "delay": 320,
       "enabled": true,
-      "created_at": 1794171603.8054986,
+      "created_at": 1794682144.0623167,
       "last_switched": null,
       "last_action": null
     },
@@ -86,7 +86,7 @@
       "bits": 24,
       "delay": 320,
       "enabled": true,
-      "created_at": 1794171603.8054986,
+      "created_at": 1794682144.062318,
       "last_switched": null,
       "last_action": null
     }
