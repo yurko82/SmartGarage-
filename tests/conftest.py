@@ -27,6 +27,8 @@ IGNORED_DEVICE_FILES = {
     "telemetry.db",
     "telemetry.db-wal",
     "telemetry.db-shm",
+    "openrouter_usage.json",
+    "dialog_sessions.json",
 }
 
 def _get_path_snapshot(path: Path):
