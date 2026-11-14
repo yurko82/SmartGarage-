@@ -321,10 +321,11 @@ class ESP32Controller:
 
                 # Periodically query telemetry in background every 5 seconds if verified
                 if getattr(self, "_serial_handshake_verified", False) and (now - last_poll_cmd > 5.0):
-                    self._send_serial_command("CMD:GET_TELEMETRY")
+                    self._send_serial_command("CMD:STATUS")
                     self._send_serial_command("CMD:RF_STATUS")
                     last_poll_cmd = now
                 elif not getattr(self, "_serial_handshake_verified", False) and (now - last_poll_cmd > 3.0):
+                    self._send_raw_serial("CMD:STATUS")
                     self._send_raw_serial("CMD:PING")
                     last_poll_cmd = now
 
@@ -367,7 +368,7 @@ class ESP32Controller:
 
     def _parse_serial_line(self, line: str):
         # 1. Handshake verification response
-        if "PONG:ESP32_SMARTGARAGE" in line or line == "PONG" or "esp32_smartgarage" in line or "[SmartGarage] ESP32" in line:
+        if "PONG" in line or "pong" in line or "[SmartGarage]" in line or "[CC1101]" in line or "esp32_smartgarage" in line:
             with self._lock:
                 self._serial_handshake_verified = True
                 self.state["online"] = True
@@ -442,6 +443,7 @@ class ESP32Controller:
                         else:
                             self.state["rf_status"] = data
                 elif "rf_sent" in data or "tx_ok" in data:
+                    logger.info("RF_SEND response received: %s", data)
                     with self._lock:
                         self._serial_handshake_verified = True
                         self.last_rf_tx_result = {
@@ -917,27 +919,29 @@ class ESP32Controller:
         delay: int = 320
     ) -> bool:
         """Трансляція 433 МГц радіосигналу в ефір через CC1101 із самоперевіркою та записом у журнал активності."""
-        with self._lock:
-            c_int = int(code)
-            hex_code = hex(c_int).upper().replace("X", "x")
-            from server.devices.rf_manager import ZONE_DESCRIPTIONS
-            desc = name or (ZONE_DESCRIPTIONS.get(zone) if zone else f"Код {hex_code}")
+        c_int = int(code)
+        hex_code = hex(c_int).upper().replace("X", "x")
+        from server.devices.rf_manager import ZONE_DESCRIPTIONS
+        desc = name or (ZONE_DESCRIPTIONS.get(zone) if zone else f"Код {hex_code}")
 
-            if hasattr(self, "_rf_tx_event"):
-                self._rf_tx_event.clear()
+        if hasattr(self, "_rf_tx_event"):
+            self._rf_tx_event.clear()
+        with self._lock:
             self.last_rf_tx_result = None
 
-            ok = self._send_serial_command(f"CMD:RF_SEND:{c_int}")
+        ok = self._send_serial_command(f"CMD:RF_SEND:{c_int}")
+        logger.info("RF_SEND dispatched to serial: code=%s, ok=%s", c_int, ok)
 
-            # Очікування відповіді від ESP32 або емуляція в mock/testing
-            tx_ok = ok
-            tx_state = 0x13 if ok else 0x01
-            rx_restored = ok
+        # Очікування відповіді від ESP32 або емуляція в mock/testing
+        tx_ok = ok
+        tx_state = 0x13 if ok else 0x01
+        rx_restored = ok
 
-            if self.mode == "mock" or os.environ.get("TESTING"):
-                tx_ok = True
-                tx_state = 0x13
-                rx_restored = True
+        if self.mode == "mock" or os.environ.get("TESTING"):
+            tx_ok = True
+            tx_state = 0x13
+            rx_restored = True
+            with self._lock:
                 self.last_rf_tx_result = {
                     "tx_ok": True,
                     "tx_state": 0x13,
@@ -946,9 +950,11 @@ class ESP32Controller:
                     "status": "ok",
                     "time": time.time(),
                 }
-            elif ok:
-                if hasattr(self, "_rf_tx_event"):
-                    self._rf_tx_event.wait(timeout=1.2)
+        elif ok:
+            if hasattr(self, "_rf_tx_event"):
+                event_set = self._rf_tx_event.wait(timeout=3.0)
+                logger.info("RF_SEND event wait result: event_set=%s, last_rf_tx_result=%s", event_set, self.last_rf_tx_result)
+            with self._lock:
                 if self.last_rf_tx_result:
                     tx_ok = bool(self.last_rf_tx_result.get("tx_ok", True))
                     tx_state = self.last_rf_tx_result.get("tx_state")
@@ -965,34 +971,34 @@ class ESP32Controller:
                         "time": time.time(),
                     }
 
-            is_success = bool(ok and tx_ok and rx_restored)
-            log_status = "info" if is_success else "error"
-            log_title = f"📡 Передача 433 МГц: {desc}"
-            log_msg = f"Код: {c_int} ({hex_code}) | Дія: {action.upper()} | TX: {'OK' if tx_ok else 'FAIL'} (state={tx_state}) | RX: {'OK' if rx_restored else 'FAIL'}"
-            self.log_event("rf", log_status, log_title, log_msg, {
-                "code": c_int,
-                "hex": hex_code,
-                "zone": zone,
-                "action": action,
-                "tx_ok": tx_ok,
-                "tx_state": tx_state,
-                "rx_restored": rx_restored
-            })
+        is_success = bool(ok and tx_ok and rx_restored)
+        log_status = "info" if is_success else "error"
+        log_title = f"📡 Передача 433 МГц: {desc}"
+        log_msg = f"Код: {c_int} ({hex_code}) | Дія: {action.upper()} | TX: {'OK' if tx_ok else 'FAIL'} (state={tx_state}) | RX: {'OK' if rx_restored else 'FAIL'}"
+        self.log_event("rf", log_status, log_title, log_msg, {
+            "code": c_int,
+            "hex": hex_code,
+            "zone": zone,
+            "action": action,
+            "tx_ok": tx_ok,
+            "tx_state": tx_state,
+            "rx_restored": rx_restored
+        })
 
-            if hasattr(self, "rf_manager"):
-                self.rf_manager.log_activity(
-                    direction="TX",
-                    code=c_int,
-                    action=action,
-                    zone=zone,
-                    zone_title=desc,
-                    status="success" if is_success else "error",
-                    details=f"Команда {action.upper()} для {desc} (tx_ok={tx_ok}, state={tx_state}, rx_restored={rx_restored})",
-                    protocol=protocol,
-                    bits=bits,
-                    delay=delay
-                )
-            return is_success
+        if hasattr(self, "rf_manager"):
+            self.rf_manager.log_activity(
+                direction="TX",
+                code=c_int,
+                action=action,
+                zone=zone,
+                zone_title=desc,
+                status="success" if is_success else "error",
+                details=f"Команда {action.upper()} для {desc} (tx_ok={tx_ok}, state={tx_state}, rx_restored={rx_restored})",
+                protocol=protocol,
+                bits=bits,
+                delay=delay
+            )
+        return is_success
 
     def rf_pair_relay(self, code: int, duration_sec: int = 15, name: str = "") -> bool:
         """Безперервна трансляція коду для запису в нове радіореле під час сполучення."""

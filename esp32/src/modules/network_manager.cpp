@@ -391,6 +391,8 @@ void NetworkManager::processSerialCommand(String cmd) {
         bleScanner.runActiveScan(duration);
     } else if (cmd.equalsIgnoreCase("STATUS") || cmd.equalsIgnoreCase("CMD:STATUS") || cmd == "{\"command\":\"status\"}") {
         Serial.println("RESP:" + buildTelemetryJson());
+    } else if (cmd.equalsIgnoreCase("PING") || cmd.equalsIgnoreCase("CMD:PING") || cmd == "{\"command\":\"ping\"}") {
+        Serial.println("RESP:{\"status\":\"ok\",\"pong\":true}");
     } else if (cmd.equalsIgnoreCase("REBOOT") || cmd.equalsIgnoreCase("CMD:REBOOT")) {
         Serial.println("RESP:{\"status\":\"ok\",\"action\":\"rebooting\"}");
         delay(500);
