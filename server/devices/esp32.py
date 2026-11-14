@@ -407,7 +407,7 @@ class ESP32Controller:
                     if bits >= 32:
                         break
 
-                if bits >= 12 and (valid or bits >= 20):
+                if bits >= 16 and (valid or bits >= 20):
                     avg_delay = int(sum(shorters) / len(shorters)) if shorters else 320
                     result = {
                         "code": code,
@@ -454,7 +454,7 @@ class ESP32Controller:
                             break
                         if bits >= 32:
                             break
-                    if bits >= 12:
+                    if bits >= 16:
                         return {
                             "code": code,
                             "hex": hex(code).upper().replace("X", "x"),

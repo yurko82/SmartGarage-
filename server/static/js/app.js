@@ -1869,6 +1869,7 @@ document.addEventListener('DOMContentLoaded', () => {
             loadLogData();
             loadRfStatus();
             loadRelays();
+            loadMappings();
         } else {
             if (adminAuthSection) adminAuthSection.style.display = 'block';
             if (adminContentSection) adminContentSection.style.display = 'none';
@@ -2449,9 +2450,14 @@ document.addEventListener('DOMContentLoaded', () => {
                                         Протокол: ${lastSniffed.protocol || 1} • Біти: ${lastSniffed.bits || 24} • Затримка: ${lastSniffed.delay || 320} мкс
                                     </div>
                                 </div>
-                                <button type="button" class="btn-sm btn-fill-sniffed" data-code="${lastSniffed.code}" style="background: rgba(34,197,94,0.2); color: #22c55e; border: 1px solid #22c55e; cursor: pointer;">
-                                    📋 Вставити у форму реле
-                                </button>
+                                <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                                    <button type="button" class="btn-sm btn-quick-map" data-code="${lastSniffed.code}" data-hex="${escapeHtml(codeHex)}" style="background: rgba(56, 189, 248, 0.2); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.5); cursor: pointer;">
+                                        🔗 Прив'язати кнопку до реле
+                                    </button>
+                                    <button type="button" class="btn-sm btn-fill-sniffed" data-code="${lastSniffed.code}" style="background: rgba(34,197,94,0.2); color: #22c55e; border: 1px solid #22c55e; cursor: pointer;">
+                                        📋 Вставити у форму реле
+                                    </button>
+                                </div>
                             </div>
                         `;
                     } else {
@@ -2482,7 +2488,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 if (rfActivityTableBody && data.activity) {
                     if (data.activity.length === 0) {
-                        rfActivityTableBody.innerHTML = '<tr><td colspan="6" class="text-muted">Немає зафіксованих подій в ефірі</td></tr>';
+                        rfActivityTableBody.innerHTML = '<tr><td colspan="7" class="text-muted">Немає зафіксованих подій в ефірі</td></tr>';
                     } else {
                         rfActivityTableBody.innerHTML = data.activity.map(item => {
                             const isTx = item.direction === 'TX';
@@ -2492,6 +2498,9 @@ document.addEventListener('DOMContentLoaded', () => {
                             const actBadge = item.is_repeat 
                                 ? '<span class="badge" style="background:rgba(255,255,255,0.1); color:#cbd5e1;">Повтор (Burst)</span>' 
                                 : (item.action === 'off' ? '<span class="badge" style="background:#ef4444; color:#fff;">OFF</span>' : (item.action === 'on' ? '<span class="badge" style="background:#22c55e; color:#fff;">ON</span>' : `<span class="badge" style="background:rgba(255,255,255,0.1); color:#cbd5e1;">${escapeHtml(item.action)}</span>`));
+                            const mapAction = (!isTx && item.code)
+                                ? `<button class="btn-sm btn-quick-map" data-code="${item.code}" data-hex="${escapeHtml(item.hex)}" style="padding:2px 8px; font-size:11px; background:rgba(56,189,248,0.2); color:#38bdf8; border:1px solid rgba(56,189,248,0.4); cursor:pointer;">🔗 Прив'язати</button>`
+                                : '<span class="text-muted">—</span>';
                             return `
                                 <tr>
                                     <td><strong>${escapeHtml(item.time)}</strong></td>
@@ -2500,6 +2509,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                     <td>${escapeHtml(item.zone_title || item.zone || '—')}</td>
                                     <td>${actBadge}</td>
                                     <td><small>${escapeHtml(item.details || '—')}</small></td>
+                                    <td>${mapAction}</td>
                                 </tr>
                             `;
                         }).join('');
@@ -2546,8 +2556,80 @@ document.addEventListener('DOMContentLoaded', () => {
             .catch(() => {});
     }
 
+    function loadMappings() {
+        fetch('/api/rf/mappings')
+            .then(res => res.json())
+            .then(data => {
+                const mappingsTableBody = document.getElementById('mappingsTableBody');
+                if (!data.success || !mappingsTableBody) return;
+                const mappings = Object.values(data.mappings || {});
+                if (mappings.length === 0) {
+                    mappingsTableBody.innerHTML = '<tr><td colspan="6" class="text-muted">Немає прив\'язаних кнопок пультів. Натисніть кнопку на пульті та прив\'яжіть її вище.</td></tr>';
+                    return;
+                }
+                mappingsTableBody.innerHTML = mappings.map(m => {
+                    const hexVal = m.hex || ('0x' + Number(m.code).toString(16).toUpperCase());
+                    const lastTrig = m.last_triggered ? formatTime(m.last_triggered) : 'Не спрацьовувала';
+                    return `
+                        <tr>
+                            <td><strong>${escapeHtml(m.name || 'Кнопка пульта')}</strong></td>
+                            <td><code>${escapeHtml(hexVal)}</code> <small class="text-muted">(${m.code})</small></td>
+                            <td><span class="badge" style="background:#2563eb; color:#fff;">${escapeHtml(m.zone)}</span></td>
+                            <td><span class="badge" style="background:#ef4444; color:#fff;">OFF (Вимкнення)</span></td>
+                            <td><small>${lastTrig}</small></td>
+                            <td>
+                                <button class="btn-sm btn-danger btn-mapping-del" data-code="${m.code}" title="Видалити прив'язку кнопки">🗑️ Видалити</button>
+                            </td>
+                        </tr>
+                    `;
+                }).join('');
+            })
+            .catch(() => {});
+    }
+
     // Event delegation for zone buttons & relay action buttons
     document.addEventListener('click', (e) => {
+        const btnDelMapping = e.target.closest('.btn-mapping-del');
+        if (btnDelMapping) {
+            const code = btnDelMapping.getAttribute('data-code');
+            if (code && confirm(`Видалити прив'язку кнопки з кодом ${code}?`)) {
+                fetch(`/api/rf/mappings/${encodeURIComponent(code)}`, { method: 'DELETE' })
+                    .then(res => res.json())
+                    .then(d => {
+                        if (d.success) {
+                            loadMappings();
+                            loadRfStatus();
+                        } else {
+                            alert('Помилка видалення: ' + (d.error || ''));
+                        }
+                    })
+                    .catch(err => alert('Помилка запиту: ' + err.message));
+            }
+            return;
+        }
+
+        const btnQuickMap = e.target.closest('.btn-quick-map');
+        if (btnQuickMap) {
+            const code = btnQuickMap.getAttribute('data-code');
+            const hex = btnQuickMap.getAttribute('data-hex');
+            const codeInput = document.getElementById('mappingCodeInput');
+            const nameInput = document.getElementById('mappingNameInput');
+            const container = document.getElementById('mappingFormContainer');
+
+            if (codeInput) codeInput.value = code || hex || '';
+            if (nameInput) nameInput.value = `Кнопка ${hex || code}`;
+            if (container) {
+                container.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                container.style.borderColor = '#22c55e';
+                container.style.boxShadow = '0 0 14px rgba(34, 197, 94, 0.4)';
+                setTimeout(() => {
+                    container.style.borderColor = 'rgba(56, 189, 248, 0.25)';
+                    container.style.boxShadow = 'none';
+                }, 2500);
+            }
+            if (nameInput) nameInput.focus();
+            return;
+        }
         const btnZone = e.target.closest('.btn-zone-action');
         if (btnZone) {
             const zone = btnZone.getAttribute('data-zone');
@@ -2676,7 +2758,7 @@ document.addEventListener('DOMContentLoaded', () => {
             .then(data => {
                 if (data.success) {
                     if (rfActivityTableBody) {
-                        rfActivityTableBody.innerHTML = '<tr><td colspan="6" class="text-muted">Журнал очищено. Очікування нових сигналів 433 МГц...</td></tr>';
+                        rfActivityTableBody.innerHTML = '<tr><td colspan="7" class="text-muted">Журнал очищено. Очікування нових сигналів 433 МГц...</td></tr>';
                     }
                     if (rfLastSniffedContainer) {
                         rfLastSniffedContainer.innerHTML = '<span class="text-muted">Журнал очищено. Натисніть кнопку на пульті біля антени...</span>';
@@ -2701,7 +2783,10 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     if (btnRefreshRelays) {
-        btnRefreshRelays.addEventListener('click', () => loadRelays());
+        btnRefreshRelays.addEventListener('click', () => {
+            loadRelays();
+            loadMappings();
+        });
     }
 
     if (btnRfDiag) {
@@ -2966,6 +3051,64 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
     });
+
+    // Обробка форми прив'язки кнопки пульта
+    const rfMappingForm = document.getElementById('rfMappingForm');
+    if (rfMappingForm) {
+        rfMappingForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const codeInput = document.getElementById('mappingCodeInput');
+            const nameInput = document.getElementById('mappingNameInput');
+            const zoneSelect = document.getElementById('mappingZoneSelect');
+            const statusMsg = document.getElementById('mappingStatusMsg');
+
+            let rawCode = (codeInput ? codeInput.value : '').trim();
+            let codeVal = (rawCode.startsWith('0x') || rawCode.startsWith('0X'))
+                ? parseInt(rawCode, 16)
+                : parseInt(rawCode, 10);
+
+            if (!codeVal || isNaN(codeVal)) {
+                alert('Вкажіть коректний код кнопки пульта (числовий або HEX)');
+                return;
+            }
+
+            const payload = {
+                code: codeVal,
+                name: (nameInput ? nameInput.value : '').trim() || `Кнопка ${rawCode}`,
+                zone: zoneSelect ? zoneSelect.value : 'basement_light',
+                action: 'off'
+            };
+
+            fetch('/api/rf/mappings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            })
+            .then(res => res.json())
+            .then(d => {
+                if (d.success) {
+                    if (statusMsg) {
+                        statusMsg.style.display = 'block';
+                        statusMsg.style.color = '#22c55e';
+                        statusMsg.textContent = `✅ Кнопку "${payload.name}" (${payload.code}) успішно прив'язано до зони "${payload.zone}"!`;
+                        setTimeout(() => { if (statusMsg) statusMsg.style.display = 'none'; }, 4000);
+                    }
+                    if (nameInput) nameInput.value = '';
+                    if (codeInput) codeInput.value = '';
+                    loadMappings();
+                    loadRfStatus();
+                } else {
+                    alert('Помилка збереження прив\'язки: ' + (d.error || 'невідомо'));
+                }
+            })
+            .catch(err => alert('Помилка: ' + err.message));
+        });
+    }
+
+    const btnRefreshMappings = document.getElementById('btnRefreshMappings');
+    if (btnRefreshMappings) {
+        btnRefreshMappings.addEventListener('click', () => loadMappings());
+    }
 
     // Автоматичне періодичне опитування радіотракту кожні 3.5 секунди
     setInterval(() => {

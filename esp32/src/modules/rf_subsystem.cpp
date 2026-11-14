@@ -592,7 +592,7 @@ void RfSubsystem::update() {
                     if (curBits >= 32) break;
                 }
 
-                if (curBits >= 12 && (curBits > bestBits || (valid && curBits >= 24))) {
+                if (curBits >= 16 && (curBits > bestBits || (valid && curBits >= 24))) {
                     bestBits = curBits;
                     bestCode = curCode;
                     bestDelay = (curBits > 0) ? (sumShorter / curBits) : 320;
@@ -603,7 +603,7 @@ void RfSubsystem::update() {
             }
 
             // Fallback: адаптивне декодування Manchester (пульти з короткими півтактами 110..220 мкс)
-            if (bestBits < 12 && count >= 16) {
+            if (bestBits < 16 && count >= 16) {
                 unsigned long minPulse = 999999;
                 for (unsigned int i = 1; i < count; i++) {
                     unsigned int dur = g_rf_raw_capture.timings[i];
@@ -640,7 +640,7 @@ void RfSubsystem::update() {
                                 break;
                             }
                         }
-                        if (mBits >= 12 && mBits > bestBits) {
+                        if (mBits >= 16 && mBits > bestBits) {
                             bestBits = mBits;
                             bestCode = mCode;
                             bestDelay = baseT;
@@ -650,7 +650,7 @@ void RfSubsystem::update() {
                 }
             }
 
-            if (bestBits >= 12) {
+            if (bestBits >= 16) {
                 decodeSuccess = true;
                 decodedCode = bestCode;
                 decodedBits = bestBits;
