@@ -612,17 +612,21 @@ class ESP32Controller:
                     elif not res.get("deduplicated"):
                         self.log_event("rf", "info", "📡 Перехоплено 433 МГц радіосигнал", log_msg, rf_info)
                 elif "[RF_RX_RAW]" in line or "[RF_RAW_DATA]" in line:
-                    self.log_event("rf", "warning", "📡 Сигнал 433 МГц виявлено (невідомий протокол)", line)
+                    self.log_event("rf", "info", "📡 Сигнал 433 МГц виявлено (невідомий протокол)", line)
                     logger.info("📡 [RF_RAW] %s", line)
-                    if hasattr(self, "rf_manager"):
-                        self.rf_manager.log_activity(
-                            direction="RX",
-                            code=0,
-                            action="raw",
-                            zone_title="Невідомий пакет",
-                            status="warning",
-                            details=line
-                        )
+                    if hasattr(self, "rf_manager") and self.rf_manager.is_learning():
+                        now = time.time()
+                        last_raw = getattr(self, "_last_raw_log_time", 0.0)
+                        if now - last_raw >= 1.5:
+                            self._last_raw_log_time = now
+                            self.rf_manager.log_activity(
+                                direction="RX",
+                                code=0,
+                                action="raw",
+                                zone_title="Нерозпізнаний сигнал",
+                                status="warning",
+                                details=line[:120]
+                            )
                 else:
                     self.log_event("rf", "info", "ESP32 RF_RX", line)
             except Exception as e:
@@ -1191,6 +1195,15 @@ class ESP32Controller:
         if hasattr(self, "rf_manager"):
             return self.rf_manager.get_metrics()
         return {}
+
+    def clear_rf_activity(self) -> bool:
+        """Очистити журнал активності 433 МГц, останні захоплені пакети та буфер навчання."""
+        with self._lock:
+            self.state["last_rf_sniffed"] = None
+            if hasattr(self, "rf_manager"):
+                self.rf_manager.clear_activity_log()
+                self.rf_manager.clear_learning_buffer()
+        return True
 
     def rf_pair(self, duration_sec: int = 30) -> bool:
         """Запуск безперервної трансляції коду сполучення для запису в пам'ять реле."""

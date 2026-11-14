@@ -445,6 +445,18 @@ class TestRfRawDecoding(unittest.TestCase):
         self.assertEqual(self.controller.state["last_rf_sniffed"]["code"], 0xFFFFFF)
         self.assertEqual(self.controller.state["last_rf_sniffed"]["mode"], "raw_python")
 
+    def test_controller_clear_rf_activity(self):
+        """Verify that clear_rf_activity clears sniffed state, logs and buffers."""
+        self.controller.state["last_rf_sniffed"] = {"code": 12345}
+        self.controller.rf_manager.log_activity("RX", 12345)
+        self.assertEqual(len(self.controller.rf_manager.activity_log), 1)
+
+        ok = self.controller.clear_rf_activity()
+        self.assertTrue(ok)
+        self.assertIsNone(self.controller.state["last_rf_sniffed"])
+        self.assertEqual(len(self.controller.rf_manager.activity_log), 0)
+        self.assertEqual(self.controller.rf_manager.stats["rx_count"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()

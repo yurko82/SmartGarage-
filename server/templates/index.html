@@ -771,9 +771,10 @@
                         <div class="admin-section">
                             <div class="admin-section-header">
                                 <h3>📡 433 МГц Трансивер (CC1101): Показники та Журнал ефіру</h3>
-                                <div style="display: flex; gap: 8px;">
+                                <div style="display: flex; gap: 8px; flex-wrap: wrap;">
                                     <button class="btn-sm" id="btnRefreshRfActivity" aria-label="Оновити журнал 433 МГц">🔄 Оновити лог</button>
                                     <button class="btn-sm" id="btnRfDiag" aria-label="Апаратна діагностика CC1101">🧪 Опитати CC1101</button>
+                                    <button class="btn-sm" id="btnClearRfActivity" style="background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.4);" aria-label="Очистити журнал 433 МГц">🗑️ Очистити журнал</button>
                                 </div>
                             </div>
 
@@ -839,6 +840,7 @@
                                         <div style="display: flex; gap: 8px; flex-wrap: wrap;">
                                             <button type="button" class="btn-sm btn-primary" id="btnStartRfLearn120" style="background: #2563eb; color: #fff;">🎙️ Почати навчання (120 с)</button>
                                             <button type="button" class="btn-sm" id="btnStopRfLearn" style="display: none; background: #dc2626; color: #fff;">🛑 Зупинити навчання</button>
+                                            <button type="button" class="btn-sm" id="btnClearRfCaptured" style="background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.4);" aria-label="Скинути прийняті сигнали">🗑️ Очистити вікно</button>
                                         </div>
                                     </div>
 

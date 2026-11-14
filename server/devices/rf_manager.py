@@ -447,6 +447,19 @@ class RfManager:
     def clear_learning_buffer(self) -> None:
         self.learning_buffer.clear()
 
+    def clear_activity_log(self) -> None:
+        """Очистити журнал активності 433 МГц та скинути лічильники пакетів."""
+        self.activity_log.clear()
+        self._last_event_time.clear()
+        self._repeat_counts.clear()
+        self.stats["rx_count"] = 0
+        self.stats["tx_count"] = 0
+        self.stats["burst_dedup_count"] = 0
+        self.stats["last_rx_time"] = None
+        self.stats["last_rx_code"] = None
+        self.stats["last_tx_time"] = None
+        self.stats["last_tx_code"] = None
+
     # --- INCOMING RX EVENT PROCESSING ---
     def process_rf_event(
         self,

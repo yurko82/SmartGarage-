@@ -682,15 +682,15 @@ void RECEIVE_ATTR RCSwitch::handleInterrupt() {
   const unsigned long time = micros();
   const unsigned int duration = time - lastTime;
 
-  // Ігноруємо надкороткі шумові викиди (< 50 мкс)
-  if (duration < 50) {
+  // Ігноруємо шум ефіру CC1101 (< 140 мкс). Жоден пульт 433 МГц (EV1527, PT2262 тощо) не має імпульсів < 180 мкс.
+  if (duration < 140) {
     return;
   }
   lastTime = time;
 
   // Синхропауза (> 3500 мкс) між пакетами ASK/OOK
   if (duration > RCSwitch::nSeparationLimit || duration > 3500) {
-    if (changeCount >= 10 && !g_rf_raw_capture.ready) {
+    if (changeCount >= 16 && !g_rf_raw_capture.ready) {
       g_rf_raw_capture.count = changeCount;
       g_rf_raw_capture.sync = duration;
       for (unsigned int i = 0; i < changeCount && i < RCSWITCH_MAX_CHANGES; i++) {

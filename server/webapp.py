@@ -693,6 +693,16 @@ def rf_activity_get():
     return jsonify({"success": False, "error": "ESP32 не ініціалізовано"}), 500
 
 
+@app.route("/api/rf/activity/clear", methods=["POST"])
+@app.route("/api/rf/clear", methods=["POST"])
+@require_auth
+def rf_activity_clear():
+    if hasattr(garage, "esp32") and garage.esp32:
+        garage.esp32.clear_rf_activity()
+        return jsonify({"success": True, "message": "Журнал активності та прийняті пакети успішно очищено"})
+    return jsonify({"success": False, "error": "ESP32 не ініціалізовано"}), 500
+
+
 @app.route("/api/rf/zones", methods=["GET"])
 @require_auth
 def rf_zones_get():

@@ -620,14 +620,18 @@ void RfSubsystem::update() {
             gateCtrl.setLedColor(0, 200, 0);
             currentLedState = 2;
             ledResetTime = now + 1500;
-        } else {
-            Serial.printf("[RF_RAW_DATA] count=%u sync=%u timings=[", count, sync);
-            unsigned int printLimit = (count < 64) ? count : 64;
-            for (unsigned int i = 0; i < printLimit; i++) {
-                Serial.printf("%u%s", g_rf_raw_capture.timings[i], (i + 1 < printLimit) ? "," : "");
-            }
-            Serial.println("]");
-            if (rfLearningActive && count >= 16) {
+        } else if (rfLearningActive && count >= 16) {
+            // Тільки у режимі навчання виводимо сирі таймінги для аналізу, якщо це не високочастотний шум
+            unsigned long totalSample = 0;
+            unsigned int sampleN = (count < 20) ? count : 20;
+            for (unsigned int k = 1; k < sampleN; k++) totalSample += g_rf_raw_capture.timings[k];
+            if (sampleN > 1 && (totalSample / (sampleN - 1)) >= 160) {
+                Serial.printf("[RF_RAW_DATA] count=%u sync=%u timings=[", count, sync);
+                unsigned int printLimit = (count < 64) ? count : 64;
+                for (unsigned int i = 0; i < printLimit; i++) {
+                    Serial.printf("%u%s", g_rf_raw_capture.timings[i], (i + 1 < printLimit) ? "," : "");
+                }
+                Serial.println("]");
                 Serial.printf("[RF_RX_RAW] Спіймано імпульси в режимі навчання (%u імпульсів, sync=%u us)\n", count, sync);
             }
         }

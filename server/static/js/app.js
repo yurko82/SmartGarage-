@@ -2286,6 +2286,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const statRfLastTx = document.getElementById('statRfLastTx');
     const statRfLastRx = document.getElementById('statRfLastRx');
     const rfActivityTableBody = document.getElementById('rfActivityTableBody');
+    const btnClearRfActivity = document.getElementById('btnClearRfActivity');
+    const btnClearRfCaptured = document.getElementById('btnClearRfCaptured');
 
     // CC1101 Detailed Diagnostics Elements
     const rfLivePulseBadge = document.getElementById('rfLivePulseBadge');
@@ -2666,6 +2668,36 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (btnRefreshRfActivity) {
         btnRefreshRfActivity.addEventListener('click', () => loadRfStatus());
+    }
+
+    function handleClearRfActivity() {
+        fetch('/api/rf/activity/clear', { method: 'POST' })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    if (rfActivityTableBody) {
+                        rfActivityTableBody.innerHTML = '<tr><td colspan="6" class="text-muted">Журнал очищено. Очікування нових сигналів 433 МГц...</td></tr>';
+                    }
+                    if (rfLastSniffedContainer) {
+                        rfLastSniffedContainer.innerHTML = '<span class="text-muted">Журнал очищено. Натисніть кнопку на пульті біля антени...</span>';
+                    }
+                    if (statRfRxCount) statRfRxCount.textContent = '0';
+                    if (statRfTxCount) statRfTxCount.textContent = '0';
+                    if (statRfDedupCount) statRfDedupCount.textContent = '0';
+                    loadRfStatus();
+                } else {
+                    alert('Помилка очищення журналу: ' + (data.error || 'невідомо'));
+                }
+            })
+            .catch(err => alert('Помилка запиту: ' + err.message));
+    }
+
+    if (btnClearRfActivity) {
+        btnClearRfActivity.addEventListener('click', handleClearRfActivity);
+    }
+
+    if (btnClearRfCaptured) {
+        btnClearRfCaptured.addEventListener('click', handleClearRfActivity);
     }
 
     if (btnRefreshRelays) {
