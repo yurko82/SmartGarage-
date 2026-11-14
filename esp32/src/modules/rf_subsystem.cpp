@@ -76,6 +76,20 @@ bool RfSubsystem::autoDetectPins() {
     return false;
 }
 
+static uint8_t spiByte(uint8_t sck, uint8_t mosi, uint8_t miso, uint8_t val) {
+    uint8_t in = 0;
+    for (int i = 7; i >= 0; i--) {
+        digitalWrite(mosi, (val >> i) & 1);
+        delayMicroseconds(5);
+        digitalWrite(sck, HIGH);
+        delayMicroseconds(5);
+        in = (in << 1) | digitalRead(miso);
+        digitalWrite(sck, LOW);
+        delayMicroseconds(5);
+    }
+    return in;
+}
+
 static void bitbangWrite(uint8_t csn, uint8_t sck, uint8_t mosi, uint8_t miso, uint8_t addr, uint8_t val) {
     pinMode(csn, OUTPUT);
     pinMode(sck, OUTPUT);
@@ -86,25 +100,8 @@ static void bitbangWrite(uint8_t csn, uint8_t sck, uint8_t mosi, uint8_t miso, u
     delayMicroseconds(5);
     uint32_t to = 2000;
     while (digitalRead(miso) && --to) delayMicroseconds(1);
-    
-    // Send addr
-    for (int i = 7; i >= 0; i--) {
-        digitalWrite(mosi, (addr >> i) & 1);
-        delayMicroseconds(5);
-        digitalWrite(sck, HIGH);
-        delayMicroseconds(5);
-        digitalWrite(sck, LOW);
-        delayMicroseconds(5);
-    }
-    // Send val
-    for (int i = 7; i >= 0; i--) {
-        digitalWrite(mosi, (val >> i) & 1);
-        delayMicroseconds(5);
-        digitalWrite(sck, HIGH);
-        delayMicroseconds(5);
-        digitalWrite(sck, LOW);
-        delayMicroseconds(5);
-    }
+    spiByte(sck, mosi, miso, addr);
+    spiByte(sck, mosi, miso, val);
     digitalWrite(csn, HIGH);
     delayMicroseconds(10);
 }
@@ -119,26 +116,8 @@ static uint8_t bitbangRead(uint8_t csn, uint8_t sck, uint8_t mosi, uint8_t miso,
     delayMicroseconds(5);
     uint32_t to = 2000;
     while (digitalRead(miso) && --to) delayMicroseconds(1);
-    
-    uint8_t cmd = addr | 0x80;
-    for (int i = 7; i >= 0; i--) {
-        digitalWrite(mosi, (cmd >> i) & 1);
-        delayMicroseconds(5);
-        digitalWrite(sck, HIGH);
-        delayMicroseconds(5);
-        digitalWrite(sck, LOW);
-        delayMicroseconds(5);
-    }
-    uint8_t val = 0;
-    for (int i = 7; i >= 0; i--) {
-        digitalWrite(mosi, 0);
-        delayMicroseconds(5);
-        digitalWrite(sck, HIGH);
-        delayMicroseconds(5);
-        val = (val << 1) | digitalRead(miso);
-        digitalWrite(sck, LOW);
-        delayMicroseconds(5);
-    }
+    spiByte(sck, mosi, miso, addr | 0x80);
+    uint8_t val = spiByte(sck, mosi, miso, 0x00);
     digitalWrite(csn, HIGH);
     delayMicroseconds(10);
     return val;
@@ -154,17 +133,7 @@ static uint8_t bitbangStrobe(uint8_t csn, uint8_t sck, uint8_t mosi, uint8_t mis
     delayMicroseconds(5);
     uint32_t to = 2000;
     while (digitalRead(miso) && --to) delayMicroseconds(1);
-    
-    uint8_t status = 0;
-    for (int i = 7; i >= 0; i--) {
-        digitalWrite(mosi, (strobe >> i) & 1);
-        delayMicroseconds(5);
-        digitalWrite(sck, HIGH);
-        delayMicroseconds(5);
-        status = (status << 1) | digitalRead(miso);
-        digitalWrite(sck, LOW);
-        delayMicroseconds(5);
-    }
+    uint8_t status = spiByte(sck, mosi, miso, strobe);
     digitalWrite(csn, HIGH);
     delayMicroseconds(10);
     return status;
@@ -180,29 +149,47 @@ static uint8_t bitbangReadStatus(uint8_t csn, uint8_t sck, uint8_t mosi, uint8_t
     delayMicroseconds(5);
     uint32_t to = 2000;
     while (digitalRead(miso) && --to) delayMicroseconds(1);
-    
-    uint8_t cmd = addr | 0xC0;
-    for (int i = 7; i >= 0; i--) {
-        digitalWrite(mosi, (cmd >> i) & 1);
-        delayMicroseconds(5);
-        digitalWrite(sck, HIGH);
-        delayMicroseconds(5);
-        digitalWrite(sck, LOW);
-        delayMicroseconds(5);
-    }
-    uint8_t val = 0;
-    for (int i = 7; i >= 0; i--) {
-        digitalWrite(mosi, 0);
-        delayMicroseconds(5);
-        digitalWrite(sck, HIGH);
-        delayMicroseconds(5);
-        val = (val << 1) | digitalRead(miso);
-        digitalWrite(sck, LOW);
-        delayMicroseconds(5);
-    }
+    spiByte(sck, mosi, miso, addr | 0xC0);
+    uint8_t val = spiByte(sck, mosi, miso, 0x00);
     digitalWrite(csn, HIGH);
     delayMicroseconds(10);
     return val;
+}
+
+// Пакетний запис у CC1101: старший біт 0 (запис), біт 0x40 = burst.
+static void bitbangWriteBurst(uint8_t csn, uint8_t sck, uint8_t mosi, uint8_t miso,
+                              uint8_t addr, const uint8_t* data, uint8_t len) {
+    pinMode(csn, OUTPUT);
+    pinMode(sck, OUTPUT);
+    pinMode(mosi, OUTPUT);
+    pinMode(miso, INPUT_PULLUP);
+    digitalWrite(sck, LOW);
+    digitalWrite(csn, LOW);
+    delayMicroseconds(5);
+    uint32_t to = 2000;
+    while (digitalRead(miso) && --to) delayMicroseconds(1);
+    spiByte(sck, mosi, miso, addr | 0x40);
+    for (uint8_t i = 0; i < len; i++) spiByte(sck, mosi, miso, data[i]);
+    digitalWrite(csn, HIGH);
+    delayMicroseconds(10);
+}
+
+// Пакетне читання: біти 0x80 (читання) і 0x40 (burst).
+static void bitbangReadBurst(uint8_t csn, uint8_t sck, uint8_t mosi, uint8_t miso,
+                             uint8_t addr, uint8_t* out, uint8_t len) {
+    pinMode(csn, OUTPUT);
+    pinMode(sck, OUTPUT);
+    pinMode(mosi, OUTPUT);
+    pinMode(miso, INPUT_PULLUP);
+    digitalWrite(sck, LOW);
+    digitalWrite(csn, LOW);
+    delayMicroseconds(5);
+    uint32_t to = 2000;
+    while (digitalRead(miso) && --to) delayMicroseconds(1);
+    spiByte(sck, mosi, miso, addr | 0xC0);
+    for (uint8_t i = 0; i < len; i++) out[i] = spiByte(sck, mosi, miso, 0x00);
+    digitalWrite(csn, HIGH);
+    delayMicroseconds(10);
 }
 
 static void ccSpiWrite(uint8_t csn, uint8_t miso, uint8_t addr, uint8_t val) {
@@ -304,9 +291,9 @@ void RfSubsystem::resetAndConfigure() {
     bitbangWrite(pin_csn, pin_sck, pin_mosi, pin_miso, 0x18, 0x18); // MCSM0: autocal
     bitbangWrite(pin_csn, pin_sck, pin_mosi, pin_miso, 0x19, 0x1D); // FOCCFG
     bitbangWrite(pin_csn, pin_sck, pin_mosi, pin_miso, 0x1A, 0x1C); // BSCFG
-    bitbangWrite(pin_csn, pin_sck, pin_mosi, pin_miso, 0x1B, 0xC7); // AGCCTRL2: Max LNA gain
-    bitbangWrite(pin_csn, pin_sck, pin_mosi, pin_miso, 0x1C, 0x00); // AGCCTRL1
-    bitbangWrite(pin_csn, pin_sck, pin_mosi, pin_miso, 0x1D, 0xB2); // AGCCTRL0
+    bitbangWrite(pin_csn, pin_sck, pin_mosi, pin_miso, 0x1B, 0x03); // AGCCTRL2: OOK - максимальний динамічний діапазон DVGA
+    bitbangWrite(pin_csn, pin_sck, pin_mosi, pin_miso, 0x1C, 0x00); // AGCCTRL1: OOK - Carrier Sense вимкнено
+    bitbangWrite(pin_csn, pin_sck, pin_mosi, pin_miso, 0x1D, 0x92); // AGCCTRL0: OOK - 4 семпли фільтрації, 8 dB поріг
     bitbangWrite(pin_csn, pin_sck, pin_mosi, pin_miso, 0x21, 0xB6); // FREND1
     bitbangWrite(pin_csn, pin_sck, pin_mosi, pin_miso, 0x22, 0x11); // FREND0: PA power index 1 (ASK)
     bitbangWrite(pin_csn, pin_sck, pin_mosi, pin_miso, 0x23, 0xEA); // FSCAL3
@@ -318,9 +305,16 @@ void RfSubsystem::resetAndConfigure() {
     bitbangWrite(pin_csn, pin_sck, pin_mosi, pin_miso, 0x2D, 0x35); // TEST1
     bitbangWrite(pin_csn, pin_sck, pin_mosi, pin_miso, 0x2E, 0x09); // TEST0
 
-    // PA Table: +10 dBm
-    bitbangWrite(pin_csn, pin_sck, pin_mosi, pin_miso, 0x3E, 0xC0);
+    // PA Table: 8 байтів пакетно (burst). [0]=0 (логічний 0, вимкнено), [1]=0xC0 (логічна 1, +10 дБм)
+    const uint8_t paTable[8] = {0x00, 0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+    bitbangWriteBurst(pin_csn, pin_sck, pin_mosi, pin_miso, 0x3E, paTable, 8);
     delay(5);
+
+    uint8_t paCheck[8] = {0};
+    bitbangReadBurst(pin_csn, pin_sck, pin_mosi, pin_miso, 0x3E, paCheck, 8);
+    if (memcmp(paTable, paCheck, 8) != 0) {
+        Serial.println("[CC1101] PATABLE не записався");
+    }
 
     // Калібрування
     bitbangStrobe(pin_csn, pin_sck, pin_mosi, pin_miso, 0x33); // SCAL
@@ -359,8 +353,9 @@ void RfSubsystem::disableReceive() {
     mySwitch.disableReceive();
 }
 
-void RfSubsystem::transmitCode(unsigned long code, unsigned int repeats) {
-    if (!cc1101Available) return;
+RfTxResult RfSubsystem::transmitCode(unsigned long code, unsigned int repeats) {
+    RfTxResult res;
+    if (!cc1101Available) return res;
     disableReceive();
 
     bitbangWrite(pin_csn, pin_sck, pin_mosi, pin_miso, 0x02, 0x2E); // GDO0 = High-Z Input
@@ -372,15 +367,37 @@ void RfSubsystem::transmitCode(unsigned long code, unsigned int repeats) {
     bitbangStrobe(pin_csn, pin_sck, pin_mosi, pin_miso, 0x35); // STX
     delayMicroseconds(800);
 
-    mySwitch.enableTransmit(pin_gdo0);
-    mySwitch.setPulseLength(RF_PULSE_LENGTH);
-    mySwitch.setRepeatTransmit(repeats);
-    mySwitch.send(code, 24);
-    mySwitch.disableTransmit();
+    // R4.1: перевірка MARCSTATE після STX: 0x13 = TX
+    uint8_t marc_tx = bitbangReadStatus(pin_csn, pin_sck, pin_mosi, pin_miso, 0x35) & 0x1F;
+    res.tx_state = marc_tx;
+    res.tx_ok = (marc_tx == 0x13);
+
+    if (res.tx_ok) {
+        mySwitch.enableTransmit(pin_gdo0);
+        mySwitch.setPulseLength(RF_PULSE_LENGTH);
+        mySwitch.setRepeatTransmit(repeats);
+        mySwitch.send(code, 24);
+        mySwitch.disableTransmit();
+    } else {
+        Serial.printf("[RF433] Помилка TX: MARCSTATE=0x%02X замість 0x13\n", marc_tx);
+    }
 
     enableReceive();
 
-    Serial.printf("[RF433] Сигнал 0x%lX (%lu) надіслано в ефір (повторів=%u)\n", code, code, repeats);
+    // R4.2: перевірка повернення в RX (0x0D) протягом 100 мс
+    unsigned long start_chk = millis();
+    while (millis() - start_chk <= 100) {
+        uint8_t marc_rx = bitbangReadStatus(pin_csn, pin_sck, pin_mosi, pin_miso, 0x35) & 0x1F;
+        if (marc_rx == 0x0D) {
+            res.rx_restored = true;
+            break;
+        }
+        delayMicroseconds(500);
+    }
+
+    Serial.printf("[RF433] Сигнал 0x%lX (%lu) надіслано в ефір (повторів=%u, tx_ok=%s, tx_state=0x%02X, rx_restored=%s)\n",
+                  code, code, repeats, res.tx_ok ? "true" : "false", res.tx_state, res.rx_restored ? "true" : "false");
+    return res;
 }
 
 void RfSubsystem::transmitLight(bool state) {
@@ -456,10 +473,24 @@ String RfSubsystem::getDiagnosticsJson() {
     byte pktctrl0 = bitbangRead(pin_csn, pin_sck, pin_mosi, pin_miso, 0x08);
     byte iocfg0 = bitbangRead(pin_csn, pin_sck, pin_mosi, pin_miso, 0x02);
 
-    char buf[256];
+    uint8_t patableBytes[8] = {0};
+    bitbangReadBurst(pin_csn, pin_sck, pin_mosi, pin_miso, 0x3E, patableBytes, 8);
+    char patableHex[17];
+    snprintf(patableHex, sizeof(patableHex), "%02X%02X%02X%02X%02X%02X%02X%02X",
+             patableBytes[0], patableBytes[1], patableBytes[2], patableBytes[3],
+             patableBytes[4], patableBytes[5], patableBytes[6], patableBytes[7]);
+
+    byte agc2 = bitbangRead(pin_csn, pin_sck, pin_mosi, pin_miso, 0x1B);
+    byte agc1 = bitbangRead(pin_csn, pin_sck, pin_mosi, pin_miso, 0x1C);
+    byte agc0 = bitbangRead(pin_csn, pin_sck, pin_mosi, pin_miso, 0x1D);
+    byte frend0 = bitbangRead(pin_csn, pin_sck, pin_mosi, pin_miso, 0x22);
+    byte mcsm1 = bitbangRead(pin_csn, pin_sck, pin_mosi, pin_miso, 0x17);
+
+    char buf[384];
     snprintf(buf, sizeof(buf),
-             "{\"diag\":\"spi_active\",\"ver\":\"0x%02X\",\"marc\":%d,\"rssi\":%d,\"gdo0\":%d,\"edges\":%lu,\"bb_tw\":%d,\"f\":[%d,%d,%d],\"m2\":%d,\"pk0\":%d,\"io0\":%d,\"csn\":%d,\"mosi\":%d,\"sck\":%d,\"miso\":%d}",
-             ver, marc, rssi, gdo0, edges, (int)bb_tw, freq2, freq1, freq0, mdmcfg2, pktctrl0, iocfg0, pin_csn, pin_mosi, pin_sck, pin_miso);
+             "{\"diag\":\"spi_active\",\"ver\":\"0x%02X\",\"marc\":%d,\"rssi\":%d,\"gdo0\":%d,\"edges\":%lu,\"bb_tw\":%d,\"f\":[%d,%d,%d],\"m2\":%d,\"pk0\":%d,\"io0\":%d,\"csn\":%d,\"mosi\":%d,\"sck\":%d,\"miso\":%d,\"patable\":\"%s\",\"agc2\":%d,\"agc1\":%d,\"agc0\":%d,\"frend0\":%d,\"mcsm1\":%d}",
+             ver, marc, rssi, gdo0, edges, (int)bb_tw, freq2, freq1, freq0, mdmcfg2, pktctrl0, iocfg0, pin_csn, pin_mosi, pin_sck, pin_miso,
+             patableHex, agc2, agc1, agc0, frend0, mcsm1);
     return String(buf);
 }
 
@@ -568,4 +599,12 @@ void RfSubsystem::update() {
             gateCtrl.setLedColor(0, 160, 255);
         }
     }
+}
+
+void RfSubsystem::writeRegister(uint8_t addr, uint8_t val) {
+    bitbangWrite(pin_csn, pin_sck, pin_mosi, pin_miso, addr, val);
+}
+
+uint8_t RfSubsystem::readRegister(uint8_t addr) {
+    return bitbangRead(pin_csn, pin_sck, pin_mosi, pin_miso, addr);
 }

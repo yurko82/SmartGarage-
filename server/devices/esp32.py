@@ -91,6 +91,8 @@ class ESP32Controller:
         self._mqtt_thread = None
         self.last_ble_scan_results = None
         self.last_ping_ms: float | None = None
+        self._rf_tx_event = threading.Event()
+        self.last_rf_tx_result = None
 
         # Журнал активності та статистика
         self.activity_logs = deque(maxlen=200)
@@ -439,6 +441,19 @@ class ESP32Controller:
                             self.log_event("rf", "info", "CC1101 SPI Diag", f"VER={data.get('ver')}, MARC={data.get('marc')}, GDO0={data.get('gdo0')}, Edges={data.get('edges')}", data)
                         else:
                             self.state["rf_status"] = data
+                elif "rf_sent" in data or "tx_ok" in data:
+                    with self._lock:
+                        self._serial_handshake_verified = True
+                        self.last_rf_tx_result = {
+                            "tx_ok": bool(data.get("tx_ok", data.get("status") == "ok")),
+                            "tx_state": data.get("tx_state"),
+                            "rx_restored": bool(data.get("rx_restored", True)),
+                            "rf_sent": data.get("rf_sent"),
+                            "status": data.get("status", "ok"),
+                            "time": time.time(),
+                        }
+                    if hasattr(self, "_rf_tx_event"):
+                        self._rf_tx_event.set()
                 else:
                     with self._lock:
                         self._serial_handshake_verified = True
@@ -901,16 +916,68 @@ class ESP32Controller:
         bits: int = 24,
         delay: int = 320
     ) -> bool:
-        """Трансляція 433 МГц радіосигналу в ефір через CC1101 із записом у журнал активності."""
+        """Трансляція 433 МГц радіосигналу в ефір через CC1101 із самоперевіркою та записом у журнал активності."""
         with self._lock:
             c_int = int(code)
-            ok = self._send_serial_command(f"CMD:RF_SEND:{c_int}")
             hex_code = hex(c_int).upper().replace("X", "x")
             from server.devices.rf_manager import ZONE_DESCRIPTIONS
             desc = name or (ZONE_DESCRIPTIONS.get(zone) if zone else f"Код {hex_code}")
+
+            if hasattr(self, "_rf_tx_event"):
+                self._rf_tx_event.clear()
+            self.last_rf_tx_result = None
+
+            ok = self._send_serial_command(f"CMD:RF_SEND:{c_int}")
+
+            # Очікування відповіді від ESP32 або емуляція в mock/testing
+            tx_ok = ok
+            tx_state = 0x13 if ok else 0x01
+            rx_restored = ok
+
+            if self.mode == "mock" or os.environ.get("TESTING"):
+                tx_ok = True
+                tx_state = 0x13
+                rx_restored = True
+                self.last_rf_tx_result = {
+                    "tx_ok": True,
+                    "tx_state": 0x13,
+                    "rx_restored": True,
+                    "rf_sent": c_int,
+                    "status": "ok",
+                    "time": time.time(),
+                }
+            elif ok:
+                if hasattr(self, "_rf_tx_event"):
+                    self._rf_tx_event.wait(timeout=1.2)
+                if self.last_rf_tx_result:
+                    tx_ok = bool(self.last_rf_tx_result.get("tx_ok", True))
+                    tx_state = self.last_rf_tx_result.get("tx_state")
+                    rx_restored = bool(self.last_rf_tx_result.get("rx_restored", True))
+                else:
+                    tx_ok = False
+                    tx_state = None
+                    rx_restored = False
+                    self.last_rf_tx_result = {
+                        "tx_ok": False,
+                        "tx_state": None,
+                        "rx_restored": False,
+                        "status": "timeout",
+                        "time": time.time(),
+                    }
+
+            is_success = bool(ok and tx_ok and rx_restored)
+            log_status = "info" if is_success else "error"
             log_title = f"📡 Передача 433 МГц: {desc}"
-            log_msg = f"Код: {c_int} ({hex_code}) | Дія: {action.upper()}"
-            self.log_event("rf", "info", log_title, log_msg, {"code": c_int, "hex": hex_code, "zone": zone, "action": action})
+            log_msg = f"Код: {c_int} ({hex_code}) | Дія: {action.upper()} | TX: {'OK' if tx_ok else 'FAIL'} (state={tx_state}) | RX: {'OK' if rx_restored else 'FAIL'}"
+            self.log_event("rf", log_status, log_title, log_msg, {
+                "code": c_int,
+                "hex": hex_code,
+                "zone": zone,
+                "action": action,
+                "tx_ok": tx_ok,
+                "tx_state": tx_state,
+                "rx_restored": rx_restored
+            })
 
             if hasattr(self, "rf_manager"):
                 self.rf_manager.log_activity(
@@ -919,13 +986,13 @@ class ESP32Controller:
                     action=action,
                     zone=zone,
                     zone_title=desc,
-                    status="success" if ok else "warning",
-                    details=f"Команда {action.upper()} для {desc}",
+                    status="success" if is_success else "error",
+                    details=f"Команда {action.upper()} для {desc} (tx_ok={tx_ok}, state={tx_state}, rx_restored={rx_restored})",
                     protocol=protocol,
                     bits=bits,
                     delay=delay
                 )
-            return ok
+            return is_success
 
     def rf_pair_relay(self, code: int, duration_sec: int = 15, name: str = "") -> bool:
         """Безперервна трансляція коду для запису в нове радіореле під час сполучення."""
@@ -1141,6 +1208,20 @@ class ESP32Controller:
             ver = diag.get("ver")
             chip_desc = "Texas Instruments CC1101 (Rev 0x14)" if ver in ("0x14", 0x14) else f"CC1101 ({ver})"
 
+            patable = diag.get("patable")
+            agc2 = diag.get("agc2")
+            agc1 = diag.get("agc1")
+            agc0 = diag.get("agc0")
+            frend0 = diag.get("frend0")
+            mcsm1 = diag.get("mcsm1")
+
+            agc_formatted = None
+            if agc2 is not None and agc1 is not None and agc0 is not None:
+                try:
+                    agc_formatted = f"{int(agc2):02X}/{int(agc1):02X}/{int(agc0):02X}"
+                except (ValueError, TypeError):
+                    agc_formatted = None
+
             return {
                 "success": True,
                 "available": bool(diag.get("diag") == "spi_active" or spi_verified),
@@ -1159,6 +1240,13 @@ class ESP32Controller:
                 "rssi_dbm": diag.get("rssi", -138),
                 "spi_status": spi_status_text,
                 "chip_version": chip_desc,
+                "patable": patable,
+                "agc2": agc2,
+                "agc1": agc1,
+                "agc0": agc0,
+                "frend0": frend0,
+                "mcsm1": mcsm1,
+                "agc_formatted": agc_formatted,
                 "pins": {
                     "csn": diag.get("csn", 10),
                     "sck": diag.get("sck", 12),

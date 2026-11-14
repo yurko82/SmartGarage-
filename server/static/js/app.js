@@ -2336,6 +2336,19 @@ document.addEventListener('DOMContentLoaded', () => {
             .then(res => res.json())
             .then(data => {
                 if (!data.success) return;
+                if (data.data === 'unavailable' || !data.rf_status || !data.diagnostics) {
+                    if (rfMarcStateText) rfMarcStateText.textContent = 'Немає даних';
+                    if (rfMarcStateBadge) rfMarcStateBadge.style.color = '#94a3b8';
+                    if (rfMarcStateDesc) rfMarcStateDesc.textContent = 'Радіомодуль CC1101 недоступний або не надіслав телеметрію';
+                    if (rfExactFreqText) rfExactFreqText.textContent = 'Немає даних';
+                    if (rfFreqRegsText) rfFreqRegsText.textContent = 'FREQ[2..0]: немає даних';
+                    if (rfModulationText) rfModulationText.textContent = 'Немає даних';
+                    if (rfFilterText) rfFilterText.textContent = 'Немає даних';
+                    if (rfEdgeCountText) rfEdgeCountText.textContent = '--';
+                    if (rfGdoLevelText) rfGdoLevelText.textContent = 'GDO0: немає даних';
+                    if (rfHwSummaryText) rfHwSummaryText.textContent = 'CC1101: немає даних';
+                    return;
+                }
                 const m = data.metrics || {};
                 const rf = data.rf_status || {};
                 const diag = data.diagnostics || {};
@@ -2401,7 +2414,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (rfHwSummaryText) {
                     const spiInfo = diag.spi_status || 'Bit-Bang SPI 500 кГц ✅';
                     const chipInfo = diag.chip_version || 'TI CC1101 (v0x14)';
-                    rfHwSummaryText.textContent = `${chipInfo} • ${spiInfo} • GDO0: GPIO 7`;
+                    const patableStr = diag.patable ? ` • PA: ${diag.patable}` : '';
+                    const agcStr = diag.agc_formatted ? ` • AGC: ${diag.agc_formatted}` : '';
+                    rfHwSummaryText.textContent = `${chipInfo} • ${spiInfo} • GDO0: GPIO 7${patableStr}${agcStr}`;
                 }
 
                 // Статус режиму навчання (RF Learn)

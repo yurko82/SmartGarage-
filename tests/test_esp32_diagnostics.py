@@ -148,6 +148,88 @@ class TestESP32Diagnostics(unittest.TestCase):
         self.assertIn("frequency_mhz", data["diagnostics"])
         self.assertIn("marc_state_name", data["diagnostics"])
 
+    def test_get_rf_diagnostics_with_patable_and_agc(self):
+        self.controller.state["rf_diag"] = {
+            "diag": "spi_active",
+            "ver": "0x14",
+            "marc": 13,
+            "rssi": -138,
+            "gdo0": 0,
+            "edges": 42,
+            "bb_tw": 66,
+            "f": [16, 176, 113],
+            "m2": 48,
+            "pk0": 50,
+            "io0": 13,
+            "csn": 10,
+            "mosi": 11,
+            "sck": 12,
+            "miso": 13,
+            "patable": "00C0000000000000",
+            "agc2": 3,
+            "agc1": 0,
+            "agc0": 146,
+            "frend0": 17,
+            "mcsm1": 63
+        }
+        rf_diag = self.controller.get_rf_diagnostics()
+        self.assertTrue(rf_diag["success"])
+        self.assertEqual(rf_diag["patable"], "00C0000000000000")
+        self.assertEqual(rf_diag["agc2"], 3)
+        self.assertEqual(rf_diag["agc1"], 0)
+        self.assertEqual(rf_diag["agc0"], 146)
+        self.assertEqual(rf_diag["agc_formatted"], "03/00/92")
+        self.assertEqual(rf_diag["frend0"], 17)
+        self.assertEqual(rf_diag["mcsm1"], 63)
+
+    def test_get_rf_diagnostics_missing_optional_fields_does_not_break(self):
+        self.controller.state["rf_diag"] = {
+            "diag": "spi_active",
+            "ver": "0x14",
+            "marc": 1,
+            "bb_tw": 66
+        }
+        rf_diag = self.controller.get_rf_diagnostics()
+        self.assertTrue(rf_diag["success"])
+        self.assertIsNone(rf_diag["patable"])
+        self.assertIsNone(rf_diag["agc2"])
+        self.assertIsNone(rf_diag["agc_formatted"])
+
+    def test_rf_transmit_self_check_fields(self):
+        ok = self.controller.rf_transmit(15835393, zone="basement_light", action="on")
+        self.assertTrue(ok)
+        self.assertIsNotNone(self.controller.last_rf_tx_result)
+        self.assertTrue(self.controller.last_rf_tx_result["tx_ok"])
+        self.assertEqual(self.controller.last_rf_tx_result["tx_state"], 0x13)
+        self.assertTrue(self.controller.last_rf_tx_result["rx_restored"])
+
+        client = app.test_client()
+        with client.session_transaction() as sess:
+            sess["authenticated"] = True
+        res = client.post("/api/rf/transmit", json={"code": 15835393, "zone": "basement_light", "action": "on"})
+        self.assertEqual(res.status_code, 200)
+        data = res.get_json()
+        self.assertTrue(data["success"])
+        self.assertTrue(data["tx_ok"])
+        self.assertEqual(data["tx_state"], 0x13)
+        self.assertTrue(data["rx_restored"])
+
+    def test_rf_status_no_fake_data(self):
+        # Ensure when no hardware response is cached, no synthetic dict is returned
+        client = app.test_client()
+        with client.session_transaction() as sess:
+            sess["authenticated"] = True
+        res = client.get("/api/rf/status")
+        self.assertEqual(res.status_code, 200)
+        data = res.get_json()
+        self.assertTrue(data["success"])
+        # Should not have fake cc1101 rssi -85
+        if data.get("rf_status"):
+            self.assertNotEqual(data["rf_status"].get("rssi"), -85)
+        else:
+            self.assertIsNone(data["rf_status"])
+            self.assertEqual(data.get("data"), "unavailable")
+
 
 if __name__ == "__main__":
     unittest.main()

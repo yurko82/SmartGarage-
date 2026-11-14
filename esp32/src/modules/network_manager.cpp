@@ -309,8 +309,35 @@ void NetworkManager::processSerialCommand(String cmd) {
         int colIdx = cmd.lastIndexOf(':');
         if (colIdx != -1 && colIdx < cmd.length() - 1) {
             unsigned long code = strtoul(cmd.substring(colIdx + 1).c_str(), NULL, 0);
-            rfSubsystem.transmitCode(code, 10);
-            Serial.printf("RESP:{\"status\":\"ok\",\"rf_sent\":%lu,\"hex\":\"0x%lX\"}\n", code, code);
+            RfTxResult res = rfSubsystem.transmitCode(code, 10);
+            Serial.printf("RESP:{\"status\":\"%s\",\"rf_sent\":%lu,\"hex\":\"0x%lX\",\"tx_ok\":%s,\"tx_state\":%d,\"rx_restored\":%s}\n",
+                          res.tx_ok ? "ok" : "error",
+                          code, code,
+                          res.tx_ok ? "true" : "false",
+                          res.tx_state,
+                          res.rx_restored ? "true" : "false");
+        }
+    } else if (cmd.startsWith("RF_REG:") || cmd.startsWith("CMD:RF_REG:")) {
+        int prefixLen = cmd.startsWith("CMD:") ? 11 : 7;
+        String args = cmd.substring(prefixLen);
+        args.trim();
+        int sep = args.indexOf(':');
+        if (sep != -1) {
+            uint8_t addr = (uint8_t)strtoul(args.substring(0, sep).c_str(), NULL, 16);
+            uint8_t val  = (uint8_t)strtoul(args.substring(sep + 1).c_str(), NULL, 16);
+            const uint8_t allowed[] = {0x10, 0x11, 0x12, 0x1B, 0x1C, 0x1D, 0x21, 0x22};
+            bool isAllowed = false;
+            for (uint8_t a : allowed) {
+                if (a == addr) { isAllowed = true; break; }
+            }
+            if (isAllowed) {
+                rfSubsystem.writeRegister(addr, val);
+                uint8_t readBack = rfSubsystem.readRegister(addr);
+                Serial.printf("RESP:{\"status\":\"ok\",\"reg\":\"0x%02X\",\"val\":\"0x%02X\",\"readback\":\"0x%02X\"}\n",
+                              addr, val, readBack);
+            } else {
+                Serial.printf("RESP:{\"status\":\"error\",\"error\":\"address_not_allowed\",\"reg\":\"0x%02X\"}\n", addr);
+            }
         }
     } else if (cmd.startsWith("RF_PAIR:") || cmd.startsWith("CMD:RF_PAIR:")) {
         int prefixLen = cmd.startsWith("CMD:") ? 12 : 8;

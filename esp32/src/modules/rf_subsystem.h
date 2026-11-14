@@ -5,6 +5,12 @@
 #include <RCSwitch.h>
 #include "config.h"
 
+struct RfTxResult {
+    bool tx_ok = false;
+    uint8_t tx_state = 0;
+    bool rx_restored = false;
+};
+
 class RfSubsystem {
 public:
     void init();
@@ -13,7 +19,7 @@ public:
     void enableReceive();
     void disableReceive();
     
-    void transmitCode(unsigned long code, unsigned int repeats = 10);
+    RfTxResult transmitCode(unsigned long code, unsigned int repeats = 10);
     void transmitLight(bool state);
     void setCarrier(bool enable);
     
@@ -29,6 +35,9 @@ public:
     String getDiagnosticsJson();
     bool isAvailable() const { return cc1101Available; }
     void resetAndConfigure();
+
+    void writeRegister(uint8_t addr, uint8_t val);
+    uint8_t readRegister(uint8_t addr);
 
 private:
     bool autoDetectPins();

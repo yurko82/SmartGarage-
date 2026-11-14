@@ -666,16 +666,20 @@ def rf_status_get():
         activity = garage.esp32.get_rf_activity(limit=25)
         learn_status = garage.esp32.rf_learn_status()
         diagnostics = garage.esp32.get_rf_diagnostics()
-        raw_rf = diagnostics.get("raw") or garage.esp32.state.get("rf_status") or {"cc1101": True, "freq": 433.92, "rssi": -85}
+        raw_rf = diagnostics.get("raw") or garage.esp32.state.get("rf_status")
+        if not raw_rf or not diagnostics.get("available"):
+            raw_rf = None
+        has_data = bool(raw_rf and diagnostics.get("available"))
         return jsonify({
             "success": True,
+            "data": "available" if has_data else "unavailable",
             "metrics": metrics,
             "activity": activity,
             "learning": learn_status,
             "rf_status": raw_rf,
             "diagnostics": diagnostics,
         })
-    return jsonify({"success": False, "error": "ESP32 не ініціалізовано"}), 500
+    return jsonify({"success": False, "data": "unavailable", "error": "ESP32 не ініціалізовано"}), 500
 
 
 @app.route("/api/rf/activity", methods=["GET"])
@@ -801,7 +805,19 @@ def rf_transmit_route():
             bits=int(data.get("bits", 24)),
             delay=int(data.get("delay", 320))
         )
-        return jsonify({"success": ok, "code": code_int, "zone": zone, "action": action})
+        tx_info = getattr(garage.esp32, "last_rf_tx_result", {}) or {}
+        tx_ok = bool(tx_info.get("tx_ok", ok))
+        tx_state = tx_info.get("tx_state")
+        rx_restored = bool(tx_info.get("rx_restored", ok))
+        return jsonify({
+            "success": ok,
+            "code": code_int,
+            "zone": zone,
+            "action": action,
+            "tx_ok": tx_ok,
+            "tx_state": tx_state,
+            "rx_restored": rx_restored,
+        })
     return jsonify({"success": False, "error": "ESP32 не ініціалізовано"}), 500
 
 
