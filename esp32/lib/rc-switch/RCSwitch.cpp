@@ -682,8 +682,8 @@ void RECEIVE_ATTR RCSwitch::handleInterrupt() {
   const unsigned long time = micros();
   const unsigned int duration = time - lastTime;
 
-  // Ігноруємо шум ефіру CC1101 (< 140 мкс). Жоден пульт 433 МГц (EV1527, PT2262 тощо) не має імпульсів < 180 мкс.
-  if (duration < 140) {
+  // Ігноруємо шум ефіру CC1101 (< 200 мкс). Жоден пульт 433 МГц (EV1527, PT2262 тощо) не має імпульсів < 250 мкс.
+  if (duration < 200) {
     return;
   }
   lastTime = time;

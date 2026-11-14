@@ -390,8 +390,8 @@ class ESP32Controller:
                     longer = max(t1, t2)
                     shorter = min(t1, t2)
 
-                    # Допуски для 433 МГц OOK
-                    if shorter < 60 or shorter > 1300 or longer < 180 or longer > 3800:
+                    # Допуски для 433 МГц OOK (EV1527, PT2262 тощо)
+                    if shorter < 180 or shorter > 1300 or longer < 400 or longer > 3800:
                         valid = False
                         break
                     if longer * 10 < shorter * 13:
@@ -612,21 +612,9 @@ class ESP32Controller:
                     elif not res.get("deduplicated"):
                         self.log_event("rf", "info", "📡 Перехоплено 433 МГц радіосигнал", log_msg, rf_info)
                 elif "[RF_RX_RAW]" in line or "[RF_RAW_DATA]" in line:
-                    self.log_event("rf", "info", "📡 Сигнал 433 МГц виявлено (невідомий протокол)", line)
+                    self.log_event("rf", "info", "📡 Сигнал 433 МГц виявлено (нерозпізнаний)", line)
                     logger.info("📡 [RF_RAW] %s", line)
-                    if hasattr(self, "rf_manager") and self.rf_manager.is_learning():
-                        now = time.time()
-                        last_raw = getattr(self, "_last_raw_log_time", 0.0)
-                        if now - last_raw >= 1.5:
-                            self._last_raw_log_time = now
-                            self.rf_manager.log_activity(
-                                direction="RX",
-                                code=0,
-                                action="raw",
-                                zone_title="Нерозпізнаний сигнал",
-                                status="warning",
-                                details=line[:120]
-                            )
+                    # НЕ додаємо фіктивні записи з кодом 0x00 у таблицю активності
                 else:
                     self.log_event("rf", "info", "ESP32 RF_RX", line)
             except Exception as e:
@@ -634,15 +622,6 @@ class ESP32Controller:
         elif "[RF_DETECT]" in line:
             self.log_event("rf", "info", "📡 Сплеск 433 МГц сигналу", line)
             logger.info("📡 [RF_DETECT] %s", line)
-            if hasattr(self, "rf_manager"):
-                self.rf_manager.log_activity(
-                    direction="RX",
-                    code=0,
-                    action="detect",
-                    zone_title="Детекція несучої",
-                    status="info",
-                    details=line
-                )
         elif "[RF_PULSES]" in line:
             self.log_event("rf", "info", "📡 Зафіксовано радіоімпульси 433 МГц", line)
             logger.info("📡 [RF_PULSES] %s", line)

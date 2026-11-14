@@ -293,7 +293,7 @@ void RfSubsystem::resetAndConfigure() {
     bitbangWrite(pin_csn, pin_sck, pin_mosi, pin_miso, 0x1A, 0x1C); // BSCFG
     bitbangWrite(pin_csn, pin_sck, pin_mosi, pin_miso, 0x1B, 0x03); // AGCCTRL2: OOK - максимальний динамічний діапазон DVGA
     bitbangWrite(pin_csn, pin_sck, pin_mosi, pin_miso, 0x1C, 0x00); // AGCCTRL1: OOK - Carrier Sense вимкнено
-    bitbangWrite(pin_csn, pin_sck, pin_mosi, pin_miso, 0x1D, 0x92); // AGCCTRL0: OOK - 4 семпли фільтрації, 8 dB поріг
+    bitbangWrite(pin_csn, pin_sck, pin_mosi, pin_miso, 0x1D, 0xD2); // AGCCTRL0: OOK - 4 семпли фільтрації, 4 dB hysteresis (Large)
     bitbangWrite(pin_csn, pin_sck, pin_mosi, pin_miso, 0x21, 0xB6); // FREND1
     bitbangWrite(pin_csn, pin_sck, pin_mosi, pin_miso, 0x22, 0x11); // FREND0: PA power index 1 (ASK)
     bitbangWrite(pin_csn, pin_sck, pin_mosi, pin_miso, 0x23, 0xEA); // FSCAL3
@@ -578,9 +578,9 @@ void RfSubsystem::update() {
                     unsigned int shorter = (t1 > t2) ? t2 : t1;
 
                     // Допуски для 433 МГц OOK (EV1527, PT2262 тощо):
-                    // shorter: 60..1200 мкс, longer: 180..3600 мкс
+                    // shorter: 180..1300 мкс, longer: 400..3600 мкс
                     // Співвідношення longer / shorter >= 1.4
-                    if (shorter < 60 || shorter > 1200 || longer < 180 || longer > 3600 || (longer * 10 < shorter * 14)) {
+                    if (shorter < 180 || shorter > 1300 || longer < 400 || longer > 3600 || (longer * 10 < shorter * 14)) {
                         valid = false;
                         break;
                     }
@@ -625,7 +625,7 @@ void RfSubsystem::update() {
             unsigned long totalSample = 0;
             unsigned int sampleN = (count < 20) ? count : 20;
             for (unsigned int k = 1; k < sampleN; k++) totalSample += g_rf_raw_capture.timings[k];
-            if (sampleN > 1 && (totalSample / (sampleN - 1)) >= 160) {
+            if (sampleN > 1 && (totalSample / (sampleN - 1)) >= 240) {
                 Serial.printf("[RF_RAW_DATA] count=%u sync=%u timings=[", count, sync);
                 unsigned int printLimit = (count < 64) ? count : 64;
                 for (unsigned int i = 0; i < printLimit; i++) {
