@@ -366,6 +366,62 @@ class ESP32Controller:
                     return False
             return False
 
+    @staticmethod
+    def _decode_raw_rf_timings(timings: list[int], sync_us: int = 0) -> dict[str, Any] | None:
+        """
+        Адаптивний декодер сирих імпульсів 433 МГц (EV1527, PT2262, PWM).
+        Перевіряє зміщення (offset 1, 2, 0) та полярність бітів.
+        """
+        if not timings or len(timings) < 16:
+            return None
+
+        best_result = None
+
+        for offset in (1, 2, 0):
+            for invert in (False, True):
+                code = 0
+                bits = 0
+                shorters = []
+                valid = True
+
+                for i in range(offset, len(timings) - 1, 2):
+                    t1 = timings[i]
+                    t2 = timings[i + 1]
+                    longer = max(t1, t2)
+                    shorter = min(t1, t2)
+
+                    # Допуски для 433 МГц OOK
+                    if shorter < 60 or shorter > 1300 or longer < 180 or longer > 3800:
+                        valid = False
+                        break
+                    if longer * 10 < shorter * 13:
+                        valid = False
+                        break
+
+                    bit_val = 1 if (t1 > t2 if not invert else t1 < t2) else 0
+                    code = (code << 1) | bit_val
+                    bits += 1
+                    shorters.append(shorter)
+                    if bits >= 32:
+                        break
+
+                if bits >= 12 and (valid or bits >= 20):
+                    avg_delay = int(sum(shorters) / len(shorters)) if shorters else 320
+                    result = {
+                        "code": code,
+                        "hex": hex(code).upper().replace("X", "x"),
+                        "bits": bits,
+                        "delay": avg_delay,
+                        "protocol": 1,
+                        "valid": valid
+                    }
+                    if valid and bits in (24, 20, 32):
+                        return result
+                    if best_result is None or bits > best_result["bits"]:
+                        best_result = result
+
+        return best_result
+
     def _parse_serial_line(self, line: str):
         # 1. Handshake verification response
         if "PONG" in line or "pong" in line or "[SmartGarage]" in line or "[CC1101]" in line or "esp32_smartgarage" in line:
@@ -377,7 +433,7 @@ class ESP32Controller:
             self.log_event("connection", "success", "Підключено та верифіковано через USB Serial", f"Порт: {self.serial_port_name}")
             return
 
-        if line.startswith("[BLE]") or line.startswith("[AHT10]") or line.startswith("[RF_RX]") or line.startswith("[RF_PULSES]") or line.startswith("[RF_DETECT]"):
+        if line.startswith("[BLE]") or line.startswith("[AHT10]") or "[RF_" in line:
             with self._lock:
                 self.state["last_seen"] = time.time()
                 if getattr(self, "_serial_handshake_verified", False):
@@ -462,9 +518,10 @@ class ESP32Controller:
                     self.update_from_webhook(data, transport="serial")
             except Exception:
                 pass
-        elif "[RF_RX]" in line or "[RF_RX_ADAPTIVE]" in line or "[RF_LEARN]" in line:
+        elif "[RF_RX]" in line or "[RF_RX_ADAPTIVE]" in line or "[RF_LEARN]" in line or "[RF_RX_RAW]" in line or "[RF_RAW_DATA]" in line:
             # Приклад: [RF_RX] Код: 15835393 (0xF1A101) | Біти: 24 | Протокол: 1 | Затримка: 320
             # Або: [RF_LEARN] {"code":15835393,"hex":"0xF1A101","bits":24,"proto":1,"delay":320}
+            # Або: [RF_RAW_DATA] count=55 sync=9800 timings=[...]
             try:
                 import re
                 code_val = None
@@ -503,6 +560,32 @@ class ESP32Controller:
                         sync_m = re.search(r"Синхропауза:\s*(\d+)", line)
                         sync_val = int(sync_m.group(1)) if sync_m else None
                         mode = "adaptive" if "[RF_RX_ADAPTIVE]" in line else "standard"
+                    else:
+                        m_raw = re.search(r"Розпізнано:\s*(0x[0-9a-fA-F]+)\s*\((\d+)\)\s*\|\s*Біти:\s*(\d+)", line)
+                        if m_raw:
+                            hex_val = m_raw.group(1)
+                            code_val = int(m_raw.group(2))
+                            bits_val = int(m_raw.group(3))
+                            sync_m = re.search(r"Sync:\s*(\d+)", line)
+                            sync_val = int(sync_m.group(1)) if sync_m else None
+                            mode = "raw_adaptive"
+
+                if code_val is None and "[RF_RAW_DATA]" in line:
+                    m_timings = re.search(r"timings=\[([0-9,\s]+)\]", line)
+                    if m_timings:
+                        raw_str = m_timings.group(1).strip()
+                        if raw_str:
+                            timings = [int(x.strip()) for x in raw_str.split(",") if x.strip().isdigit()]
+                            m_sync = re.search(r"sync=(\d+)", line)
+                            sync_val = int(m_sync.group(1)) if m_sync else 0
+                            decoded = self._decode_raw_rf_timings(timings, sync_val)
+                            if decoded:
+                                code_val = decoded["code"]
+                                hex_val = decoded["hex"]
+                                bits_val = decoded["bits"]
+                                delay_val = decoded["delay"]
+                                proto_val = decoded.get("protocol", 1)
+                                mode = "raw_python"
 
                 if code_val is not None:
                     rf_info = {
@@ -528,6 +611,18 @@ class ESP32Controller:
                         self.log_event("rf", "info", "📡 Захоплено сигнал у режимі навчання", log_msg, rf_info)
                     elif not res.get("deduplicated"):
                         self.log_event("rf", "info", "📡 Перехоплено 433 МГц радіосигнал", log_msg, rf_info)
+                elif "[RF_RX_RAW]" in line or "[RF_RAW_DATA]" in line:
+                    self.log_event("rf", "warning", "📡 Сигнал 433 МГц виявлено (невідомий протокол)", line)
+                    logger.info("📡 [RF_RAW] %s", line)
+                    if hasattr(self, "rf_manager"):
+                        self.rf_manager.log_activity(
+                            direction="RX",
+                            code=0,
+                            action="raw",
+                            zone_title="Невідомий пакет",
+                            status="warning",
+                            details=line
+                        )
                 else:
                     self.log_event("rf", "info", "ESP32 RF_RX", line)
             except Exception as e:
@@ -547,18 +642,6 @@ class ESP32Controller:
         elif "[RF_PULSES]" in line:
             self.log_event("rf", "info", "📡 Зафіксовано радіоімпульси 433 МГц", line)
             logger.info("📡 [RF_PULSES] %s", line)
-        elif "[RF_RX_RAW]" in line or "[RF_RAW_DATA]" in line:
-            self.log_event("rf", "warning", "📡 Сигнал 433 МГц виявлено (невідомий протокол)", line)
-            logger.info("📡 [RF_RAW] %s", line)
-            if hasattr(self, "rf_manager"):
-                self.rf_manager.log_activity(
-                    direction="RX",
-                    code=0,
-                    action="raw",
-                    zone_title="Невідомий пакет",
-                    status="warning",
-                    details=line
-                )
         else:
             if line:
                 # Arbitrary serial line does NOT verify port or make online

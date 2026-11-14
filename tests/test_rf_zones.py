@@ -393,5 +393,58 @@ class TestZonedCommandsAndTools(unittest.TestCase):
         self.mock_esp32.control_zone.assert_called_with("floor2_living_room", "on")
 
 
+class TestRfRawDecoding(unittest.TestCase):
+    def setUp(self):
+        from server.devices.esp32 import ESP32Controller
+        self.controller = ESP32Controller(mode="mock")
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.config_path = Path(self.temp_dir.name) / "test_rf_mappings.json"
+        self.controller.rf_manager = RfManager(config_path=self.config_path)
+
+    def tearDown(self):
+        self.controller.close()
+        self.temp_dir.cleanup()
+
+    def test_decode_raw_rf_timings_ev1527(self):
+        """Verify that _decode_raw_rf_timings properly decodes synthetic PWM/EV1527 pulses."""
+        # 24-bit code: 0b101010101010101010101010 = 0xAAAAAA = 11184810
+        # 1 = (1050, 350), 0 = (350, 1050)
+        timings = [10000]  # Sync pause at index 0
+        for i in range(24):
+            bit = 1 if (i % 2 == 0) else 0
+            if bit == 1:
+                timings.extend([1050, 350])
+            else:
+                timings.extend([350, 1050])
+
+        decoded = self.controller._decode_raw_rf_timings(timings, sync_us=10000)
+        self.assertIsNotNone(decoded)
+        self.assertEqual(decoded["bits"], 24)
+        self.assertEqual(decoded["code"], 0xAAAAAA)
+
+    def test_parse_serial_rf_rx_adaptive(self):
+        """Verify that [RF_RX_ADAPTIVE] serial line is properly parsed into rf_manager."""
+        line = "[RF_RX_ADAPTIVE] Код: 12345678 (0xBC614E) | Біти: 24 | Протокол: 1 | Затримка: 330 | Синхропауза: 9800"
+        self.controller._parse_serial_line(line)
+        self.assertEqual(self.controller.state["last_rf_sniffed"]["code"], 12345678)
+        self.assertEqual(self.controller.state["last_rf_sniffed"]["hex"], "0xBC614E")
+
+    def test_parse_serial_rf_rx_raw_recognized(self):
+        """Verify that [RF_RX_RAW] Розпізнано: ... format is matched and parsed."""
+        line = "[RF_RX_RAW] Розпізнано: 0xF1A101 (15835393) | Біти: 24 | Sync: 9800 us"
+        self.controller._parse_serial_line(line)
+        self.assertEqual(self.controller.state["last_rf_sniffed"]["code"], 15835393)
+
+    def test_parse_serial_rf_raw_data_fallback(self):
+        """Verify that [RF_RAW_DATA] timings array is parsed and decoded via Python fallback."""
+        timings = [10000]
+        for _ in range(24):
+            timings.extend([1000, 330])  # all 1s = 0xFFFFFF = 16777215
+        line = f"[RF_RAW_DATA] count={len(timings)} sync=10000 timings={timings}"
+        self.controller._parse_serial_line(line)
+        self.assertEqual(self.controller.state["last_rf_sniffed"]["code"], 0xFFFFFF)
+        self.assertEqual(self.controller.state["last_rf_sniffed"]["mode"], "raw_python")
+
+
 if __name__ == "__main__":
     unittest.main()

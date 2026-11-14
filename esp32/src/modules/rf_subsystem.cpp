@@ -557,36 +557,79 @@ void RfSubsystem::update() {
         unsigned int sync = g_rf_raw_capture.sync;
         unsigned long decodedCode = 0;
         unsigned int decodedBits = 0;
+        unsigned int avgDelay = 320;
         bool decodeSuccess = false;
 
         if (count >= 16) {
-            bool validPattern = true;
-            for (unsigned int i = 1; i + 1 < count; i += 2) {
-                unsigned int t1 = g_rf_raw_capture.timings[i];
-                unsigned int t2 = g_rf_raw_capture.timings[i+1];
-                unsigned int longer = (t1 > t2) ? t1 : t2;
-                unsigned int shorter = (t1 > t2) ? t2 : t1;
-                if (shorter < 80 || shorter > 950 || longer < 300 || longer > 2800 || (longer / shorter < 2)) {
-                    validPattern = false;
-                    break;
+            unsigned int bestBits = 0;
+            unsigned long bestCode = 0;
+            unsigned int bestDelay = 320;
+
+            for (unsigned int offset = 1; offset <= 2; offset++) {
+                unsigned long curCode = 0;
+                unsigned int curBits = 0;
+                unsigned long sumShorter = 0;
+                bool valid = true;
+
+                for (unsigned int i = offset; i + 1 < count; i += 2) {
+                    unsigned int t1 = g_rf_raw_capture.timings[i];
+                    unsigned int t2 = g_rf_raw_capture.timings[i+1];
+                    unsigned int longer = (t1 > t2) ? t1 : t2;
+                    unsigned int shorter = (t1 > t2) ? t2 : t1;
+
+                    // Допуски для 433 МГц OOK (EV1527, PT2262 тощо):
+                    // shorter: 60..1200 мкс, longer: 180..3600 мкс
+                    // Співвідношення longer / shorter >= 1.4
+                    if (shorter < 60 || shorter > 1200 || longer < 180 || longer > 3600 || (longer * 10 < shorter * 14)) {
+                        valid = false;
+                        break;
+                    }
+
+                    bool bitVal = (t1 > t2);
+                    curCode = (curCode << 1) | (bitVal ? 1 : 0);
+                    curBits++;
+                    sumShorter += shorter;
+                    if (curBits >= 32) break;
                 }
-                bool bitVal = (t1 > t2);
-                decodedCode = (decodedCode << 1) | (bitVal ? 1 : 0);
-                decodedBits++;
-                if (decodedBits >= 32) break;
+
+                if (curBits >= 12 && (curBits > bestBits || (valid && curBits >= 24))) {
+                    bestBits = curBits;
+                    bestCode = curCode;
+                    bestDelay = (curBits > 0) ? (sumShorter / curBits) : 320;
+                    if (valid && (curBits == 24 || curBits == 20 || curBits == 32)) {
+                        break;
+                    }
+                }
             }
-            if (validPattern && decodedBits >= 12) {
+
+            if (bestBits >= 12) {
                 decodeSuccess = true;
+                decodedCode = bestCode;
+                decodedBits = bestBits;
+                avgDelay = bestDelay ? bestDelay : 320;
             }
         }
 
         if (decodeSuccess) {
-            Serial.printf("[RF_RX_RAW] Розпізнано: 0x%lX (%lu) | Біти: %u | Sync: %u us\n", decodedCode, decodedCode, decodedBits, sync);
+            Serial.printf("[RF_RX_ADAPTIVE] Код: %lu (0x%lX) | Біти: %u | Протокол: 1 | Затримка: %u | Синхропауза: %u\n",
+                          decodedCode, decodedCode, decodedBits, avgDelay, sync);
+            if (rfLearningActive) {
+                Serial.printf("[RF_LEARN] {\"code\":%lu,\"hex\":\"0x%lX\",\"bits\":%u,\"proto\":1,\"delay\":%u,\"sync\":%u,\"mode\":\"adaptive\"}\n",
+                              decodedCode, decodedCode, decodedBits, avgDelay, sync);
+            }
             gateCtrl.setLedColor(0, 200, 0);
             currentLedState = 2;
             ledResetTime = now + 1500;
-        } else if (rfLearningActive && count >= 16) {
-            Serial.printf("[RF_RX_RAW] Спіймано імпульси в режимі навчання (%u імпульсів, sync=%u us)\n", count, sync);
+        } else {
+            Serial.printf("[RF_RAW_DATA] count=%u sync=%u timings=[", count, sync);
+            unsigned int printLimit = (count < 64) ? count : 64;
+            for (unsigned int i = 0; i < printLimit; i++) {
+                Serial.printf("%u%s", g_rf_raw_capture.timings[i], (i + 1 < printLimit) ? "," : "");
+            }
+            Serial.println("]");
+            if (rfLearningActive && count >= 16) {
+                Serial.printf("[RF_RX_RAW] Спіймано імпульси в режимі навчання (%u імпульсів, sync=%u us)\n", count, sync);
+            }
         }
         g_rf_raw_capture.ready = false;
     }
