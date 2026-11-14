@@ -621,9 +621,7 @@ body {
 }
 
 #adminTab {
-    overflow-y: auto;
-    scrollbar-width: thin;
-    scrollbar-color: var(--border-color) transparent;
+    overflow: hidden;
 }
 
 /* Charts Wrapper */
@@ -1345,7 +1343,13 @@ body {
 }
 
 .admin-top-bar {
-    background-color: var(--bg-surface);
+    position: -webkit-sticky;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background-color: rgba(18, 24, 38, 0.96);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
     border: 1px solid var(--border-color);
     border-radius: var(--radius-lg);
     padding: 14px 20px;
@@ -1354,6 +1358,8 @@ body {
     align-items: center;
     flex-wrap: wrap;
     gap: 12px;
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
+    margin-bottom: 20px;
 }
 
 .admin-top-info {

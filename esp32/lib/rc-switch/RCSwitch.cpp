@@ -682,8 +682,9 @@ void RECEIVE_ATTR RCSwitch::handleInterrupt() {
   const unsigned long time = micros();
   const unsigned int duration = time - lastTime;
 
-  // Ігноруємо шум ефіру CC1101 (< 200 мкс). Жоден пульт 433 МГц (EV1527, PT2262 тощо) не має імпульсів < 250 мкс.
-  if (duration < 200) {
+  // Ігноруємо шум ефіру CC1101 (< 95 мкс). Власний шум без несучої становить 50..85 мкс.
+  // Імпульси пультів 433 МГц починаються від ~130..150 мкс.
+  if (duration < 95) {
     return;
   }
   lastTime = time;

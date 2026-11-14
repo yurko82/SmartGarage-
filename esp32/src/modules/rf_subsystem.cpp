@@ -578,9 +578,9 @@ void RfSubsystem::update() {
                     unsigned int shorter = (t1 > t2) ? t2 : t1;
 
                     // Допуски для 433 МГц OOK (EV1527, PT2262 тощо):
-                    // shorter: 180..1300 мкс, longer: 400..3600 мкс
+                    // shorter: 95..1300 мкс, longer: 250..3800 мкс
                     // Співвідношення longer / shorter >= 1.4
-                    if (shorter < 180 || shorter > 1300 || longer < 400 || longer > 3600 || (longer * 10 < shorter * 14)) {
+                    if (shorter < 95 || shorter > 1300 || longer < 250 || longer > 3800 || (longer * 10 < shorter * 14)) {
                         valid = false;
                         break;
                     }
@@ -598,6 +598,54 @@ void RfSubsystem::update() {
                     bestDelay = (curBits > 0) ? (sumShorter / curBits) : 320;
                     if (valid && (curBits == 24 || curBits == 20 || curBits == 32)) {
                         break;
+                    }
+                }
+            }
+
+            // Fallback: адаптивне декодування Manchester (пульти з короткими півтактами 110..220 мкс)
+            if (bestBits < 12 && count >= 16) {
+                unsigned long minPulse = 999999;
+                for (unsigned int i = 1; i < count; i++) {
+                    unsigned int dur = g_rf_raw_capture.timings[i];
+                    if (dur >= 95 && dur < minPulse) {
+                        minPulse = dur;
+                    }
+                }
+                if (minPulse >= 95 && minPulse <= 250) {
+                    unsigned int baseT = minPulse;
+                    for (unsigned int mOffset = 0; mOffset <= 1; mOffset++) {
+                        unsigned long mCode = 0;
+                        unsigned int mBits = 0;
+                        int lastLevel = 1;
+                        uint8_t halfBits[64];
+                        unsigned int hbCount = 0;
+                        for (unsigned int i = 1; i < count && hbCount < 60; i++) {
+                            unsigned int t = g_rf_raw_capture.timings[i];
+                            unsigned int n = (t + (baseT / 2)) / baseT;
+                            if (n < 1) n = 1;
+                            if (n > 3) break;
+                            for (unsigned int k = 0; k < n && hbCount < 60; k++) {
+                                halfBits[hbCount++] = lastLevel;
+                            }
+                            lastLevel = 1 - lastLevel;
+                        }
+                        for (unsigned int i = mOffset; i + 1 < hbCount && mBits < 32; i += 2) {
+                            if (halfBits[i] == 1 && halfBits[i+1] == 0) {
+                                mCode = (mCode << 1) | 1;
+                                mBits++;
+                            } else if (halfBits[i] == 0 && halfBits[i+1] == 1) {
+                                mCode = (mCode << 1) | 0;
+                                mBits++;
+                            } else {
+                                break;
+                            }
+                        }
+                        if (mBits >= 12 && mBits > bestBits) {
+                            bestBits = mBits;
+                            bestCode = mCode;
+                            bestDelay = baseT;
+                            if (mBits >= 24) break;
+                        }
                     }
                 }
             }
@@ -620,19 +668,19 @@ void RfSubsystem::update() {
             gateCtrl.setLedColor(0, 200, 0);
             currentLedState = 2;
             ledResetTime = now + 1500;
-        } else if (rfLearningActive && count >= 16) {
-            // Тільки у режимі навчання виводимо сирі таймінги для аналізу, якщо це не високочастотний шум
+        } else if (count >= 16) {
+            // Перевіряємо, чи це реальний радіосигнал (середня тривалість >= 110 мкс, щоб відсіяти тепловий шум 50..85 мкс)
             unsigned long totalSample = 0;
             unsigned int sampleN = (count < 20) ? count : 20;
             for (unsigned int k = 1; k < sampleN; k++) totalSample += g_rf_raw_capture.timings[k];
-            if (sampleN > 1 && (totalSample / (sampleN - 1)) >= 240) {
+            if (sampleN > 1 && (totalSample / (sampleN - 1)) >= 110) {
                 Serial.printf("[RF_RAW_DATA] count=%u sync=%u timings=[", count, sync);
                 unsigned int printLimit = (count < 64) ? count : 64;
                 for (unsigned int i = 0; i < printLimit; i++) {
                     Serial.printf("%u%s", g_rf_raw_capture.timings[i], (i + 1 < printLimit) ? "," : "");
                 }
                 Serial.println("]");
-                Serial.printf("[RF_RX_RAW] Спіймано імпульси в режимі навчання (%u імпульсів, sync=%u us)\n", count, sync);
+                Serial.printf("[RF_RX_RAW] Спіймано радіоімпульси 433 МГц (%u імпульсів, sync=%u us)\n", count, sync);
             }
         }
         g_rf_raw_capture.ready = false;

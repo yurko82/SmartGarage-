@@ -445,6 +445,17 @@ class TestRfRawDecoding(unittest.TestCase):
         self.assertEqual(self.controller.state["last_rf_sniffed"]["code"], 0xFFFFFF)
         self.assertEqual(self.controller.state["last_rf_sniffed"]["mode"], "raw_python")
 
+    def test_decode_raw_rf_timings_fingerprint_fallback(self):
+        """Verify that unknown/proprietary RF pulse trains get a non-zero deterministic fingerprint code."""
+        # Timings from real captured remote (140-150us base pulses)
+        timings = [5881372, 351, 357, 843, 200, 145, 144, 149, 142, 143, 184, 445, 145, 150, 147, 143, 141, 149, 268, 164, 313, 397, 460, 140, 143]
+        decoded = self.controller._decode_raw_rf_timings(timings, sync_us=5881372)
+        self.assertIsNotNone(decoded)
+        self.assertGreater(decoded["code"], 0)
+        self.assertTrue(decoded["hex"].startswith("0x"))
+        self.assertNotEqual(decoded["hex"], "0x00")
+        self.assertIn(decoded.get("mode"), ("raw_pwm", "raw_manchester", "raw_fingerprint"))
+
     def test_controller_clear_rf_activity(self):
         """Verify that clear_rf_activity clears sniffed state, logs and buffers."""
         self.controller.state["last_rf_sniffed"] = {"code": 12345}

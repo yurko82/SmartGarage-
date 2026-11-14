@@ -1,11 +1,13 @@
 import json
 import logging
 import os
+import re
 import socket
 import threading
 import time
 import urllib.request
 import uuid
+import zlib
 from collections import deque
 from typing import Any, Dict, List, Optional
 
@@ -369,14 +371,14 @@ class ESP32Controller:
     @staticmethod
     def _decode_raw_rf_timings(timings: list[int], sync_us: int = 0) -> dict[str, Any] | None:
         """
-        Адаптивний декодер сирих імпульсів 433 МГц (EV1527, PT2262, PWM).
-        Перевіряє зміщення (offset 1, 2, 0) та полярність бітів.
+        Адаптивний декодер сирих імпульсів 433 МГц (PWM / EV1527, Manchester, RF-хеш).
+        Перевіряє зміщення, полярність бітів та формує стабільний не-нульовий код.
         """
         if not timings or len(timings) < 16:
             return None
 
+        # 1. Спроба декодування PWM (EV1527, PT2262 тощо)
         best_result = None
-
         for offset in (1, 2, 0):
             for invert in (False, True):
                 code = 0
@@ -391,7 +393,7 @@ class ESP32Controller:
                     shorter = min(t1, t2)
 
                     # Допуски для 433 МГц OOK (EV1527, PT2262 тощо)
-                    if shorter < 180 or shorter > 1300 or longer < 400 or longer > 3800:
+                    if shorter < 95 or shorter > 1300 or longer < 250 or longer > 3800:
                         valid = False
                         break
                     if longer * 10 < shorter * 13:
@@ -413,12 +415,70 @@ class ESP32Controller:
                         "bits": bits,
                         "delay": avg_delay,
                         "protocol": 1,
-                        "valid": valid
+                        "valid": valid,
+                        "mode": "raw_pwm"
                     }
                     if valid and bits in (24, 20, 32):
                         return result
                     if best_result is None or bits > best_result["bits"]:
                         best_result = result
+
+        if best_result and best_result.get("valid") and best_result.get("bits", 0) >= 16:
+            return best_result
+
+        # 2. Спроба адаптивного декодування Manchester (пульти з рівними півтактами ~110..220 мкс)
+        pulses = [t for t in timings[1:] if t >= 95]
+        if pulses:
+            base_t = min(pulses)
+            if 95 <= base_t <= 250:
+                for offset in (0, 1):
+                    half_bits = []
+                    lvl = 1
+                    for dur in timings[1:]:
+                        n = max(1, min(3, round(dur / base_t)))
+                        half_bits.extend([lvl] * n)
+                        lvl = 1 - lvl
+                        if len(half_bits) >= 70:
+                            break
+                    code = 0
+                    bits = 0
+                    for i in range(offset, len(half_bits) - 1, 2):
+                        p = (half_bits[i], half_bits[i + 1])
+                        if p == (1, 0):
+                            code = (code << 1) | 1
+                            bits += 1
+                        elif p == (0, 1):
+                            code = (code << 1) | 0
+                            bits += 1
+                        else:
+                            break
+                        if bits >= 32:
+                            break
+                    if bits >= 12:
+                        return {
+                            "code": code,
+                            "hex": hex(code).upper().replace("X", "x"),
+                            "bits": bits,
+                            "delay": base_t,
+                            "protocol": 2,
+                            "valid": True,
+                            "mode": "raw_manchester"
+                        }
+
+        # 3. Fallback: стабільний RF fingerprint пультів невідомих/пропрієтарних протоколів
+        sample_pulses = timings[1:25]
+        if sample_pulses and (sum(sample_pulses) / len(sample_pulses)) >= 105:
+            quantized = bytes([min(255, t // 40) for t in sample_pulses])
+            fp = (zlib.crc32(quantized) & 0xFFFFFF) or 1
+            return {
+                "code": fp,
+                "hex": hex(fp).upper().replace("X", "x"),
+                "bits": len(sample_pulses),
+                "delay": int(sum(sample_pulses) / len(sample_pulses)),
+                "protocol": 99,
+                "valid": True,
+                "mode": "raw_fingerprint"
+            }
 
         return best_result
 
